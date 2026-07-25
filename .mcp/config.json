@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "mcp-server-filesystem",
+      "args": [
+        "/home/administrator/workspace/ai-dev-os"
+      ]
+    }
+  }
+}
