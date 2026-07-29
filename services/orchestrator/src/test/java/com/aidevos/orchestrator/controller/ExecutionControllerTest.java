@@ -1,6 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
 import com.aidevos.orchestrator.execution.ExecutionEngine;
+import com.aidevos.orchestrator.execution.ExecutionRecordManager;
 import com.aidevos.orchestrator.manager.AgentManager;
 import com.aidevos.orchestrator.model.AgentDefinition;
 import com.aidevos.orchestrator.model.TaskDefinition;
@@ -29,7 +30,7 @@ class ExecutionControllerTest {
 		agentDefinition.setName("planner");
 		agentManager.register(agentDefinition);
 
-		ExecutionEngine executionEngine = new ExecutionEngine(agentManager);
+		ExecutionEngine executionEngine = new ExecutionEngine(agentManager, new ExecutionRecordManager());
 		MockMvc mockMvc = standaloneSetup(new ExecutionController(taskManager, executionEngine)).build();
 
 		mockMvc.perform(post("/api/tasks/task-1/execute"))
@@ -41,7 +42,7 @@ class ExecutionControllerTest {
 	@Test
 	void shouldReturnNotFoundForUnknownTask() throws Exception {
 		TaskManager taskManager = new TaskManager();
-		ExecutionEngine executionEngine = new ExecutionEngine(new AgentManager());
+		ExecutionEngine executionEngine = new ExecutionEngine(new AgentManager(), new ExecutionRecordManager());
 		MockMvc mockMvc = standaloneSetup(new ExecutionController(taskManager, executionEngine)).build();
 
 		mockMvc.perform(post("/api/tasks/unknown/execute"))

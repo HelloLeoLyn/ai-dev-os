@@ -2,11 +2,13 @@ package com.aidevos.orchestrator.execution;
 
 import com.aidevos.orchestrator.manager.AgentManager;
 import com.aidevos.orchestrator.model.AgentDefinition;
+import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.model.TaskDefinition;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -18,7 +20,8 @@ class ExecutionEngineTest {
 		AgentDefinition agentDefinition = new AgentDefinition();
 		agentDefinition.setName("planner");
 		agentManager.register(agentDefinition);
-		ExecutionEngine executionEngine = new ExecutionEngine(agentManager);
+		ExecutionRecordManager executionRecordManager = new ExecutionRecordManager();
+		ExecutionEngine executionEngine = new ExecutionEngine(agentManager, executionRecordManager);
 		TaskDefinition taskDefinition = createTask("planner");
 
 		ExecutionResult result = executionEngine.execute(taskDefinition);
@@ -27,11 +30,21 @@ class ExecutionEngineTest {
 		assertEquals("Task executed successfully", result.getMessage());
 		assertEquals("Simulated execution for task task-1: Create an implementation plan", result.getOutput());
 		assertEquals("pending", taskDefinition.getStatus());
+
+		assertEquals(1, executionRecordManager.getAll().size());
+		ExecutionRecord record = executionRecordManager.getAll().get(0);
+		assertNotNull(record.getId());
+		assertEquals("task-1", record.getTaskId());
+		assertEquals("planner", record.getAgentName());
+		assertEquals("SUCCESS", record.getStatus());
+		assertEquals(result.getMessage(), record.getMessage());
+		assertEquals(result.getOutput(), record.getOutput());
 	}
 
 	@Test
 	void shouldFailWhenAgentDoesNotExist() {
-		ExecutionEngine executionEngine = new ExecutionEngine(new AgentManager());
+		ExecutionRecordManager executionRecordManager = new ExecutionRecordManager();
+		ExecutionEngine executionEngine = new ExecutionEngine(new AgentManager(), executionRecordManager);
 		TaskDefinition taskDefinition = createTask("unknown");
 
 		ExecutionResult result = executionEngine.execute(taskDefinition);
@@ -40,6 +53,15 @@ class ExecutionEngineTest {
 		assertEquals("Agent not found: unknown", result.getMessage());
 		assertNull(result.getOutput());
 		assertEquals("pending", taskDefinition.getStatus());
+
+		assertEquals(1, executionRecordManager.getAll().size());
+		ExecutionRecord record = executionRecordManager.getAll().get(0);
+		assertNotNull(record.getId());
+		assertEquals("task-1", record.getTaskId());
+		assertEquals("unknown", record.getAgentName());
+		assertEquals("FAILED", record.getStatus());
+		assertEquals(result.getMessage(), record.getMessage());
+		assertNull(record.getOutput());
 	}
 
 	private TaskDefinition createTask(String agentName) {
