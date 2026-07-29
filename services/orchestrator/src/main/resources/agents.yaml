@@ -1,0 +1,11 @@
+agents:
+  - name: planner
+    type: system
+    description: Plans agent tasks
+    permissionLevel: standard
+    enabled: true
+  - name: executor
+    type: system
+    description: Executes agent tasks
+    permissionLevel: standard
+    enabled: false

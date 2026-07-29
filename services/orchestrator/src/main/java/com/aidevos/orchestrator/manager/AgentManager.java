@@ -1,12 +1,14 @@
 package com.aidevos.orchestrator.manager;
 
 import com.aidevos.orchestrator.model.AgentDefinition;
+import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+@Component
 public class AgentManager {
 
 	private final Map<String, AgentDefinition> agents = new LinkedHashMap<>();
