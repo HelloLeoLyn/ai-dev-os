@@ -1,0 +1,37 @@
+workflow: development
+
+steps:
+  - name: requirement_analysis
+    agent: hermes
+    action:
+      - analyze_requirement
+      - create_plan
+
+  - name: approval
+    type: human_confirmation
+
+  - name: implementation
+    agent: codex
+    action:
+      - modify_code
+      - run_test
+
+  - name: verification
+    agent: tester
+    action:
+      - execute_test
+      - generate_report
+
+  - name: browser_validation
+    agent: openclaw
+    action:
+      - browser_test
+
+  - name: version_control
+    agent: codex
+    action:
+      - git_commit
+
+  - name: completion
+    action:
+      - generate_task_report
