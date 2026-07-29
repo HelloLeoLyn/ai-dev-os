@@ -117,4 +117,18 @@ Agent 接收任务
 
 低风险自动化。
 
-高风险人工控制。
+## 高风险人工控制。
+
+# 6. Codex 执行策略映射
+
+AI Dev OS 不直接依赖单个 Agent 的默认权限模型。
+
+Codex 作为执行 Agent 时：
+
+基础安全层：
+
+```toml
+sandbox = "workspace-write"
+
+approval_policy = "untrusted"
+```
