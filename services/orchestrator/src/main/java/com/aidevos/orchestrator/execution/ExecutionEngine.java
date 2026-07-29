@@ -1,6 +1,7 @@
 package com.aidevos.orchestrator.execution;
 
-import com.aidevos.orchestrator.manager.AgentManager;
+import com.aidevos.orchestrator.executor.AgentExecutor;
+import com.aidevos.orchestrator.executor.ExecutorManager;
 import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.model.TaskDefinition;
 import org.springframework.stereotype.Component;
@@ -10,33 +11,22 @@ import java.util.UUID;
 @Component
 public class ExecutionEngine {
 
-	private final AgentManager agentManager;
+	private final ExecutorManager executorManager;
 	private final ExecutionRecordManager executionRecordManager;
 
-	public ExecutionEngine(AgentManager agentManager, ExecutionRecordManager executionRecordManager) {
-		this.agentManager = agentManager;
+	public ExecutionEngine(ExecutorManager executorManager, ExecutionRecordManager executionRecordManager) {
+		this.executorManager = executorManager;
 		this.executionRecordManager = executionRecordManager;
 	}
 
 	public ExecutionResult execute(TaskDefinition taskDefinition) {
-		ExecutionResult result;
-		if (agentManager.getAgent(taskDefinition.getAgentName()) == null) {
-			result = failedResult(taskDefinition.getAgentName());
-		} else {
-			ExecutionContext context = createContext(taskDefinition);
-			result = successfulResult(context);
-		}
+		AgentExecutor executor = executorManager.getExecutor(taskDefinition.getAgentName());
+		ExecutionResult result = executor == null
+			? failedResult(taskDefinition.getAgentName())
+			: executor.execute(taskDefinition);
 
 		executionRecordManager.save(createRecord(taskDefinition, result));
 		return result;
-	}
-
-	private ExecutionContext createContext(TaskDefinition taskDefinition) {
-		ExecutionContext context = new ExecutionContext();
-		context.setTaskId(taskDefinition.getId());
-		context.setAgentName(taskDefinition.getAgentName());
-		context.setInput(taskDefinition.getDescription());
-		return context;
 	}
 
 	private ExecutionResult failedResult(String agentName) {
@@ -44,14 +34,6 @@ public class ExecutionEngine {
 		result.setSuccess(false);
 		result.setMessage("Agent not found: " + agentName);
 		result.setOutput(null);
-		return result;
-	}
-
-	private ExecutionResult successfulResult(ExecutionContext context) {
-		ExecutionResult result = new ExecutionResult();
-		result.setSuccess(true);
-		result.setMessage("Task executed successfully");
-		result.setOutput("Simulated execution for task " + context.getTaskId() + ": " + context.getInput());
 		return result;
 	}
 

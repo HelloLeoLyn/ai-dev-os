@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.execution;
 
+import com.aidevos.orchestrator.executor.ExecutorManager;
+import com.aidevos.orchestrator.executor.MockAgentExecutor;
 import com.aidevos.orchestrator.manager.AgentManager;
 import com.aidevos.orchestrator.model.AgentDefinition;
 import com.aidevos.orchestrator.model.ExecutionRecord;
@@ -21,7 +23,8 @@ class ExecutionEngineTest {
 		agentDefinition.setName("planner");
 		agentManager.register(agentDefinition);
 		ExecutionRecordManager executionRecordManager = new ExecutionRecordManager();
-		ExecutionEngine executionEngine = new ExecutionEngine(agentManager, executionRecordManager);
+		ExecutionEngine executionEngine = new ExecutionEngine(
+			new ExecutorManager(agentManager, new MockAgentExecutor()), executionRecordManager);
 		TaskDefinition taskDefinition = createTask("planner");
 
 		ExecutionResult result = executionEngine.execute(taskDefinition);
@@ -44,7 +47,8 @@ class ExecutionEngineTest {
 	@Test
 	void shouldFailWhenAgentDoesNotExist() {
 		ExecutionRecordManager executionRecordManager = new ExecutionRecordManager();
-		ExecutionEngine executionEngine = new ExecutionEngine(new AgentManager(), executionRecordManager);
+		ExecutionEngine executionEngine = new ExecutionEngine(
+			new ExecutorManager(new AgentManager(), new MockAgentExecutor()), executionRecordManager);
 		TaskDefinition taskDefinition = createTask("unknown");
 
 		ExecutionResult result = executionEngine.execute(taskDefinition);
