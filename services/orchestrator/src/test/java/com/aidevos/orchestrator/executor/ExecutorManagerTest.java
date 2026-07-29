@@ -14,11 +14,24 @@ class ExecutorManagerTest {
 		AgentManager agentManager = new AgentManager();
 		AgentDefinition agentDefinition = new AgentDefinition();
 		agentDefinition.setName("planner");
+		agentDefinition.setExecutor("mock");
 		agentManager.register(agentDefinition);
 		MockAgentExecutor mockAgentExecutor = new MockAgentExecutor();
 		ExecutorManager executorManager = new ExecutorManager(agentManager, mockAgentExecutor);
 
 		assertSame(mockAgentExecutor, executorManager.getExecutor("planner"));
+	}
+
+	@Test
+	void shouldReturnNullWhenExecutorTypeIsUnknown() {
+		AgentManager agentManager = new AgentManager();
+		AgentDefinition agentDefinition = new AgentDefinition();
+		agentDefinition.setName("planner");
+		agentDefinition.setExecutor("unknown");
+		agentManager.register(agentDefinition);
+		ExecutorManager executorManager = new ExecutorManager(agentManager, new MockAgentExecutor());
+
+		assertNull(executorManager.getExecutor("planner"));
 	}
 
 	@Test

@@ -48,6 +48,7 @@ public class AgentConfigLoader {
 	private AgentDefinition toAgentDefinition(Map<?, ?> agent) {
 		AgentDefinition agentDefinition = new AgentDefinition();
 		agentDefinition.setName((String) agent.get("name"));
+		agentDefinition.setExecutor((String) agent.get("executor"));
 		agentDefinition.setType((String) agent.get("type"));
 		agentDefinition.setDescription((String) agent.get("description"));
 		agentDefinition.setPermissionLevel((String) agent.get("permissionLevel"));

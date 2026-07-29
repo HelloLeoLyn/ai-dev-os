@@ -1,6 +1,7 @@
 package com.aidevos.orchestrator.executor;
 
 import com.aidevos.orchestrator.manager.AgentManager;
+import com.aidevos.orchestrator.model.AgentDefinition;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -15,9 +16,13 @@ public class ExecutorManager {
 	}
 
 	public AgentExecutor getExecutor(String agentName) {
-		if (agentManager.getAgent(agentName) == null) {
+		AgentDefinition agentDefinition = agentManager.getAgent(agentName);
+		if (agentDefinition == null) {
 			return null;
 		}
-		return mockAgentExecutor;
+		if ("mock".equals(agentDefinition.getExecutor())) {
+			return mockAgentExecutor;
+		}
+		return null;
 	}
 }

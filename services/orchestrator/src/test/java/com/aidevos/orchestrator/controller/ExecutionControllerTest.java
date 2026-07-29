@@ -30,6 +30,7 @@ class ExecutionControllerTest {
 		AgentManager agentManager = new AgentManager();
 		AgentDefinition agentDefinition = new AgentDefinition();
 		agentDefinition.setName("planner");
+		agentDefinition.setExecutor("mock");
 		agentManager.register(agentDefinition);
 
 		ExecutionEngine executionEngine = new ExecutionEngine(
