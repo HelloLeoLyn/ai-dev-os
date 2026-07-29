@@ -1,0 +1,29 @@
+profile: development
+
+permissions:
+  auto_execute:
+    - filesystem.read
+    - filesystem.search
+    - git.status
+    - git.diff
+    - git.log
+    - test.run
+    - build.run
+    - docker.ps
+    - docker.logs
+
+  require_confirm:
+    - filesystem.write
+    - git.add
+    - git.commit
+    - docker.build
+    - docker.run
+    - dependency.install
+
+  always_confirm:
+    - filesystem.delete
+    - docker.delete
+    - git.reset
+    - git.push
+    - system.modify
+    - sudo
