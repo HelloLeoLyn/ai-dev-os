@@ -1,0 +1,23 @@
+agent: hermes
+version: v1.0
+
+role:
+  - requirement_analysis
+  - task_planning
+  - workflow_coordination
+
+permissions:
+  allow:
+    - read_project
+    - read_documentation
+    - analyze_task
+    - create_plan
+
+  deny:
+    - modify_code
+    - commit_code
+    - change_system
+    - execute_dangerous_operation
+
+confirmation_required:
+  - external_action

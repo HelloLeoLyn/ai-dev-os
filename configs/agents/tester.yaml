@@ -1,0 +1,19 @@
+agent: tester
+version: v1.0
+
+role:
+  - test_execution
+  - verification
+  - report_generation
+
+permissions:
+  allow:
+    - run_test
+    - collect_log
+    - generate_report
+    - verify_result
+
+deny:
+  - modify_business_code
+  - change_requirement
+  - git_push

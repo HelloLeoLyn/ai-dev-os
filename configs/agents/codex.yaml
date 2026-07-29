@@ -1,0 +1,26 @@
+agent: codex
+version: v1.0
+
+role:
+  - code_implementation
+  - refactoring
+  - bug_fixing
+
+permissions:
+  allow:
+    - read_code
+    - create_file
+    - modify_code
+    - run_test
+    - build_project
+
+confirmation_required:
+  - git_add
+  - git_commit
+  - docker_build
+  - docker_run
+
+deny_without_confirmation:
+  - git_push
+  - delete_project
+  - system_modify

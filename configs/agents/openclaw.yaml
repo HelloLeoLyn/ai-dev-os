@@ -1,0 +1,24 @@
+agent: openclaw
+version: v1.0
+
+role:
+  - browser_automation
+  - gui_operation
+  - environment_operation
+
+permissions:
+  allow:
+    - browser_open
+    - click
+    - input
+    - screenshot
+    - page_verify
+
+confirmation_required:
+  - login
+  - submit_form
+  - data_modify
+
+deny:
+  - change_business_requirement
+  - modify_source_code
