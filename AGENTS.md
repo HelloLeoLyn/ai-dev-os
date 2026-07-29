@@ -111,3 +111,29 @@ Version:
 禁止：
 
 自行假设用户需求。
+
+---
+
+# 7. Project Engineering Rules
+
+## Technology Stack
+
+AI Dev OS services must follow:
+
+- Java 21
+- Spring Boot
+- Maven
+- Docker
+
+## Project Creation Rules
+
+Creating a new service:
+
+Must define before generation:
+
+- groupId
+- artifactId
+- packageName
+- directory structure
+
+Standard package:
