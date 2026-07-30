@@ -1,7 +1,7 @@
 package com.aidevos.orchestrator.executor;
 
+import com.aidevos.orchestrator.execution.ExecutionContext;
 import com.aidevos.orchestrator.execution.ExecutionResult;
-import com.aidevos.orchestrator.model.TaskDefinition;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -11,11 +11,11 @@ class MockAgentExecutorTest {
 
 	@Test
 	void shouldExecuteTaskWithSimulatedOutput() {
-		TaskDefinition taskDefinition = new TaskDefinition();
-		taskDefinition.setId("task-1");
-		taskDefinition.setDescription("Create an implementation plan");
+		ExecutionContext context = new ExecutionContext();
+		context.setTaskId("task-1");
+		context.setDescription("Create an implementation plan");
 
-		ExecutionResult result = new MockAgentExecutor().execute(taskDefinition);
+		ExecutionResult result = new MockAgentExecutor().execute(context);
 
 		assertTrue(result.isSuccess());
 		assertEquals("Task executed successfully", result.getMessage());

@@ -1,7 +1,7 @@
 package com.aidevos.orchestrator.executor;
 
+import com.aidevos.orchestrator.execution.ExecutionContext;
 import com.aidevos.orchestrator.execution.ExecutionResult;
-import com.aidevos.orchestrator.model.TaskDefinition;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -16,11 +16,11 @@ class CodexExecutorTest {
 
 	@Test
 	void shouldExecuteTaskWithSimulatedOutput() {
-		TaskDefinition taskDefinition = new TaskDefinition();
-		taskDefinition.setId("task-1");
-		taskDefinition.setDescription("Implement a new feature");
+		ExecutionContext context = new ExecutionContext();
+		context.setTaskId("task-1");
+		context.setDescription("Implement a new feature");
 
-		ExecutionResult result = new CodexExecutor().execute(taskDefinition);
+		ExecutionResult result = new CodexExecutor().execute(context);
 
 		assertTrue(result.isSuccess());
 		assertEquals("Task executed successfully", result.getMessage());

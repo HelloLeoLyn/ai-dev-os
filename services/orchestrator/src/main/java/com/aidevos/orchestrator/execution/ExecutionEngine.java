@@ -30,7 +30,7 @@ public class ExecutionEngine {
 		AgentExecutor executor = executorManager.getExecutor(agentName);
 		ExecutionResult result = executor == null
 			? failedResult(taskDefinition, agentName)
-			: executor.execute(taskDefinition);
+			: executor.execute(createContext(taskDefinition, agentName));
 
 		executionRecordManager.save(createRecord(taskDefinition, agentName, result));
 		return result;
@@ -44,6 +44,17 @@ public class ExecutionEngine {
 
 		AgentDefinition selectedAgent = agentSelector.select(requiredCapabilities);
 		return selectedAgent == null ? null : selectedAgent.getName();
+	}
+
+	private ExecutionContext createContext(TaskDefinition taskDefinition, String agentName) {
+		ExecutionContext context = new ExecutionContext();
+		context.setTaskId(taskDefinition.getId());
+		context.setTaskName(taskDefinition.getName());
+		context.setDescription(taskDefinition.getDescription());
+		context.setAgentName(agentName);
+		context.setInput(taskDefinition.getDescription());
+		context.setWorkspace(System.getProperty("user.dir"));
+		return context;
 	}
 
 	private ExecutionResult failedResult(TaskDefinition taskDefinition, String agentName) {

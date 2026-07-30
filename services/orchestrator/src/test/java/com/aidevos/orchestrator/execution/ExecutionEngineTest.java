@@ -1,6 +1,7 @@
 package com.aidevos.orchestrator.execution;
 
 import com.aidevos.orchestrator.agent.AgentSelector;
+import com.aidevos.orchestrator.executor.AgentExecutor;
 import com.aidevos.orchestrator.executor.ExecutorManager;
 import com.aidevos.orchestrator.executor.ExecutorRegistry;
 import com.aidevos.orchestrator.executor.MockAgentExecutor;
@@ -52,6 +53,31 @@ class ExecutionEngineTest {
 	@Test
 	void shouldSelectPlannerForAnalysisCapability() {
 		assertCapabilityExecution(List.of("analysis"), "planner");
+	}
+
+	@Test
+	void shouldCreateExecutionContextWithResolvedAgentName() {
+		AgentManager agentManager = createAgentManager();
+		ExecutionRecordManager executionRecordManager = new ExecutionRecordManager();
+		CapturingExecutor capturingExecutor = new CapturingExecutor();
+		ExecutorRegistry executorRegistry = new ExecutorRegistry(List.of(capturingExecutor));
+		ExecutionEngine executionEngine = new ExecutionEngine(
+			new ExecutorManager(agentManager, executorRegistry),
+			executionRecordManager, new AgentSelector(agentManager));
+		TaskDefinition taskDefinition = createTask("legacy-agent");
+		taskDefinition.setName("Plan implementation");
+		taskDefinition.setRequiredCapabilities(List.of("coding"));
+
+		executionEngine.execute(taskDefinition);
+
+		ExecutionContext context = capturingExecutor.getContext();
+		assertNotNull(context);
+		assertEquals("task-1", context.getTaskId());
+		assertEquals("Plan implementation", context.getTaskName());
+		assertEquals("Create an implementation plan", context.getDescription());
+		assertEquals("executor", context.getAgentName());
+		assertEquals("Create an implementation plan", context.getInput());
+		assertEquals(System.getProperty("user.dir"), context.getWorkspace());
 	}
 
 	@Test
@@ -123,5 +149,28 @@ class ExecutionEngineTest {
 		taskDefinition.setAgentName(agentName);
 		taskDefinition.setStatus("pending");
 		return taskDefinition;
+	}
+
+	private static class CapturingExecutor implements AgentExecutor {
+
+		private ExecutionContext context;
+
+		@Override
+		public String getType() {
+			return "mock";
+		}
+
+		@Override
+		public ExecutionResult execute(ExecutionContext context) {
+			this.context = context;
+			ExecutionResult result = new ExecutionResult();
+			result.setSuccess(true);
+			result.setMessage("Task executed successfully");
+			return result;
+		}
+
+		ExecutionContext getContext() {
+			return context;
+		}
 	}
 }
