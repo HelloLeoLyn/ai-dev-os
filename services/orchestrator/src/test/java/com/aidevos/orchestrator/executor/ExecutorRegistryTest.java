@@ -19,6 +19,14 @@ class ExecutorRegistryTest {
 	}
 
 	@Test
+	void shouldRegisterCodexExecutor() {
+		CodexExecutor codexExecutor = new CodexExecutor();
+		ExecutorRegistry executorRegistry = new ExecutorRegistry(List.of(codexExecutor));
+
+		assertSame(codexExecutor, executorRegistry.get("codex"));
+	}
+
+	@Test
 	void shouldReturnNullForUnknownType() {
 		ExecutorRegistry executorRegistry = new ExecutorRegistry(List.of());
 

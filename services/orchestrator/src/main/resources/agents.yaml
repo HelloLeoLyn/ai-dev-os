@@ -9,3 +9,13 @@ agents:
     capabilities:
       - coding
       - git
+
+  - name: coder
+    description: Executes coding tasks
+    enabled: true
+    type: system
+    permissionLevel: standard
+    executor: codex
+    capabilities:
+      - coding
+      - git

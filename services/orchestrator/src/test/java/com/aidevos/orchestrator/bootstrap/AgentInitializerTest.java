@@ -20,8 +20,9 @@ class AgentInitializerTest {
 
 	@Test
 	void shouldRegisterConfiguredAgentsOnStartup() {
-		assertEquals(2, agentManager.getAllAgents().size());
+		assertEquals(3, agentManager.getAllAgents().size());
 		assertNotNull(agentManager.getAgent("planner"));
 		assertNotNull(agentManager.getAgent("executor"));
+		assertNotNull(agentManager.getAgent("coder"));
 	}
 }
