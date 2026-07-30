@@ -1,5 +1,6 @@
 package com.aidevos.orchestrator.executor;
 
+import com.aidevos.orchestrator.executor.command.CommandExecutor;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -7,6 +8,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
 
 class ExecutorRegistryTest {
 
@@ -20,7 +22,7 @@ class ExecutorRegistryTest {
 
 	@Test
 	void shouldRegisterCodexExecutor() {
-		CodexExecutor codexExecutor = new CodexExecutor();
+		CodexExecutor codexExecutor = new CodexExecutor(mock(CommandExecutor.class));
 		ExecutorRegistry executorRegistry = new ExecutorRegistry(List.of(codexExecutor));
 
 		assertSame(codexExecutor, executorRegistry.get("codex"));
