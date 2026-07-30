@@ -1,13 +1,11 @@
 agents:
   - name: planner
     executor: mock
-    type: system
-    description: Plans agent tasks
-    permissionLevel: standard
-    enabled: true
+    capabilities:
+      - analysis
+
   - name: executor
     executor: mock
-    type: system
-    description: Executes agent tasks
-    permissionLevel: standard
-    enabled: false
+    capabilities:
+      - coding
+      - git

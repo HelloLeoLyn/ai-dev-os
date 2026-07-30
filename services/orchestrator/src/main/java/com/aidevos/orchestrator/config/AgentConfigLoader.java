@@ -49,10 +49,26 @@ public class AgentConfigLoader {
 		AgentDefinition agentDefinition = new AgentDefinition();
 		agentDefinition.setName((String) agent.get("name"));
 		agentDefinition.setExecutor((String) agent.get("executor"));
+		agentDefinition.setCapabilities(toStringList(agent.get("capabilities")));
 		agentDefinition.setType((String) agent.get("type"));
 		agentDefinition.setDescription((String) agent.get("description"));
 		agentDefinition.setPermissionLevel((String) agent.get("permissionLevel"));
 		agentDefinition.setEnabled(Boolean.TRUE.equals(agent.get("enabled")));
 		return agentDefinition;
+	}
+
+	private List<String> toStringList(Object value) {
+		if (!(value instanceof List<?> values)) {
+			return null;
+		}
+
+		List<String> strings = new ArrayList<>();
+		for (Object item : values) {
+			if (!(item instanceof String string)) {
+				throw new IllegalStateException("Invalid capabilities configuration");
+			}
+			strings.add(string);
+		}
+		return strings;
 	}
 }

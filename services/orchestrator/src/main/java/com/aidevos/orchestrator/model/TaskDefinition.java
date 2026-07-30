@@ -1,11 +1,14 @@
 package com.aidevos.orchestrator.model;
 
+import java.util.List;
+
 public class TaskDefinition {
 
 	private String id;
 	private String name;
 	private String description;
 	private String agentName;
+	private List<String> requiredCapabilities;
 	private String status;
 
 	public TaskDefinition() {
@@ -41,6 +44,14 @@ public class TaskDefinition {
 
 	public void setAgentName(String agentName) {
 		this.agentName = agentName;
+	}
+
+	public List<String> getRequiredCapabilities() {
+		return requiredCapabilities;
+	}
+
+	public void setRequiredCapabilities(List<String> requiredCapabilities) {
+		this.requiredCapabilities = requiredCapabilities;
 	}
 
 	public String getStatus() {

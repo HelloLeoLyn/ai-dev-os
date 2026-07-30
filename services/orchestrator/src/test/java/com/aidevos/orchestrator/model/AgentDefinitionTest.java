@@ -2,6 +2,8 @@ package com.aidevos.orchestrator.model;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -13,6 +15,7 @@ class AgentDefinitionTest {
 
 		agentDefinition.setName("planner");
 		agentDefinition.setExecutor("mock");
+		agentDefinition.setCapabilities(List.of("analysis"));
 		agentDefinition.setType("system");
 		agentDefinition.setDescription("Plans agent tasks");
 		agentDefinition.setPermissionLevel("standard");
@@ -20,6 +23,7 @@ class AgentDefinitionTest {
 
 		assertEquals("planner", agentDefinition.getName());
 		assertEquals("mock", agentDefinition.getExecutor());
+		assertEquals(List.of("analysis"), agentDefinition.getCapabilities());
 		assertEquals("system", agentDefinition.getType());
 		assertEquals("Plans agent tasks", agentDefinition.getDescription());
 		assertEquals("standard", agentDefinition.getPermissionLevel());

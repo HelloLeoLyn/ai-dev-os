@@ -6,8 +6,6 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AgentConfigLoaderTest {
 
@@ -18,22 +16,13 @@ class AgentConfigLoaderTest {
 		List<AgentDefinition> agents = agentConfigLoader.loadAgents();
 
 		assertEquals(2, agents.size());
-		assertAgent(agents.get(0), "planner", "mock", "system", "Plans agent tasks", "standard", true);
-		assertAgent(agents.get(1), "executor", "mock", "system", "Executes agent tasks", "standard", false);
+		assertAgent(agents.get(0), "planner", "mock", List.of("analysis"));
+		assertAgent(agents.get(1), "executor", "mock", List.of("coding", "git"));
 	}
 
-	private void assertAgent(AgentDefinition agent, String name, String executor, String type, String description,
-			String permissionLevel, boolean enabled) {
+	private void assertAgent(AgentDefinition agent, String name, String executor, List<String> capabilities) {
 		assertEquals(name, agent.getName());
 		assertEquals(executor, agent.getExecutor());
-		assertEquals(type, agent.getType());
-		assertEquals(description, agent.getDescription());
-		assertEquals(permissionLevel, agent.getPermissionLevel());
-		if (enabled) {
-			assertTrue(agent.isEnabled());
-		}
-		else {
-			assertFalse(agent.isEnabled());
-		}
+		assertEquals(capabilities, agent.getCapabilities());
 	}
 }

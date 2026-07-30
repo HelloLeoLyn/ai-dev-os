@@ -1,9 +1,12 @@
 package com.aidevos.orchestrator.model;
 
+import java.util.List;
+
 public class AgentDefinition {
 
 	private String name;
 	private String executor;
+	private List<String> capabilities;
 	private String type;
 	private String description;
 	private String permissionLevel;
@@ -26,6 +29,14 @@ public class AgentDefinition {
 
 	public void setExecutor(String executor) {
 		this.executor = executor;
+	}
+
+	public List<String> getCapabilities() {
+		return capabilities;
+	}
+
+	public void setCapabilities(List<String> capabilities) {
+		this.capabilities = capabilities;
 	}
 
 	public String getType() {

@@ -1,5 +1,6 @@
 package com.aidevos.orchestrator.execution;
 
+import com.aidevos.orchestrator.agent.AgentSelector;
 import com.aidevos.orchestrator.executor.ExecutorManager;
 import com.aidevos.orchestrator.executor.MockAgentExecutor;
 import com.aidevos.orchestrator.manager.AgentManager;
@@ -7,6 +8,8 @@ import com.aidevos.orchestrator.model.AgentDefinition;
 import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.model.TaskDefinition;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -17,15 +20,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ExecutionEngineTest {
 
 	@Test
-	void shouldExecuteSuccessfullyWhenAgentExists() {
-		AgentManager agentManager = new AgentManager();
-		AgentDefinition agentDefinition = new AgentDefinition();
-		agentDefinition.setName("planner");
-		agentDefinition.setExecutor("mock");
-		agentManager.register(agentDefinition);
+	void shouldExecuteSuccessfullyWithLegacyAgentName() {
+		AgentManager agentManager = createAgentManager();
 		ExecutionRecordManager executionRecordManager = new ExecutionRecordManager();
-		ExecutionEngine executionEngine = new ExecutionEngine(
-			new ExecutorManager(agentManager, new MockAgentExecutor()), executionRecordManager);
+		ExecutionEngine executionEngine = createExecutionEngine(agentManager, executionRecordManager);
 		TaskDefinition taskDefinition = createTask("planner");
 
 		ExecutionResult result = executionEngine.execute(taskDefinition);
@@ -46,16 +44,27 @@ class ExecutionEngineTest {
 	}
 
 	@Test
-	void shouldFailWhenAgentDoesNotExist() {
+	void shouldSelectExecutorForCodingCapability() {
+		assertCapabilityExecution(List.of("coding"), "executor");
+	}
+
+	@Test
+	void shouldSelectPlannerForAnalysisCapability() {
+		assertCapabilityExecution(List.of("analysis"), "planner");
+	}
+
+	@Test
+	void shouldFailWhenCapabilityDoesNotMatch() {
+		AgentManager agentManager = createAgentManager();
 		ExecutionRecordManager executionRecordManager = new ExecutionRecordManager();
-		ExecutionEngine executionEngine = new ExecutionEngine(
-			new ExecutorManager(new AgentManager(), new MockAgentExecutor()), executionRecordManager);
-		TaskDefinition taskDefinition = createTask("unknown");
+		ExecutionEngine executionEngine = createExecutionEngine(agentManager, executionRecordManager);
+		TaskDefinition taskDefinition = createTask("planner");
+		taskDefinition.setRequiredCapabilities(List.of("unknown"));
 
 		ExecutionResult result = executionEngine.execute(taskDefinition);
 
 		assertFalse(result.isSuccess());
-		assertEquals("Agent not found: unknown", result.getMessage());
+		assertEquals("Agent not found for required capabilities: [unknown]", result.getMessage());
 		assertNull(result.getOutput());
 		assertEquals("pending", taskDefinition.getStatus());
 
@@ -63,10 +72,46 @@ class ExecutionEngineTest {
 		ExecutionRecord record = executionRecordManager.getAll().get(0);
 		assertNotNull(record.getId());
 		assertEquals("task-1", record.getTaskId());
-		assertEquals("unknown", record.getAgentName());
+		assertNull(record.getAgentName());
 		assertEquals("FAILED", record.getStatus());
 		assertEquals(result.getMessage(), record.getMessage());
 		assertNull(record.getOutput());
+	}
+
+	private void assertCapabilityExecution(List<String> requiredCapabilities, String expectedAgentName) {
+		AgentManager agentManager = createAgentManager();
+		ExecutionRecordManager executionRecordManager = new ExecutionRecordManager();
+		ExecutionEngine executionEngine = createExecutionEngine(agentManager, executionRecordManager);
+		TaskDefinition taskDefinition = createTask("legacy-agent");
+		taskDefinition.setRequiredCapabilities(requiredCapabilities);
+
+		ExecutionResult result = executionEngine.execute(taskDefinition);
+
+		assertTrue(result.isSuccess());
+		assertEquals("Task executed successfully", result.getMessage());
+		assertEquals(1, executionRecordManager.getAll().size());
+		assertEquals(expectedAgentName, executionRecordManager.getAll().get(0).getAgentName());
+	}
+
+	private ExecutionEngine createExecutionEngine(AgentManager agentManager,
+			ExecutionRecordManager executionRecordManager) {
+		return new ExecutionEngine(new ExecutorManager(agentManager, new MockAgentExecutor()),
+			executionRecordManager, new AgentSelector(agentManager));
+	}
+
+	private AgentManager createAgentManager() {
+		AgentManager agentManager = new AgentManager();
+		agentManager.register(createAgent("planner", List.of("analysis")));
+		agentManager.register(createAgent("executor", List.of("coding", "git")));
+		return agentManager;
+	}
+
+	private AgentDefinition createAgent(String name, List<String> capabilities) {
+		AgentDefinition agentDefinition = new AgentDefinition();
+		agentDefinition.setName(name);
+		agentDefinition.setExecutor("mock");
+		agentDefinition.setCapabilities(capabilities);
+		return agentDefinition;
 	}
 
 	private TaskDefinition createTask(String agentName) {
