@@ -8,6 +8,11 @@ import org.springframework.stereotype.Component;
 public class MockAgentExecutor implements AgentExecutor {
 
 	@Override
+	public String getType() {
+		return "mock";
+	}
+
+	@Override
 	public ExecutionResult execute(TaskDefinition taskDefinition) {
 		ExecutionResult result = new ExecutionResult();
 		result.setSuccess(true);

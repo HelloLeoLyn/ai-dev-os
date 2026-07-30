@@ -2,6 +2,7 @@ package com.aidevos.orchestrator.execution;
 
 import com.aidevos.orchestrator.agent.AgentSelector;
 import com.aidevos.orchestrator.executor.ExecutorManager;
+import com.aidevos.orchestrator.executor.ExecutorRegistry;
 import com.aidevos.orchestrator.executor.MockAgentExecutor;
 import com.aidevos.orchestrator.manager.AgentManager;
 import com.aidevos.orchestrator.model.AgentDefinition;
@@ -95,7 +96,8 @@ class ExecutionEngineTest {
 
 	private ExecutionEngine createExecutionEngine(AgentManager agentManager,
 			ExecutionRecordManager executionRecordManager) {
-		return new ExecutionEngine(new ExecutorManager(agentManager, new MockAgentExecutor()),
+		ExecutorRegistry executorRegistry = new ExecutorRegistry(List.of(new MockAgentExecutor()));
+		return new ExecutionEngine(new ExecutorManager(agentManager, executorRegistry),
 			executionRecordManager, new AgentSelector(agentManager));
 	}
 

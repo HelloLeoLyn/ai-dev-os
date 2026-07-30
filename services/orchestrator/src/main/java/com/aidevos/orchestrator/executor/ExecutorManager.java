@@ -8,11 +8,11 @@ import org.springframework.stereotype.Component;
 public class ExecutorManager {
 
 	private final AgentManager agentManager;
-	private final MockAgentExecutor mockAgentExecutor;
+	private final ExecutorRegistry executorRegistry;
 
-	public ExecutorManager(AgentManager agentManager, MockAgentExecutor mockAgentExecutor) {
+	public ExecutorManager(AgentManager agentManager, ExecutorRegistry executorRegistry) {
 		this.agentManager = agentManager;
-		this.mockAgentExecutor = mockAgentExecutor;
+		this.executorRegistry = executorRegistry;
 	}
 
 	public AgentExecutor getExecutor(String agentName) {
@@ -20,9 +20,6 @@ public class ExecutorManager {
 		if (agentDefinition == null) {
 			return null;
 		}
-		if ("mock".equals(agentDefinition.getExecutor())) {
-			return mockAgentExecutor;
-		}
-		return null;
+		return executorRegistry.get(agentDefinition.getExecutor());
 	}
 }

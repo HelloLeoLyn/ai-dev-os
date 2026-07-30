@@ -1,0 +1,36 @@
+package com.aidevos.orchestrator.executor;
+
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+class ExecutorRegistryTest {
+
+	@Test
+	void shouldRegisterMockExecutor() {
+		MockAgentExecutor mockAgentExecutor = new MockAgentExecutor();
+		ExecutorRegistry executorRegistry = new ExecutorRegistry(List.of(mockAgentExecutor));
+
+		assertSame(mockAgentExecutor, executorRegistry.get("mock"));
+	}
+
+	@Test
+	void shouldReturnNullForUnknownType() {
+		ExecutorRegistry executorRegistry = new ExecutorRegistry(List.of());
+
+		assertNull(executorRegistry.get("unknown"));
+	}
+
+	@Test
+	void shouldFailWhenTypeIsAlreadyRegistered() {
+		MockAgentExecutor firstExecutor = new MockAgentExecutor();
+		MockAgentExecutor secondExecutor = new MockAgentExecutor();
+
+		assertThrows(IllegalStateException.class,
+			() -> new ExecutorRegistry(List.of(firstExecutor, secondExecutor)));
+	}
+}

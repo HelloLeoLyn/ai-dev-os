@@ -5,5 +5,7 @@ import com.aidevos.orchestrator.model.TaskDefinition;
 
 public interface AgentExecutor {
 
+	String getType();
+
 	ExecutionResult execute(TaskDefinition taskDefinition);
 }

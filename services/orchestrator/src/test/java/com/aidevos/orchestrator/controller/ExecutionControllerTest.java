@@ -4,6 +4,7 @@ import com.aidevos.orchestrator.agent.AgentSelector;
 import com.aidevos.orchestrator.execution.ExecutionEngine;
 import com.aidevos.orchestrator.execution.ExecutionRecordManager;
 import com.aidevos.orchestrator.executor.ExecutorManager;
+import com.aidevos.orchestrator.executor.ExecutorRegistry;
 import com.aidevos.orchestrator.executor.MockAgentExecutor;
 import com.aidevos.orchestrator.manager.AgentManager;
 import com.aidevos.orchestrator.model.AgentDefinition;
@@ -11,6 +12,8 @@ import com.aidevos.orchestrator.model.TaskDefinition;
 import com.aidevos.orchestrator.task.TaskManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
+
+import java.util.List;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -35,7 +38,8 @@ class ExecutionControllerTest {
 		agentManager.register(agentDefinition);
 
 		ExecutionEngine executionEngine = new ExecutionEngine(
-			new ExecutorManager(agentManager, new MockAgentExecutor()), new ExecutionRecordManager(),
+			new ExecutorManager(agentManager, new ExecutorRegistry(List.of(new MockAgentExecutor()))),
+			new ExecutionRecordManager(),
 			new AgentSelector(agentManager));
 		MockMvc mockMvc = standaloneSetup(new ExecutionController(taskManager, executionEngine)).build();
 
@@ -50,7 +54,8 @@ class ExecutionControllerTest {
 		TaskManager taskManager = new TaskManager();
 		AgentManager agentManager = new AgentManager();
 		ExecutionEngine executionEngine = new ExecutionEngine(
-			new ExecutorManager(agentManager, new MockAgentExecutor()), new ExecutionRecordManager(),
+			new ExecutorManager(agentManager, new ExecutorRegistry(List.of(new MockAgentExecutor()))),
+			new ExecutionRecordManager(),
 			new AgentSelector(agentManager));
 		MockMvc mockMvc = standaloneSetup(new ExecutionController(taskManager, executionEngine)).build();
 
