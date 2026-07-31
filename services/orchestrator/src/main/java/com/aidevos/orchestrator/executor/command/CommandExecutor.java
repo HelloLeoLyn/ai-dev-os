@@ -1,5 +1,6 @@
 package com.aidevos.orchestrator.executor.command;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -15,9 +16,19 @@ import org.springframework.stereotype.Component;
 public class CommandExecutor {
 
 	public CommandResult execute(List<String> command) {
+		CommandOptions options = new CommandOptions();
+		options.setCommand(command);
+		return execute(options);
+	}
+
+	public CommandResult execute(CommandOptions options) {
 		Process process = null;
 		try {
-			process = new ProcessBuilder(command).start();
+			ProcessBuilder processBuilder = new ProcessBuilder(options.getCommand());
+			if (options.getWorkingDirectory() != null && !options.getWorkingDirectory().isBlank()) {
+				processBuilder.directory(new File(options.getWorkingDirectory()));
+			}
+			process = processBuilder.start();
 			Process runningProcess = process;
 
 			try (ExecutorService streamExecutor = Executors.newVirtualThreadPerTaskExecutor()) {

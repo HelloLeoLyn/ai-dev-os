@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.model;
 
+import com.aidevos.orchestrator.execution.ExecutionReport;
+
 public class ExecutionRecord {
 
 	private String id;
@@ -8,6 +10,7 @@ public class ExecutionRecord {
 	private String status;
 	private String message;
 	private String output;
+	private ExecutionReport report;
 
 	public ExecutionRecord() {
 	}
@@ -58,5 +61,13 @@ public class ExecutionRecord {
 
 	public void setOutput(String output) {
 		this.output = output;
+	}
+
+	public ExecutionReport getReport() {
+		return report;
+	}
+
+	public void setReport(ExecutionReport report) {
+		this.report = report;
 	}
 }

@@ -1,7 +1,5 @@
-package com.aidevos.orchestrator.executor;
+package com.aidevos.orchestrator.executor.git;
 
-import com.aidevos.orchestrator.execution.ExecutionContext;
-import com.aidevos.orchestrator.execution.ExecutionResult;
 import com.aidevos.orchestrator.executor.command.CommandExecutor;
 import com.aidevos.orchestrator.executor.command.CommandOptions;
 import com.aidevos.orchestrator.executor.command.CommandResult;
@@ -13,66 +11,51 @@ import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class CodexExecutorTest {
+class GitExecutorTest {
 
 	@Test
-	void shouldReturnCodexType() {
-		assertEquals("codex", new CodexExecutor(mock(CommandExecutor.class)).getType());
-	}
-
-	@Test
-	void shouldExecuteCodexCommandAndConvertSuccessfulResult() {
+	void shouldExecuteStatusCommandAndConvertSuccessfulResult() {
 		CommandExecutor commandExecutor = mock(CommandExecutor.class);
 		CommandResult commandResult = new CommandResult();
 		commandResult.setSuccess(true);
-		commandResult.setExitCode(0);
-		commandResult.setOutput("Codex output");
-		List<String> command = List.of("codex", "exec", "Implement a new feature");
+		commandResult.setOutput(" M README.md");
+		commandResult.setError("");
 		when(commandExecutor.execute(any(CommandOptions.class))).thenReturn(commandResult);
 
-		ExecutionContext context = new ExecutionContext();
-		context.setTaskId("task-1");
-		context.setDescription("Implement a new feature");
-		context.setWorkspace("/workspace/project");
-
-		ExecutionResult result = new CodexExecutor(commandExecutor).execute(context);
+		GitResult result = new GitExecutor(commandExecutor).status("/workspace/project");
 
 		ArgumentCaptor<CommandOptions> optionsCaptor = ArgumentCaptor.forClass(CommandOptions.class);
 		verify(commandExecutor).execute(optionsCaptor.capture());
-		assertEquals(command, optionsCaptor.getValue().getCommand());
+		assertEquals(List.of("git", "status", "--short"), optionsCaptor.getValue().getCommand());
 		assertEquals("/workspace/project", optionsCaptor.getValue().getWorkingDirectory());
 		assertTrue(result.isSuccess());
-		assertEquals("Task executed successfully", result.getMessage());
-		assertEquals("Codex output", result.getOutput());
+		assertEquals(" M README.md", result.getOutput());
+		assertEquals("", result.getError());
 	}
 
 	@Test
-	void shouldConvertFailedCommandResult() {
+	void shouldExecuteDiffCommandAndConvertFailedResult() {
 		CommandExecutor commandExecutor = mock(CommandExecutor.class);
 		CommandResult commandResult = new CommandResult();
 		commandResult.setSuccess(false);
-		commandResult.setExitCode(1);
-		commandResult.setError("Codex failed");
-		List<String> command = List.of("codex", "exec", "Invalid task");
+		commandResult.setOutput("");
+		commandResult.setError("Not a git repository");
 		when(commandExecutor.execute(any(CommandOptions.class))).thenReturn(commandResult);
 
-		ExecutionContext context = new ExecutionContext();
-		context.setDescription("Invalid task");
-
-		ExecutionResult result = new CodexExecutor(commandExecutor).execute(context);
+		GitResult result = new GitExecutor(commandExecutor).diff("/workspace/project");
 
 		ArgumentCaptor<CommandOptions> optionsCaptor = ArgumentCaptor.forClass(CommandOptions.class);
 		verify(commandExecutor).execute(optionsCaptor.capture());
-		assertEquals(command, optionsCaptor.getValue().getCommand());
-		assertNull(optionsCaptor.getValue().getWorkingDirectory());
+		assertEquals(List.of("git", "diff", "--stat"), optionsCaptor.getValue().getCommand());
+		assertEquals("/workspace/project", optionsCaptor.getValue().getWorkingDirectory());
 		assertFalse(result.isSuccess());
-		assertEquals("Codex failed", result.getMessage());
+		assertEquals("", result.getOutput());
+		assertEquals("Not a git repository", result.getError());
 	}
 }

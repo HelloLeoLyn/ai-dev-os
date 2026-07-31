@@ -5,11 +5,14 @@ import com.aidevos.orchestrator.executor.AgentExecutor;
 import com.aidevos.orchestrator.executor.ExecutorManager;
 import com.aidevos.orchestrator.executor.ExecutorRegistry;
 import com.aidevos.orchestrator.executor.MockAgentExecutor;
+import com.aidevos.orchestrator.executor.git.GitExecutor;
+import com.aidevos.orchestrator.executor.git.GitResult;
 import com.aidevos.orchestrator.manager.AgentManager;
 import com.aidevos.orchestrator.model.AgentDefinition;
 import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.model.TaskDefinition;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 import java.util.List;
 
@@ -18,6 +21,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class ExecutionEngineTest {
 
@@ -63,7 +69,7 @@ class ExecutionEngineTest {
 		ExecutorRegistry executorRegistry = new ExecutorRegistry(List.of(capturingExecutor));
 		ExecutionEngine executionEngine = new ExecutionEngine(
 			new ExecutorManager(agentManager, executorRegistry),
-			executionRecordManager, new AgentSelector(agentManager));
+			executionRecordManager, new AgentSelector(agentManager), createGitExecutor());
 		TaskDefinition taskDefinition = createTask("legacy-agent");
 		taskDefinition.setName("Plan implementation");
 		taskDefinition.setRequiredCapabilities(List.of("coding"));
@@ -105,6 +111,48 @@ class ExecutionEngineTest {
 		assertNull(record.getOutput());
 	}
 
+	@Test
+	void shouldRecordGitStatusBeforeExecutionAndGitDiffAfterExecution() {
+		ExecutorManager executorManager = mock(ExecutorManager.class);
+		AgentExecutor agentExecutor = mock(AgentExecutor.class);
+		GitExecutor gitExecutor = mock(GitExecutor.class);
+		ExecutionRecordManager executionRecordManager = new ExecutionRecordManager();
+		TaskDefinition taskDefinition = createTask("planner");
+		ExecutionResult executionResult = new ExecutionResult();
+		executionResult.setSuccess(true);
+		executionResult.setMessage("Task executed successfully");
+		executionResult.setOutput("Agent output");
+		GitResult statusResult = successfulGitResult(" M README.md");
+		GitResult diffResult = successfulGitResult(" README.md | 2 ++");
+		String workspace = System.getProperty("user.dir");
+
+		when(executorManager.getExecutor("planner")).thenReturn(agentExecutor);
+		when(gitExecutor.status(workspace)).thenReturn(statusResult);
+		when(agentExecutor.execute(org.mockito.ArgumentMatchers.any(ExecutionContext.class)))
+			.thenReturn(executionResult);
+		when(gitExecutor.diff(workspace)).thenReturn(diffResult);
+		ExecutionEngine executionEngine = new ExecutionEngine(executorManager,
+			executionRecordManager, mock(AgentSelector.class), gitExecutor);
+
+		ExecutionResult result = executionEngine.execute(taskDefinition);
+
+		InOrder executionOrder = inOrder(gitExecutor, agentExecutor);
+		executionOrder.verify(gitExecutor).status(workspace);
+		executionOrder.verify(agentExecutor).execute(
+			org.mockito.ArgumentMatchers.any(ExecutionContext.class));
+		executionOrder.verify(gitExecutor).diff(workspace);
+		assertEquals(executionResult, result);
+
+		ExecutionReport report = executionRecordManager.getAll().get(0).getReport();
+		assertNotNull(report);
+		assertEquals("task-1", report.getTaskId());
+		assertEquals("planner", report.getAgentName());
+		assertTrue(report.isSuccess());
+		assertEquals(" M README.md", report.getBeforeGitStatus());
+		assertEquals(" README.md | 2 ++", report.getAfterGitDiff());
+		assertEquals("Agent output", report.getOutput());
+	}
+
 	private void assertCapabilityExecution(List<String> requiredCapabilities, String expectedAgentName) {
 		AgentManager agentManager = createAgentManager();
 		ExecutionRecordManager executionRecordManager = new ExecutionRecordManager();
@@ -124,7 +172,23 @@ class ExecutionEngineTest {
 			ExecutionRecordManager executionRecordManager) {
 		ExecutorRegistry executorRegistry = new ExecutorRegistry(List.of(new MockAgentExecutor()));
 		return new ExecutionEngine(new ExecutorManager(agentManager, executorRegistry),
-			executionRecordManager, new AgentSelector(agentManager));
+			executionRecordManager, new AgentSelector(agentManager), createGitExecutor());
+	}
+
+	private GitExecutor createGitExecutor() {
+		GitExecutor gitExecutor = mock(GitExecutor.class);
+		when(gitExecutor.status(org.mockito.ArgumentMatchers.anyString()))
+			.thenReturn(successfulGitResult(""));
+		when(gitExecutor.diff(org.mockito.ArgumentMatchers.anyString()))
+			.thenReturn(successfulGitResult(""));
+		return gitExecutor;
+	}
+
+	private static GitResult successfulGitResult(String output) {
+		GitResult result = new GitResult();
+		result.setSuccess(true);
+		result.setOutput(output);
+		return result;
 	}
 
 	private AgentManager createAgentManager() {
