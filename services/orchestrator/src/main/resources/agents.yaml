@@ -19,3 +19,9 @@ agents:
     capabilities:
       - coding
       - git
+
+  - name: tester
+    executor: openclaw
+    capabilities:
+      - testing
+      - browser

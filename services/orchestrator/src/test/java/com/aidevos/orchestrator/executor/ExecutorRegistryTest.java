@@ -29,6 +29,14 @@ class ExecutorRegistryTest {
 	}
 
 	@Test
+	void shouldRegisterOpenClawExecutor() {
+		OpenClawExecutor openClawExecutor = new OpenClawExecutor(mock(CommandExecutor.class));
+		ExecutorRegistry executorRegistry = new ExecutorRegistry(List.of(openClawExecutor));
+
+		assertSame(openClawExecutor, executorRegistry.get("openclaw"));
+	}
+
+	@Test
 	void shouldReturnNullForUnknownType() {
 		ExecutorRegistry executorRegistry = new ExecutorRegistry(List.of());
 
