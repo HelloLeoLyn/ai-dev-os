@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.openclaw.config;
 
+import java.time.Duration;
+
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -12,5 +14,7 @@ class OpenClawPropertiesTest {
 
 		assertEquals("ws://127.0.0.1:18789", properties.getGatewayUrl());
 		assertEquals("", properties.getToken());
+		assertEquals(Duration.ofSeconds(5), properties.getConnectTimeout());
+		assertEquals(Duration.ofSeconds(30), properties.getRequestTimeout());
 	}
 }

@@ -11,6 +11,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 
 import com.aidevos.orchestrator.openclaw.config.OpenClawProperties;
@@ -99,6 +101,7 @@ public class OpenClawWebSocketClient implements OpenClawClient, WebSocket.Listen
 			return CompletableFuture.failedFuture(
 					new IllegalArgumentException("Duplicate Gateway request id: " + request.id()));
 		}
+		scheduleRequestTimeout(request.id(), responseFuture);
 
 		try {
 			String message = objectMapper.writeValueAsString(request);
@@ -118,6 +121,16 @@ public class OpenClawWebSocketClient implements OpenClawClient, WebSocket.Listen
 					new IllegalArgumentException("Unable to serialize OpenClaw Gateway request", error));
 		}
 		return responseFuture;
+	}
+
+	private void scheduleRequestTimeout(String requestId, CompletableFuture<GatewayResponse> responseFuture) {
+		long timeoutMillis = Math.max(0, properties.getRequestTimeout().toMillis());
+		CompletableFuture.delayedExecutor(timeoutMillis, TimeUnit.MILLISECONDS).execute(() -> {
+			if (pendingRequests.remove(requestId, responseFuture)) {
+				responseFuture.completeExceptionally(
+						new TimeoutException("OpenClaw Gateway request timed out: " + requestId));
+			}
+		});
 	}
 
 	@Override
@@ -248,7 +261,7 @@ public class OpenClawWebSocketClient implements OpenClawClient, WebSocket.Listen
 				pending.complete(response);
 			}
 			else {
-				pending.completeExceptionally(new IllegalStateException("OpenClaw Gateway request failed"));
+				pending.completeExceptionally(new OpenClawGatewayException(response.error()));
 			}
 		}
 

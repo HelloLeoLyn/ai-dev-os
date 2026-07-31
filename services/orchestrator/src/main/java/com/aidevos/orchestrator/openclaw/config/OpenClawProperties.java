@@ -15,6 +15,8 @@ public class OpenClawProperties {
 
 	private Duration connectTimeout = Duration.ofSeconds(5);
 
+	private Duration requestTimeout = Duration.ofSeconds(30);
+
 	public String getGatewayUrl() {
 		return gatewayUrl;
 	}
@@ -37,5 +39,13 @@ public class OpenClawProperties {
 
 	public void setConnectTimeout(Duration connectTimeout) {
 		this.connectTimeout = connectTimeout;
+	}
+
+	public Duration getRequestTimeout() {
+		return requestTimeout;
+	}
+
+	public void setRequestTimeout(Duration requestTimeout) {
+		this.requestTimeout = requestTimeout;
 	}
 }
