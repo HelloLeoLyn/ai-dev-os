@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.executor;
 
+import com.aidevos.orchestrator.browser.BrowserResultMapper;
+import com.aidevos.orchestrator.browser.BrowserTaskPromptBuilder;
 import com.aidevos.orchestrator.execution.ExecutionContext;
 import com.aidevos.orchestrator.execution.ExecutionResult;
 import com.aidevos.orchestrator.openclaw.model.OpenClawTaskRequest;
@@ -12,9 +14,15 @@ import org.springframework.stereotype.Component;
 public class OpenClawExecutor implements AgentExecutor {
 
 	private final OpenClawTaskService taskService;
+	private final BrowserTaskPromptBuilder browserTaskPromptBuilder;
+	private final BrowserResultMapper browserResultMapper;
 
-	public OpenClawExecutor(OpenClawTaskService taskService) {
+	public OpenClawExecutor(OpenClawTaskService taskService,
+			BrowserTaskPromptBuilder browserTaskPromptBuilder,
+			BrowserResultMapper browserResultMapper) {
 		this.taskService = taskService;
+		this.browserTaskPromptBuilder = browserTaskPromptBuilder;
+		this.browserResultMapper = browserResultMapper;
 	}
 
 	@Override
@@ -24,7 +32,11 @@ public class OpenClawExecutor implements AgentExecutor {
 
 	@Override
 	public ExecutionResult execute(ExecutionContext context) {
-		OpenClawTaskRequest request = new OpenClawTaskRequest(agentId(context), context.getInput());
+		boolean browserTask = browserTaskPromptBuilder.supports(context.getParameters());
+		String input = browserTask
+			? browserTaskPromptBuilder.build(context.getInput(), context.getParameters())
+			: context.getInput();
+		OpenClawTaskRequest request = new OpenClawTaskRequest(agentId(context), input);
 		OpenClawTaskResult taskResult = taskService.execute(request).join();
 
 		ExecutionResult result = new ExecutionResult();
@@ -32,6 +44,9 @@ public class OpenClawExecutor implements AgentExecutor {
 		if (taskResult.successful()) {
 			result.setMessage("Task executed successfully");
 			result.setOutput(taskResult.output());
+			if (browserTask) {
+				browserResultMapper.map(taskResult.output(), result);
+			}
 		}
 		else {
 			result.setMessage(failureMessage(taskResult));

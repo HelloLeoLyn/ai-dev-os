@@ -67,7 +67,7 @@
 
 ### Artifact
 
-`ExecutionResult.artifacts` 和 `ExecutionArtifact` 模型已存在；当前 Mock、Codex、OpenClaw Executor 均只设置 message/output，没有生成 Artifact。ExecutionRecord 也没有独立 artifacts 字段或 Artifact 存储组件。
+`ExecutionResult.artifacts` 和 `ExecutionArtifact` 模型已存在。Browser 参数分支下的 OpenClaw Executor 能从约定 JSON 结果映射 Artifact；Mock、Codex 和普通 OpenClaw 执行仍只设置 message/output。ExecutionRecord 也没有独立 artifacts 字段或 Artifact 存储组件。
 
 ### ExecutionContext 追踪字段
 
@@ -91,7 +91,7 @@ Codex Executor 能调用本地 CLI并读取 workspace/model 配置。当前没�
 
 ### OpenClaw Executor
 
-OpenClaw 调用闭环已存在，但 `OpenClawExecutor.execute` 使用 `join()` 同步等待。结果只提取 assistant 文本，不把 runId/sessionKey 写入 ExecutionResult metadata，也不生成截图或文件 Artifact。
+OpenClaw 调用闭环已存在，但 `OpenClawExecutor.execute` 使用 `join()` 同步等待。普通结果仍提取 assistant 文本；Browser 参数分支能构造 browser tool 指令并从约定 JSON 文本映射截图等 Artifact。runId/sessionKey 仍未写入 ExecutionResult metadata，Artifact 映射也依赖 Agent 遵守返回约定。
 
 ### Command Approval
 
@@ -135,6 +135,7 @@ Task JSON 解析和 API 注册已存在，但没有 Bean Validation 或独立 sc
 
 - 没有 `BrowserExecutor` 或浏览器驱动客户端。
 - 当前 `browser-agent` 是映射到 OpenClaw agentId `main` 的配置项。
+- 已有的 Phase 2-B 最小接入刻意复用该链路：Task 的 `parameters.browser` 支持六种 action，并由 OpenClawExecutor 生成指令和映射结果。
 
 ### 持久化
 
@@ -174,7 +175,7 @@ Task JSON 解析和 API 注册已存在，但没有 Bean Validation 或独立 sc
 4. **Browser Agent 是配置角色，不是独立 Browser Executor。** 当前 browser-agent 通过 OpenClaw 执行。
 5. **Codex 已存在，但仍是 CLI 包装。** 它构造本地命令并把 stdout/stderr 映射为文本结果。
 6. **MCP Tool Layer 尚不存在。** 当前 Executor 不能通过统一 Tool Gateway 调用工具。
-7. **Artifact 是模型预留，不是完整结果子系统。** 当前没有 Artifact 生产、保存、查询或展示链。
+7. **Artifact 仍不是完整结果子系统。** Browser OpenClaw 分支可在本次响应中生产 Artifact，但当前没有保存、查询、下载或展示链。
 8. **Git 诊断模型仍在，但不属于当前通用执行步骤。** GitExecutor 和报告字段存在，ExecutionEngine 不调用它们。
 9. **异步存在于 Job 和 OpenClaw 底层，但 Executor SPI 是同步的。** JobWorker 在线程中调用同步 Engine，OpenClawExecutor 对 CompletableFuture 使用 join。
 10. **运行状态主要是进程内状态。** 当前实现适合单实例运行验证，不具备代码层面的跨实例或重启恢复能力。

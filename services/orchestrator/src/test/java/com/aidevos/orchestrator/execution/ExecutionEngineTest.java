@@ -72,6 +72,8 @@ class ExecutionEngineTest {
 		TaskDefinition taskDefinition = createTask(null);
 		taskDefinition.setName("Plan implementation");
 		taskDefinition.setRequiredCapabilities(List.of("coding"));
+		taskDefinition.setParameters(Map.of("browser", Map.of("action", "snapshot"),
+			"agentId", "task-must-not-override-agent"));
 
 		executionEngine.execute(taskDefinition);
 
@@ -82,6 +84,7 @@ class ExecutionEngineTest {
 		assertEquals("Create an implementation plan", context.getDescription());
 		assertEquals("executor", context.getAgentName());
 		assertEquals("external-executor", context.getParameters().get("agentId"));
+		assertEquals(Map.of("action", "snapshot"), context.getParameters().get("browser"));
 		assertEquals("Create an implementation plan", context.getInput());
 		assertEquals(System.getProperty("user.dir"), context.getWorkspace());
 	}

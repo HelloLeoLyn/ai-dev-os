@@ -9,6 +9,8 @@ import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.model.TaskDefinition;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 
 @Component
@@ -54,7 +56,12 @@ public class ExecutionEngine {
 		context.setAgentName(agent.getName());
 		context.setInput(taskDefinition.getDescription());
 		context.setWorkspace(System.getProperty("user.dir"));
-		context.setParameters(new java.util.LinkedHashMap<>(agent.getExecutorConfig()));
+		Map<String, Object> parameters = new LinkedHashMap<>();
+		if (taskDefinition.getParameters() != null) {
+			parameters.putAll(taskDefinition.getParameters());
+		}
+		parameters.putAll(agent.getExecutorConfig());
+		context.setParameters(parameters);
 		return context;
 	}
 

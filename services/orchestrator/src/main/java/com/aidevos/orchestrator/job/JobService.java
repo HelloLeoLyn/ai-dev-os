@@ -1,6 +1,9 @@
 package com.aidevos.orchestrator.job;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import com.aidevos.orchestrator.model.TaskDefinition;
@@ -43,7 +46,35 @@ public class JobService {
 		snapshot.setAgentName(source.getAgentName());
 		List<String> capabilities = source.getRequiredCapabilities();
 		snapshot.setRequiredCapabilities(capabilities == null ? null : List.copyOf(capabilities));
+		snapshot.setParameters(copyMap(source.getParameters()));
 		snapshot.setStatus(source.getStatus());
 		return snapshot;
+	}
+
+	private Map<String, Object> copyMap(Map<String, Object> source) {
+		if (source == null) {
+			return null;
+		}
+		Map<String, Object> copy = new LinkedHashMap<>();
+		source.forEach((key, value) -> copy.put(key, copyValue(value)));
+		return copy;
+	}
+
+	private Object copyValue(Object value) {
+		if (value instanceof Map<?, ?> sourceMap) {
+			Map<String, Object> copy = new LinkedHashMap<>();
+			for (Map.Entry<?, ?> entry : sourceMap.entrySet()) {
+				if (entry.getKey() instanceof String key) {
+					copy.put(key, copyValue(entry.getValue()));
+				}
+			}
+			return copy;
+		}
+		if (value instanceof List<?> sourceList) {
+			List<Object> copy = new ArrayList<>();
+			sourceList.forEach(item -> copy.add(copyValue(item)));
+			return copy;
+		}
+		return value;
 	}
 }

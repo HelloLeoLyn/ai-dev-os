@@ -31,6 +31,9 @@ class TaskLoaderTest {
 		assertNotNull(task);
 		assertEquals("OpenClaw Browser Test", task.getName());
 		assertEquals("browser-agent", task.getAgentName());
+		assertEquals("navigate", ((java.util.Map<?, ?>) task.getParameters().get("browser")).get("action"));
+		assertEquals("https://example.com",
+			((java.util.Map<?, ?>) task.getParameters().get("browser")).get("url"));
 	}
 
 	@Test

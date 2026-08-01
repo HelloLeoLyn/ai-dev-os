@@ -12,6 +12,8 @@
 - Phase 1.5-A 已体现在当前代码中：`ExecutionResult` 支持 Artifact，`ExecutionContext` 包含 `executionId`、`jobId`、`metadata` 和 `parameters`。
 - Phase 1.5-B 已体现在当前代码中：Executor 异常可转换为失败 `ExecutionResult`，Agent 的 Executor 专属配置已从通用字段中隔离，`ExecutionEngine` 不再执行固定 Git 诊断。
 - 当前架构反向文档已经生成在 `docs/generated/`。
+- Phase 2-B 最小 Browser Agent 接入已体现在当前代码中：Task 可携带 `parameters.browser`，并复用 `browser-agent → OpenClawExecutor → main Agent → browser tool` 链路执行。
+- Browser 结果可按约定 JSON 映射为 `ExecutionResult.output` 和截图等 `ExecutionArtifact`；非 Browser OpenClaw 任务保持原行为。
 
 ### Browser Runtime
 
@@ -19,7 +21,7 @@
 - OpenClaw Gateway 能通过 CDP 连接独立的 Windows Chrome。
 - `main` Agent 已被授予 Agent 级 `browser` tool 权限。
 - 已通过 OpenClaw Browser CLI 和 `main` Agent 的真实 browser tool 调用访问 `https://example.com`，获取标题、正文和截图。
-- Browser Runtime 尚未作为 Orchestrator 内部的独立 capability 或 Executor 接入。
+- Browser Runtime 没有作为独立 Executor 接入；Orchestrator 通过既有 OpenClaw Executor 和 `browser` capability 复用该 Runtime。
 
 ## 2. 已完成功能
 
@@ -62,6 +64,9 @@
 - 支持 Gateway request ID 关联、超时和错误响应。
 - OpenClaw Agent 调用实现 `agent`、`agent.wait`、`chat.history` 闭环。
 - `browser-agent` 当前通过 `OpenClawExecutor` 映射到 OpenClaw `main` Agent。
+- Browser Task 支持 `navigate`、`snapshot`、`click`、`input`、`screenshot` 和 `assert` action，参数统一放在 `parameters.browser` 下。
+- `openclaw-test.json` 已更新为访问 `https://example.com`、断言标题并请求截图的最小验收 Task。
+- 已通过 Orchestrator 同步执行 API 完成真实端到端验收：导航和标题断言成功，返回的 PNG 截图被映射为 `ExecutionArtifact`。
 
 ### 其他基础能力
 
@@ -106,13 +111,12 @@ Windows 防火墙仅允许 WSL2 子网 `172.27.0.0/20` 访问 TCP 9223。开发/
 
 ## 4. 下一步任务
 
-下一阶段为 Browser Agent 接入 Orchestrator，建议保持现有执行链稳定并分步完成：
+Phase 2-B 的代码、单元测试和真实 Browser Runtime 最小闭环均已完成。后续可在不改变现有控制链的前提下继续补充：
 
-1. 定义 Orchestrator 可表达的 Browser 操作与结果边界。
-2. 明确 Task 参数如何传递 browser action、URL、定位信息和断言条件。
-3. 复用现有 `browser-agent → OpenClawExecutor → main Agent → browser tool` 链路完成最小闭环。
-4. 将截图等 Browser 产物映射为 `ExecutionArtifact`。
-5. 为 Browser Task 增加单元测试和真实环境验收，同时保持现有 OpenClaw 协议、认证和 Task 执行流程不变。
+1. 为 click、input、snapshot、screenshot 和 assert 增加各自的真实验收 Task。
+2. 增加 Browser 参数按 action 的必填字段校验。
+3. 将 Artifact 接入 ExecutionRecord 保存、查询与前端展示。
+4. 保持 OpenClaw 协议、认证和 Browser 控制链不变。
 
 当前不应一次性引入 Hermes Planner、MCP Tool Layer 或新的 Playwright 控制链。
 
@@ -120,14 +124,14 @@ Windows 防火墙仅允许 WSL2 子网 `172.27.0.0/20` 访问 TCP 9223。开发/
 
 ### Browser Agent
 
-- 仓库中没有独立 `BrowserExecutor` 或 Browser capability 实现。
-- `browser-agent` 当前仍是映射到 OpenClaw `main` Agent 的配置角色。
-- `openclaw-test.json` 的描述只要求返回浏览器状态，尚未形成结构化 navigate、snapshot、click、input、screenshot 或 assert Task 模型。
+- 仓库中没有独立 `BrowserExecutor`；这是 Phase 2-B 复用现有 OpenClaw 执行链的既定选择。
+- `browser-agent` 仍是映射到 OpenClaw `main` Agent 的配置角色。
+- Browser 参数边界、最小验收 Task、单元测试和 Orchestrator 到 Windows Chrome 的真实 navigate/断言/截图验收已经完成；其余 action 尚未逐项做真实环境验收。
 - 已打通的 Windows Chrome、防火墙和 OpenClaw Browser profile 属于本机运行配置，尚未被仓库部署配置管理。
 
 ### Artifact
 
-- Artifact 模型已经存在，但当前 Mock、Codex 和 OpenClaw Executor 没有生成 Artifact。
+- Artifact 模型已经存在，Browser OpenClaw 分支可从约定 JSON 输出映射 Artifact；普通 OpenClaw、Mock 和 Codex 执行仍不生成 Artifact。
 - 没有 Artifact repository、文件下载 API、生命周期管理或访问控制。
 - 前端尚未按截图、文件、测试报告或日志类型展示 Artifact。
 
@@ -154,6 +158,9 @@ Windows 防火墙仅允许 WSL2 子网 `172.27.0.0/20` 访问 TCP 9223。开发/
 
 ## 6. 本次记录范围
 
-- 本次仅新增此 Markdown 文件。
-- 未修改 Orchestrator Java 代码、前端代码、资源配置或测试。
-- 未修改 OpenClaw 配置和 Windows Browser Runtime。
+- 新增 Browser 指令构造和结果映射组件。
+- 扩展 Task parameters、ExecutionContext 参数合并和异步 Job 参数快照。
+- 更新 Browser 验收 Task、前端 Task 类型和相关单元测试。
+- 后端完整测试 129 个全部通过；新增链路定向测试 17 个全部通过；前端类型检查和生产构建通过。
+- 真实 `openclaw-test` 执行成功：output 确认 example.com 标题断言通过，Artifact 为 1878×1917、35687 字节的 PNG 截图。
+- 未修改 OpenClaw 配置、Windows Browser Runtime、防火墙或 CDP 配置；验收后已停止本次临时启动的 Orchestrator 后端。

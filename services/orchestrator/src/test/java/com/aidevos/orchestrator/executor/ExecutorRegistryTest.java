@@ -2,6 +2,9 @@ package com.aidevos.orchestrator.executor;
 
 import com.aidevos.orchestrator.executor.command.CommandExecutor;
 import com.aidevos.orchestrator.openclaw.service.OpenClawTaskService;
+import com.aidevos.orchestrator.browser.BrowserResultMapper;
+import com.aidevos.orchestrator.browser.BrowserTaskPromptBuilder;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -31,7 +34,9 @@ class ExecutorRegistryTest {
 
 	@Test
 	void shouldRegisterOpenClawExecutor() {
-		OpenClawExecutor openClawExecutor = new OpenClawExecutor(mock(OpenClawTaskService.class));
+		ObjectMapper objectMapper = new ObjectMapper();
+		OpenClawExecutor openClawExecutor = new OpenClawExecutor(mock(OpenClawTaskService.class),
+			new BrowserTaskPromptBuilder(objectMapper), new BrowserResultMapper(objectMapper));
 		ExecutorRegistry executorRegistry = new ExecutorRegistry(List.of(openClawExecutor));
 
 		assertSame(openClawExecutor, executorRegistry.get("openclaw"));

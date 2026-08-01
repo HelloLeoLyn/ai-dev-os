@@ -5,7 +5,9 @@ import com.aidevos.orchestrator.model.TaskDefinition;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -43,14 +45,19 @@ class JobServiceTest {
 		JobService service = new JobService(store, worker);
 		TaskDefinition original = task("original");
 		original.setRequiredCapabilities(new ArrayList<>(List.of("coding")));
+		Map<String, Object> browser = new LinkedHashMap<>();
+		browser.put("action", "navigate");
+		original.setParameters(new LinkedHashMap<>(Map.of("browser", browser)));
 
 		JobSubmissionResponse response = service.submit(original);
 		original.setDescription("changed");
 		original.getRequiredCapabilities().add("git");
+		browser.put("url", "https://changed.example");
 
 		TaskDefinition snapshot = store.get(response.jobId()).getTaskSnapshot();
 		assertEquals("original", snapshot.getDescription());
 		assertEquals(List.of("coding"), snapshot.getRequiredCapabilities());
+		assertEquals(Map.of("action", "navigate"), snapshot.getParameters().get("browser"));
 	}
 
 	private TaskDefinition task(String description) {

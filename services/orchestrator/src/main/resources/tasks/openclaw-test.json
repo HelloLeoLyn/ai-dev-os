@@ -2,5 +2,16 @@
   "id": "openclaw-test",
   "name": "OpenClaw Browser Test",
   "agentName": "browser-agent",
-  "description": "请返回当前浏览器状态，如果没有打开页面，请说明当前状态"
+  "description": "Navigate to example.com and verify the page title",
+  "requiredCapabilities": ["browser"],
+  "parameters": {
+    "browser": {
+      "action": "navigate",
+      "url": "https://example.com",
+      "assert": {
+        "title": "Example Domain"
+      },
+      "screenshot": true
+    }
+  }
 }

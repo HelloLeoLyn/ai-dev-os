@@ -18,7 +18,7 @@
 | 模块 | 主要包或目录 | 当前职责 |
 | --- | --- | --- |
 | API | `controller` | Task、Job、Agent、ExecutionRecord、Schedule、Dashboard HTTP API |
-| Task | `task`、`model/TaskDefinition` | JSON Task 加载、注册、查询和状态字段维护 |
+| Task | `task`、`model/TaskDefinition` | JSON Task 加载、注册、查询、状态与通用 parameters 字段维护 |
 | Job | `job` | Task 快照、内存队列、单 Worker 执行和 Job 状态维护 |
 | Agent | `agent`、`manager/AgentManager` | Agent 注册、按名称或 capability 解析 |
 | Executor | `executor` | Executor SPI、注册表、Mock/Codex/OpenClaw 实现 |
@@ -60,7 +60,7 @@ Task 有两种注册来源：
 1. `TaskLoader.run/loadTasks` 扫描 `classpath:/tasks/*.json`，反序列化为 `TaskDefinition` 后调用 `TaskManager.register`。
 2. `POST /api/tasks` 由 `TaskController.register` 直接调用 `TaskManager.register`。
 
-`TaskManager` 使用 `LinkedHashMap<String, TaskDefinition>` 保存 Task；相同 ID 会覆盖已有对象。
+`TaskManager` 使用 `LinkedHashMap<String, TaskDefinition>` 保存 Task；相同 ID 会覆盖已有对象。Task 可通过可选 `parameters` Map 向执行链传递参数；异步 Job 创建 Task 快照时会递归复制 Map/List 参数。
 
 ### 4.2 同步执行
 
@@ -132,9 +132,19 @@ Spring 将全部 `AgentExecutor` Bean 注入 `ExecutorRegistry`。Registry 以 `
 
 - `MockAgentExecutor`：返回模拟文本。
 - `CodexExecutor`：通过 `CommandExecutor` 执行 `codex exec`，可读取 `workspace` 和 `model` 参数。
-- `OpenClawExecutor`：读取 `agentId` 参数并调用 `OpenClawTaskService`。
+- `OpenClawExecutor`：读取 `agentId` 参数并调用 `OpenClawTaskService`；当参数包含 `browser` Map 时，通过 `BrowserTaskPromptBuilder` 构造 browser tool 指令，并由 `BrowserResultMapper` 将约定 JSON 结果中的截图等条目映射为 `ExecutionArtifact`。非 Browser Task 保持原有文本调用和结果映射。
 
-`ExecutionEngine.createContext` 当前填充 Task/Agent 文本字段、进程工作目录和 Agent executorConfig；`executionId`、`jobId`、`metadata` 当前没有在该方法中赋值。
+`ExecutionEngine.createContext` 当前填充 Task/Agent 文本字段、进程工作目录、Task parameters 和 Agent executorConfig；`executionId`、`jobId`、`metadata` 当前没有在该方法中赋值。
+
+Task parameters 会先写入 `ExecutionContext.parameters`，随后叠加 Agent executorConfig，因此 Task 不能覆盖 `agentId` 等 Executor 配置。
+
+### 6.1 Browser Task 参数边界
+
+Browser Task 复用 OpenClaw Executor，不存在独立 BrowserExecutor。参数位于 `parameters.browser`，当前支持 `navigate`、`snapshot`、`click`、`input`、`screenshot` 和 `assert` action；URL、定位信息、输入值、断言和截图选项作为该 Map 的附加字段透传到确定性 Agent 指令。
+
+Browser Agent 被要求只通过已有 browser tool 执行，并以 `output` 与 `artifacts` 组成的 JSON 对象返回最终结果。无法解析该对象时，Executor 保留原始 assistant 文本并返回空 Artifact 列表，以兼容现有 OpenClaw Agent 行为。
+
+真实环境已通过 `POST /api/tasks/openclaw-test/execute` 验证该链路：OpenClaw `main` Agent 导航到 `https://example.com`，确认标题 `Example Domain`，生成 PNG 截图，并由 Orchestrator 映射为 `type=screenshot`、`mediaType=image/png` 的 `ExecutionArtifact`。
 
 ## 7. OpenClaw 调用流程
 

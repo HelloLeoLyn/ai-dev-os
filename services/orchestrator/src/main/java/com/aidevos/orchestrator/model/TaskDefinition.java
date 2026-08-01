@@ -1,6 +1,8 @@
 package com.aidevos.orchestrator.model;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class TaskDefinition {
 
@@ -9,6 +11,7 @@ public class TaskDefinition {
 	private String description;
 	private String agentName;
 	private List<String> requiredCapabilities;
+	private Map<String, Object> parameters = new LinkedHashMap<>();
 	private String status;
 
 	public TaskDefinition() {
@@ -52,6 +55,14 @@ public class TaskDefinition {
 
 	public void setRequiredCapabilities(List<String> requiredCapabilities) {
 		this.requiredCapabilities = requiredCapabilities;
+	}
+
+	public Map<String, Object> getParameters() {
+		return parameters;
+	}
+
+	public void setParameters(Map<String, Object> parameters) {
+		this.parameters = parameters;
 	}
 
 	public String getStatus() {
