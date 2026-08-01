@@ -13,23 +13,23 @@ public class TaskManager {
 
 	private final Map<String, TaskDefinition> tasks = new LinkedHashMap<>();
 
-	public void register(TaskDefinition taskDefinition) {
+	public synchronized void register(TaskDefinition taskDefinition) {
 		tasks.put(taskDefinition.getId(), taskDefinition);
 	}
 
-	public TaskDefinition getTask(String id) {
+	public synchronized TaskDefinition getTask(String id) {
 		return tasks.get(id);
 	}
 
-	public List<TaskDefinition> getAllTasks() {
+	public synchronized List<TaskDefinition> getAllTasks() {
 		return new ArrayList<>(tasks.values());
 	}
 
-	public TaskDefinition removeTask(String id) {
+	public synchronized TaskDefinition removeTask(String id) {
 		return tasks.remove(id);
 	}
 
-	public void updateStatus(String id, String status) {
+	public synchronized void updateStatus(String id, String status) {
 		TaskDefinition taskDefinition = tasks.get(id);
 		if (taskDefinition != null) {
 			taskDefinition.setStatus(status);

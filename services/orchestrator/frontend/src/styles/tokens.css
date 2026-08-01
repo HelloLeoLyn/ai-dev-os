@@ -1,0 +1,18 @@
+:root {
+  color-scheme: dark;
+  --color-background: #0b1020;
+  --color-surface: #121a2d;
+  --color-surface-raised: #172238;
+  --color-border: #263550;
+  --color-text: #edf2ff;
+  --color-text-muted: #9aa8c2;
+  --color-primary: #7c9cff;
+  --color-primary-strong: #9bb2ff;
+  --color-success: #51d6a3;
+  --color-danger: #ff7b8b;
+  --color-info: #66c7ff;
+  --radius-small: 0.5rem;
+  --radius-medium: 0.875rem;
+  --shadow-card: 0 18px 40px rgb(0 0 0 / 18%);
+  --sidebar-width: 15rem;
+}

@@ -10,10 +10,34 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
+import com.aidevos.orchestrator.executor.command.approval.ApprovalDecision;
+import com.aidevos.orchestrator.executor.command.approval.ApprovalGate;
+import com.aidevos.orchestrator.executor.command.approval.ApprovalRequest;
+import com.aidevos.orchestrator.executor.command.policy.CommandPolicy;
+import com.aidevos.orchestrator.executor.command.policy.PolicyDecision;
+import com.aidevos.orchestrator.executor.command.policy.PolicyAction;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
 public class CommandExecutor {
+
+	private final CommandPolicy commandPolicy;
+	private final ApprovalGate approvalGate;
+
+	public CommandExecutor() {
+		this(options -> PolicyDecision.allow("policy-disabled"), new ApprovalGate());
+	}
+
+	public CommandExecutor(CommandPolicy commandPolicy) {
+		this(commandPolicy, new ApprovalGate());
+	}
+
+	@Autowired
+	public CommandExecutor(CommandPolicy commandPolicy, ApprovalGate approvalGate) {
+		this.commandPolicy = commandPolicy;
+		this.approvalGate = approvalGate;
+	}
 
 	public CommandResult execute(List<String> command) {
 		CommandOptions options = new CommandOptions();
@@ -22,6 +46,17 @@ public class CommandExecutor {
 	}
 
 	public CommandResult execute(CommandOptions options) {
+		PolicyDecision decision = commandPolicy.evaluate(options);
+		if (decision.action() == PolicyAction.DENY) {
+			return result(false, -1, "", "Command denied by policy rule: " + decision.ruleId());
+		}
+		if (decision.action() == PolicyAction.REQUIRE_APPROVAL) {
+			ApprovalRequest request = approvalRequest(options, decision);
+			if (approvalGate.evaluate(request) != ApprovalDecision.APPROVED) {
+				return result(false, -1, "", "APPROVAL_REQUIRED");
+			}
+		}
+
 		Process process = null;
 		try {
 			ProcessBuilder processBuilder = new ProcessBuilder(options.getCommand());
@@ -49,6 +84,10 @@ public class CommandExecutor {
 		catch (IOException | ExecutionException ex) {
 			return result(false, -1, "", ex.getMessage());
 		}
+	}
+
+	private ApprovalRequest approvalRequest(CommandOptions options, PolicyDecision decision) {
+		return new ApprovalRequest(options.getCommand(), options.getWorkingDirectory(), decision.ruleId());
 	}
 
 	private String read(InputStream inputStream) throws IOException {
