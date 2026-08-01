@@ -54,7 +54,7 @@ public class AgentConfigLoader {
 		AgentDefinition agentDefinition = new AgentDefinition();
 		agentDefinition.setName((String) agent.get("name"));
 		agentDefinition.setExecutor((String) agent.get("executor"));
-		agentDefinition.setExternalId((String) agent.get("externalId"));
+		agentDefinition.setExecutorConfig(toObjectMap(agent.get(agentDefinition.getExecutor())));
 		agentDefinition.setCapabilities(toStringList(agent.get("capabilities")));
 		agentDefinition.setType((String) agent.get("type"));
 		agentDefinition.setDescription((String) agent.get("description"));
@@ -75,9 +75,14 @@ public class AgentConfigLoader {
 		if (isBlank(agent.getExecutor())) {
 			throw new IllegalStateException("Executor is required for agent: " + agent.getName());
 		}
-		if ("openclaw".equals(agent.getExecutor()) && isBlank(agent.getExternalId())) {
-			throw new IllegalStateException("externalId is required for OpenClaw agent: " + agent.getName());
+		if ("openclaw".equals(agent.getExecutor()) && isBlank(stringConfig(agent, "agentId"))) {
+			throw new IllegalStateException("agentId is required for OpenClaw agent: " + agent.getName());
 		}
+	}
+
+	private String stringConfig(AgentDefinition agent, String key) {
+		Object value = agent.getExecutorConfig().get(key);
+		return value instanceof String string ? string : null;
 	}
 
 	private boolean isBlank(String value) {
@@ -97,5 +102,22 @@ public class AgentConfigLoader {
 			strings.add(string);
 		}
 		return strings;
+	}
+
+	private Map<String, Object> toObjectMap(Object value) {
+		Map<String, Object> config = new java.util.LinkedHashMap<>();
+		if (value == null) {
+			return config;
+		}
+		if (!(value instanceof Map<?, ?> values)) {
+			throw new IllegalStateException("Invalid executor configuration");
+		}
+		for (Map.Entry<?, ?> entry : values.entrySet()) {
+			if (!(entry.getKey() instanceof String key)) {
+				throw new IllegalStateException("Invalid executor configuration key");
+			}
+			config.put(key, entry.getValue());
+		}
+		return config;
 	}
 }

@@ -7,6 +7,7 @@ import com.aidevos.orchestrator.executor.command.CommandOptions;
 import com.aidevos.orchestrator.executor.command.CommandResult;
 
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -74,5 +75,27 @@ class CodexExecutorTest {
 		assertNull(optionsCaptor.getValue().getWorkingDirectory());
 		assertFalse(result.isSuccess());
 		assertEquals("Codex failed", result.getMessage());
+	}
+
+	@Test
+	void shouldApplyExecutorConfiguration() {
+		CommandExecutor commandExecutor = mock(CommandExecutor.class);
+		CommandResult commandResult = new CommandResult();
+		commandResult.setSuccess(true);
+		when(commandExecutor.execute(any(CommandOptions.class))).thenReturn(commandResult);
+		ExecutionContext context = new ExecutionContext();
+		context.setDescription("Implement a new feature");
+		context.setWorkspace("/default/workspace");
+		context.setParameters(Map.of(
+			"workspace", "/configured/workspace",
+			"model", "gpt-5.6-codex"));
+
+		new CodexExecutor(commandExecutor).execute(context);
+
+		ArgumentCaptor<CommandOptions> optionsCaptor = ArgumentCaptor.forClass(CommandOptions.class);
+		verify(commandExecutor).execute(optionsCaptor.capture());
+		assertEquals(List.of("codex", "exec", "--model", "gpt-5.6-codex",
+			"Implement a new feature"), optionsCaptor.getValue().getCommand());
+		assertEquals("/configured/workspace", optionsCaptor.getValue().getWorkingDirectory());
 	}
 }

@@ -24,7 +24,7 @@ public class OpenClawExecutor implements AgentExecutor {
 
 	@Override
 	public ExecutionResult execute(ExecutionContext context) {
-		OpenClawTaskRequest request = new OpenClawTaskRequest(context.getExternalAgentId(), context.getInput());
+		OpenClawTaskRequest request = new OpenClawTaskRequest(agentId(context), context.getInput());
 		OpenClawTaskResult taskResult = taskService.execute(request).join();
 
 		ExecutionResult result = new ExecutionResult();
@@ -37,6 +37,11 @@ public class OpenClawExecutor implements AgentExecutor {
 			result.setMessage(failureMessage(taskResult));
 		}
 		return result;
+	}
+
+	private String agentId(ExecutionContext context) {
+		Object agentId = context.getParameters().get("agentId");
+		return agentId instanceof String value ? value : null;
 	}
 
 	private String failureMessage(OpenClawTaskResult taskResult) {

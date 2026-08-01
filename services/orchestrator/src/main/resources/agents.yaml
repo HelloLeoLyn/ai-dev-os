@@ -16,19 +16,24 @@ agents:
     type: system
     permissionLevel: standard
     executor: codex
+    codex:
+      workspace:
+      model:
     capabilities:
       - coding
       - git
 
   - name: tester
     executor: openclaw
-    externalId: main
+    openclaw:
+      agentId: main
     capabilities:
       - testing
       - browser
 
   - name: browser-agent
     executor: openclaw
-    externalId: main
+    openclaw:
+      agentId: main
     capabilities:
       - browser

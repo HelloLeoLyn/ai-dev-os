@@ -27,8 +27,8 @@ public class CodexExecutor implements AgentExecutor {
 	@Override
 	public ExecutionResult execute(ExecutionContext context) {
 		CommandOptions options = new CommandOptions();
-		options.setCommand(List.of("codex", "exec", context.getDescription()));
-		options.setWorkingDirectory(context.getWorkspace());
+		options.setCommand(command(context));
+		options.setWorkingDirectory(config(context, "workspace", context.getWorkspace()));
 		CommandResult commandResult = commandExecutor.execute(options);
 
 		ExecutionResult result = new ExecutionResult();
@@ -41,5 +41,18 @@ public class CodexExecutor implements AgentExecutor {
 			result.setMessage(commandResult.getError());
 		}
 		return result;
+	}
+
+	private List<String> command(ExecutionContext context) {
+		String model = config(context, "model", null);
+		if (model == null) {
+			return List.of("codex", "exec", context.getDescription());
+		}
+		return List.of("codex", "exec", "--model", model, context.getDescription());
+	}
+
+	private String config(ExecutionContext context, String key, String defaultValue) {
+		Object value = context.getParameters().get(key);
+		return value instanceof String string && !string.isBlank() ? string : defaultValue;
 	}
 }

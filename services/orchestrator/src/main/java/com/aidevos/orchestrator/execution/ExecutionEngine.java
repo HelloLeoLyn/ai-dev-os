@@ -4,8 +4,6 @@ import com.aidevos.orchestrator.agent.AgentResolutionException;
 import com.aidevos.orchestrator.agent.AgentResolver;
 import com.aidevos.orchestrator.agent.ResolvedAgent;
 import com.aidevos.orchestrator.executor.AgentExecutor;
-import com.aidevos.orchestrator.executor.git.GitExecutor;
-import com.aidevos.orchestrator.executor.git.GitResult;
 import com.aidevos.orchestrator.model.AgentDefinition;
 import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.model.TaskDefinition;
@@ -18,35 +16,32 @@ public class ExecutionEngine {
 
 	private final AgentResolver agentResolver;
 	private final ExecutionRecordManager executionRecordManager;
-	private final GitExecutor gitExecutor;
 
-	public ExecutionEngine(AgentResolver agentResolver, ExecutionRecordManager executionRecordManager,
-			GitExecutor gitExecutor) {
+	public ExecutionEngine(AgentResolver agentResolver, ExecutionRecordManager executionRecordManager) {
 		this.agentResolver = agentResolver;
 		this.executionRecordManager = executionRecordManager;
-		this.gitExecutor = gitExecutor;
 	}
 
 	public ExecutionResult execute(TaskDefinition taskDefinition) {
 		String agentName = taskDefinition.getAgentName();
 		ExecutionResult result;
-		GitResult beforeGitStatus = null;
-		GitResult afterGitDiff = null;
 		try {
 			ResolvedAgent resolvedAgent = agentResolver.resolve(taskDefinition);
 			agentName = resolvedAgent.definition().getName();
 			AgentExecutor executor = resolvedAgent.executor();
 			ExecutionContext context = createContext(taskDefinition, resolvedAgent.definition());
-			beforeGitStatus = gitExecutor.status(context.getWorkspace());
-			result = executor.execute(context);
-			afterGitDiff = gitExecutor.diff(context.getWorkspace());
+			try {
+				result = executor.execute(context);
+			}
+			catch (Exception exception) {
+				result = failedResult(executorFailureMessage(executor, exception));
+			}
 		}
 		catch (AgentResolutionException exception) {
 			result = failedResult(exception.getMessage());
 		}
 
-		ExecutionReport report = createReport(taskDefinition, agentName, result,
-			beforeGitStatus, afterGitDiff);
+		ExecutionReport report = createReport(taskDefinition, agentName, result);
 		executionRecordManager.save(createRecord(taskDefinition, agentName, result, report));
 		return result;
 	}
@@ -57,10 +52,18 @@ public class ExecutionEngine {
 		context.setTaskName(taskDefinition.getName());
 		context.setDescription(taskDefinition.getDescription());
 		context.setAgentName(agent.getName());
-		context.setExternalAgentId(agent.getExternalId());
 		context.setInput(taskDefinition.getDescription());
 		context.setWorkspace(System.getProperty("user.dir"));
+		context.setParameters(new java.util.LinkedHashMap<>(agent.getExecutorConfig()));
 		return context;
+	}
+
+	private String executorFailureMessage(AgentExecutor executor, Exception exception) {
+		String detail = exception.getMessage();
+		if (detail == null || detail.isBlank()) {
+			detail = exception.getClass().getSimpleName();
+		}
+		return "Executor " + executor.getType() + " failed: " + detail;
 	}
 
 	private ExecutionResult failedResult(String message) {
@@ -72,22 +75,13 @@ public class ExecutionEngine {
 	}
 
 	private ExecutionReport createReport(TaskDefinition taskDefinition, String agentName,
-			ExecutionResult result, GitResult beforeGitStatus, GitResult afterGitDiff) {
+			ExecutionResult result) {
 		ExecutionReport report = new ExecutionReport();
 		report.setTaskId(taskDefinition.getId());
 		report.setAgentName(agentName);
 		report.setSuccess(result.isSuccess());
-		report.setBeforeGitStatus(gitDiagnostic(beforeGitStatus));
-		report.setAfterGitDiff(gitDiagnostic(afterGitDiff));
 		report.setOutput(result.getOutput());
 		return report;
-	}
-
-	private String gitDiagnostic(GitResult result) {
-		if (result == null) {
-			return null;
-		}
-		return result.isSuccess() ? result.getOutput() : result.getError();
 	}
 
 	private ExecutionRecord createRecord(TaskDefinition taskDefinition, String agentName,

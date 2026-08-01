@@ -21,8 +21,10 @@ class AgentConfigLoaderTest {
 		assertAgent(agents.get(2), "coder", "codex", List.of("coding", "git"));
 		assertAgent(agents.get(3), "tester", "openclaw", List.of("testing", "browser"));
 		assertAgent(agents.get(4), "browser-agent", "openclaw", List.of("browser"));
-		assertEquals("main", agents.get(3).getExternalId());
-		assertEquals("main", agents.get(4).getExternalId());
+		assertEquals("main", agents.get(3).getExecutorConfig().get("agentId"));
+		assertEquals("main", agents.get(4).getExecutorConfig().get("agentId"));
+		assertEquals(null, agents.get(2).getExecutorConfig().get("workspace"));
+		assertEquals(null, agents.get(2).getExecutorConfig().get("model"));
 		assertEquals("Executes coding tasks", agents.get(2).getDescription());
 		assertEquals("system", agents.get(2).getType());
 		assertEquals("standard", agents.get(2).getPermissionLevel());

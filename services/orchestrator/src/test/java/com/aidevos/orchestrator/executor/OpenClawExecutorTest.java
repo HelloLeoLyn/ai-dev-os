@@ -7,6 +7,7 @@ import com.aidevos.orchestrator.openclaw.model.OpenClawTaskResult;
 import com.aidevos.orchestrator.openclaw.service.OpenClawTaskService;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -35,7 +36,7 @@ class OpenClawExecutorTest {
 
 		ExecutionContext context = new ExecutionContext();
 		context.setAgentName("browser-agent");
-		context.setExternalAgentId("planner");
+		context.setParameters(Map.of("agentId", "planner"));
 		context.setInput("Implement feature");
 		context.setWorkspace("/workspace/project");
 
@@ -59,7 +60,7 @@ class OpenClawExecutorTest {
 
 		ExecutionContext context = new ExecutionContext();
 		context.setAgentName("coder");
-		context.setExternalAgentId("coder");
+		context.setParameters(Map.of("agentId", "coder"));
 		context.setInput("Run task");
 
 		ExecutionResult result = new OpenClawExecutor(taskService).execute(context);
@@ -78,7 +79,7 @@ class OpenClawExecutorTest {
 
 		ExecutionContext context = new ExecutionContext();
 		context.setAgentName("coder");
-		context.setExternalAgentId("coder");
+		context.setParameters(Map.of("agentId", "coder"));
 		context.setInput("Run slow task");
 
 		ExecutionResult result = new OpenClawExecutor(taskService).execute(context);

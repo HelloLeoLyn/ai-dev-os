@@ -7,8 +7,6 @@ import com.aidevos.orchestrator.execution.ExecutionRecordManager;
 import com.aidevos.orchestrator.executor.ExecutorManager;
 import com.aidevos.orchestrator.executor.ExecutorRegistry;
 import com.aidevos.orchestrator.executor.MockAgentExecutor;
-import com.aidevos.orchestrator.executor.git.GitExecutor;
-import com.aidevos.orchestrator.executor.git.GitResult;
 import com.aidevos.orchestrator.manager.AgentManager;
 import com.aidevos.orchestrator.model.AgentDefinition;
 import com.aidevos.orchestrator.model.TaskDefinition;
@@ -22,9 +20,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 class ExecutionControllerTest {
 
@@ -63,21 +58,11 @@ class ExecutionControllerTest {
 			.andExpect(status().isNotFound());
 	}
 
-	private GitExecutor createGitExecutor() {
-		GitResult result = new GitResult();
-		result.setSuccess(true);
-		result.setOutput("");
-		GitExecutor gitExecutor = mock(GitExecutor.class);
-		when(gitExecutor.status(anyString())).thenReturn(result);
-		when(gitExecutor.diff(anyString())).thenReturn(result);
-		return gitExecutor;
-	}
-
 	private ExecutionEngine createExecutionEngine(AgentManager agentManager) {
 		ExecutorManager executorManager = new ExecutorManager(agentManager,
 			new ExecutorRegistry(List.of(new MockAgentExecutor())));
 		AgentResolver agentResolver = new AgentResolver(agentManager,
 			new AgentSelector(agentManager), executorManager);
-		return new ExecutionEngine(agentResolver, new ExecutionRecordManager(), createGitExecutor());
+		return new ExecutionEngine(agentResolver, new ExecutionRecordManager());
 	}
 }

@@ -1,12 +1,14 @@
 package com.aidevos.orchestrator.model;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class AgentDefinition {
 
 	private String name;
 	private String executor;
-	private String externalId;
+	private Map<String, Object> executorConfig = new LinkedHashMap<>();
 	private List<String> capabilities;
 	private String type;
 	private String description;
@@ -32,12 +34,26 @@ public class AgentDefinition {
 		this.executor = executor;
 	}
 
-	public String getExternalId() {
-		return externalId;
+	public Map<String, Object> getExecutorConfig() {
+		return executorConfig;
 	}
 
+	public void setExecutorConfig(Map<String, Object> executorConfig) {
+		this.executorConfig = executorConfig;
+	}
+
+	@Deprecated(forRemoval = true)
+	public String getExternalId() {
+		Object agentId = executorConfig == null ? null : executorConfig.get("agentId");
+		return agentId instanceof String value ? value : null;
+	}
+
+	@Deprecated(forRemoval = true)
 	public void setExternalId(String externalId) {
-		this.externalId = externalId;
+		if (executorConfig == null) {
+			executorConfig = new LinkedHashMap<>();
+		}
+		executorConfig.put("agentId", externalId);
 	}
 
 	public List<String> getCapabilities() {
