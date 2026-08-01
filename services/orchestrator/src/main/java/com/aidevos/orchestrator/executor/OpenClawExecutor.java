@@ -24,7 +24,7 @@ public class OpenClawExecutor implements AgentExecutor {
 
 	@Override
 	public ExecutionResult execute(ExecutionContext context) {
-		OpenClawTaskRequest request = new OpenClawTaskRequest(context.getAgentName(), context.getInput());
+		OpenClawTaskRequest request = new OpenClawTaskRequest(context.getExternalAgentId(), context.getInput());
 		OpenClawTaskResult taskResult = taskService.execute(request).join();
 
 		ExecutionResult result = new ExecutionResult();

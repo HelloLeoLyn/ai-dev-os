@@ -7,7 +7,7 @@ import BaseCard from '../components/BaseCard.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import type { ExecutionJob, JobStatus } from '../types/job'
 
-const statusOptions: JobStatus[] = ['QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED']
+const statusOptions: JobStatus[] = ['QUEUED', 'RUNNING', 'SUCCESS', 'FAILED']
 
 const jobs = ref<ExecutionJob[]>([])
 const selectedStatus = ref<JobStatus | ''>('')
@@ -18,7 +18,7 @@ function statusTone(status: JobStatus): 'neutral' | 'info' | 'success' | 'danger
   switch (status) {
     case 'RUNNING':
       return 'info'
-    case 'SUCCEEDED':
+    case 'SUCCESS':
       return 'success'
     case 'FAILED':
       return 'danger'

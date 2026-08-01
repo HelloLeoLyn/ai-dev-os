@@ -65,8 +65,8 @@ class DashboardServiceTest {
 	void shouldAggregateJobStatusesUsingTerminalSuccessRate() {
 		jobStore.save(job("queued", JobStatus.QUEUED));
 		jobStore.save(job("running", JobStatus.RUNNING));
-		jobStore.save(job("success-1", JobStatus.SUCCEEDED));
-		jobStore.save(job("success-2", JobStatus.SUCCEEDED));
+		jobStore.save(job("success-1", JobStatus.SUCCESS));
+		jobStore.save(job("success-2", JobStatus.SUCCESS));
 		jobStore.save(job("failed", JobStatus.FAILED));
 
 		JobStatistics statistics = dashboardService.getSummary().jobs();
@@ -97,7 +97,7 @@ class DashboardServiceTest {
 	@Test
 	void shouldReturnTenMostRecentJobsWithoutFullOutput() {
 		for (int index = 0; index < 12; index++) {
-			jobStore.save(job("job-%02d".formatted(index), JobStatus.SUCCEEDED));
+			jobStore.save(job("job-%02d".formatted(index), JobStatus.SUCCESS));
 		}
 
 		List<RecentJobSummary> recentJobs = dashboardService.getSummary().recentJobs();
@@ -120,13 +120,13 @@ class DashboardServiceTest {
 		task.setId("task-1");
 		ExecutionJob job = new ExecutionJob(id, task);
 		ExecutionResult result = new ExecutionResult();
-		result.setSuccess(status == JobStatus.SUCCEEDED);
+		result.setSuccess(status == JobStatus.SUCCESS);
 		result.setMessage("completed");
 		result.setOutput("full output must not be copied");
 		if (status == JobStatus.RUNNING) {
 			job.markRunning();
 		}
-		else if (status == JobStatus.SUCCEEDED) {
+		else if (status == JobStatus.SUCCESS) {
 			job.markSucceeded(result, "record-1");
 		}
 		else if (status == JobStatus.FAILED) {

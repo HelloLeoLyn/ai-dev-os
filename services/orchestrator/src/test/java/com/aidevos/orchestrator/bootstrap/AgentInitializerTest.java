@@ -20,10 +20,12 @@ class AgentInitializerTest {
 
 	@Test
 	void shouldRegisterConfiguredAgentsOnStartup() {
-		assertEquals(4, agentManager.getAllAgents().size());
+		assertEquals(5, agentManager.getAllAgents().size());
 		assertNotNull(agentManager.getAgent("planner"));
 		assertNotNull(agentManager.getAgent("executor"));
 		assertNotNull(agentManager.getAgent("coder"));
 		assertNotNull(agentManager.getAgent("tester"));
+		assertEquals("openclaw", agentManager.getAgent("browser-agent").getExecutor());
+		assertEquals("main", agentManager.getAgent("browser-agent").getExternalId());
 	}
 }

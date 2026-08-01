@@ -16,7 +16,7 @@ function statusTone(status: JobStatus): 'neutral' | 'info' | 'success' | 'danger
   switch (status) {
     case 'RUNNING':
       return 'info'
-    case 'SUCCEEDED':
+    case 'SUCCESS':
       return 'success'
     case 'FAILED':
       return 'danger'

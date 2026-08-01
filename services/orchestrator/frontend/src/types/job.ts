@@ -1,7 +1,7 @@
 import type { ExecutionResult } from './execution'
 import type { TaskDefinition } from './task'
 
-export type JobStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED'
+export type JobStatus = 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'FAILED'
 
 export interface ExecutionJob {
   id: string

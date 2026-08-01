@@ -50,7 +50,7 @@ function statusTone(status: JobStatus): 'neutral' | 'info' | 'success' | 'danger
   switch (status) {
     case 'RUNNING':
       return 'info'
-    case 'SUCCEEDED':
+    case 'SUCCESS':
       return 'success'
     case 'FAILED':
       return 'danger'
@@ -91,7 +91,7 @@ function renderChart(data: DashboardSummary): void {
         data: [
           { name: 'QUEUED', value: data.jobs.queued },
           { name: 'RUNNING', value: data.jobs.running },
-          { name: 'SUCCEEDED', value: data.jobs.succeeded },
+          { name: 'SUCCESS', value: data.jobs.succeeded },
           { name: 'FAILED', value: data.jobs.failed },
         ],
       },

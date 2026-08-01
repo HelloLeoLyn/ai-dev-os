@@ -1,5 +1,6 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.agent.AgentResolver;
 import com.aidevos.orchestrator.agent.AgentSelector;
 import com.aidevos.orchestrator.execution.ExecutionEngine;
 import com.aidevos.orchestrator.execution.ExecutionRecordManager;
@@ -42,11 +43,7 @@ class ExecutionControllerTest {
 		agentDefinition.setExecutor("mock");
 		agentManager.register(agentDefinition);
 
-		ExecutionEngine executionEngine = new ExecutionEngine(
-			new ExecutorManager(agentManager, new ExecutorRegistry(List.of(new MockAgentExecutor()))),
-			new ExecutionRecordManager(),
-			new AgentSelector(agentManager),
-			createGitExecutor());
+		ExecutionEngine executionEngine = createExecutionEngine(agentManager);
 		MockMvc mockMvc = standaloneSetup(new ExecutionController(taskManager, executionEngine)).build();
 
 		mockMvc.perform(post("/api/tasks/task-1/execute"))
@@ -59,11 +56,7 @@ class ExecutionControllerTest {
 	void shouldReturnNotFoundForUnknownTask() throws Exception {
 		TaskManager taskManager = new TaskManager();
 		AgentManager agentManager = new AgentManager();
-		ExecutionEngine executionEngine = new ExecutionEngine(
-			new ExecutorManager(agentManager, new ExecutorRegistry(List.of(new MockAgentExecutor()))),
-			new ExecutionRecordManager(),
-			new AgentSelector(agentManager),
-			createGitExecutor());
+		ExecutionEngine executionEngine = createExecutionEngine(agentManager);
 		MockMvc mockMvc = standaloneSetup(new ExecutionController(taskManager, executionEngine)).build();
 
 		mockMvc.perform(post("/api/tasks/unknown/execute"))
@@ -78,5 +71,13 @@ class ExecutionControllerTest {
 		when(gitExecutor.status(anyString())).thenReturn(result);
 		when(gitExecutor.diff(anyString())).thenReturn(result);
 		return gitExecutor;
+	}
+
+	private ExecutionEngine createExecutionEngine(AgentManager agentManager) {
+		ExecutorManager executorManager = new ExecutorManager(agentManager,
+			new ExecutorRegistry(List.of(new MockAgentExecutor())));
+		AgentResolver agentResolver = new AgentResolver(agentManager,
+			new AgentSelector(agentManager), executorManager);
+		return new ExecutionEngine(agentResolver, new ExecutionRecordManager(), createGitExecutor());
 	}
 }

@@ -35,10 +35,31 @@ Maven installation.
 
 ## Starting the environment
 
+Create `src/main/resources/application-local.properties` for local OpenClaw
+settings. This file is ignored by Git so that the gateway token is not
+committed:
+
+```properties
+openclaw.gateway.url=ws://127.0.0.1:18789
+openclaw.token=${OPENCLAW_GATEWAY_TOKEN:your-local-gateway-token}
+```
+
+Activate the `local` Spring profile when starting the backend. The environment
+variable remains the highest-priority token source because the local property
+uses it as its first choice:
+
+```bash
+SPRING_PROFILES_ACTIVE=local ./scripts/start-backend.sh
+```
+
+On startup, the backend automatically loads JSON task definitions from
+`src/main/resources/tasks/`. The bundled `openclaw-test` task is therefore
+available immediately for job submission.
+
 Start both services in one terminal:
 
 ```bash
-./scripts/start-all.sh
+SPRING_PROFILES_ACTIVE=local ./scripts/start-all.sh
 ```
 
 Open `http://127.0.0.1:15174` after both services report that they are ready.
@@ -59,6 +80,10 @@ To run the services in separate terminals instead:
 ```bash
 OPENCLAW_GATEWAY_URL=ws://127.0.0.1:18789 ./scripts/start-backend.sh
 ```
+
+For production deployments, do not use the local properties file. Continue to
+provide the token through `OPENCLAW_GATEWAY_TOKEN`; an unset token defaults to
+an empty value.
 
 ## Stopping the environment
 

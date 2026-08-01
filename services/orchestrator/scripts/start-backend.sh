@@ -23,4 +23,4 @@ echo "OpenClaw gateway: ${OPENCLAW_GATEWAY_URL}"
 exec "${project_dir}/mvnw" \
   -f "${project_dir}/pom.xml" \
   spring-boot:run \
-  -Dspring-boot.run.arguments=--server.port=18080
+  -Dspring-boot.run.arguments="--server.port=18080 --spring.profiles.active=local"

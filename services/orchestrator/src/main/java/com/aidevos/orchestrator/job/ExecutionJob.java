@@ -43,7 +43,7 @@ public class ExecutionJob {
 		this.result = result;
 		this.executionRecordId = executionRecordId;
 		this.resultSummary = summarize(result);
-		status = JobStatus.SUCCEEDED;
+		status = JobStatus.SUCCESS;
 		completedAt = Instant.now();
 	}
 

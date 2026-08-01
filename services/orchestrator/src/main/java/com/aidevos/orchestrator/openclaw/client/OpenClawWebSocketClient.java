@@ -36,6 +36,8 @@ public class OpenClawWebSocketClient implements OpenClawClient, WebSocket.Listen
 
 	private final HttpClient httpClient;
 
+	private final OpenClawDeviceIdentityStore deviceIdentityStore;
+
 	private final Map<String, CompletableFuture<GatewayResponse>> pendingRequests = new ConcurrentHashMap<>();
 
 	private final List<Consumer<GatewayEvent>> eventListeners = new CopyOnWriteArrayList<>();
@@ -59,6 +61,8 @@ public class OpenClawWebSocketClient implements OpenClawClient, WebSocket.Listen
 		this.properties = properties;
 		this.objectMapper = objectMapper;
 		this.httpClient = httpClient;
+		this.deviceIdentityStore = new OpenClawDeviceIdentityStore(
+				properties.getDeviceIdentityPath(), objectMapper);
 	}
 
 	@Override
@@ -73,6 +77,7 @@ public class OpenClawWebSocketClient implements OpenClawClient, WebSocket.Listen
 		connectFuture = new CompletableFuture<>();
 		httpClient.newWebSocketBuilder()
 			.connectTimeout(properties.getConnectTimeout())
+			.header("Origin", "http://127.0.0.1:18789")
 			.buildAsync(URI.create(properties.getGatewayUrl()), this)
 			.whenComplete((socket, error) -> {
 				if (error != null) {
@@ -225,26 +230,62 @@ public class OpenClawWebSocketClient implements OpenClawClient, WebSocket.Listen
 
 	private void handleEvent(GatewayEvent event) {
 		if ("connect.challenge".equals(event.event())) {
-			sendConnectRequest();
+			Object nonce = event.payload() == null ? null : event.payload().get("nonce");
+			if (!(nonce instanceof String challengeNonce) || challengeNonce.isBlank()) {
+				failConnection(new IllegalStateException(
+						"OpenClaw Gateway connect challenge is missing nonce"));
+			}
+			else {
+				try {
+					sendConnectRequest(challengeNonce);
+				}
+				catch (RuntimeException error) {
+					failConnection(error);
+				}
+			}
 		}
 		for (Consumer<GatewayEvent> listener : eventListeners) {
 			listener.accept(event);
 		}
 	}
 
-	private void sendConnectRequest() {
+	private void sendConnectRequest(String nonce) {
 		connectRequestId = UUID.randomUUID().toString();
+		String platform = System.getProperty("os.name", "unknown").toLowerCase();
 		Map<String, Object> client = Map.of(
-				"id", "ai-dev-os-orchestrator",
+				"id", "openclaw-control-ui",
 				"version", "0.0.1",
-				"platform", System.getProperty("os.name", "unknown").toLowerCase(),
-				"mode", "operator");
+				"platform", platform,
+				"mode", "webchat");
+		String role = "operator";
+		List<String> scopes = List.of("operator.read", "operator.write");
+		long signedAt = System.currentTimeMillis();
+		OpenClawDeviceIdentityStore.DeviceIdentity identity = deviceIdentityStore.loadOrCreate();
+		String signaturePayload = String.join("|",
+				"v3",
+				identity.deviceId(),
+				(String) client.get("id"),
+				(String) client.get("mode"),
+				role,
+				String.join(",", scopes),
+				Long.toString(signedAt),
+				properties.getToken(),
+				nonce,
+				platform.trim().toLowerCase(),
+				"");
+		Map<String, Object> device = Map.of(
+				"id", identity.deviceId(),
+				"publicKey", identity.publicKeyBase64Url(),
+				"signature", identity.sign(signaturePayload),
+				"signedAt", signedAt,
+				"nonce", nonce);
 		Map<String, Object> params = Map.ofEntries(
 				Map.entry("minProtocol", PROTOCOL_VERSION),
 				Map.entry("maxProtocol", PROTOCOL_VERSION),
 				Map.entry("client", client),
-				Map.entry("role", "operator"),
-				Map.entry("scopes", List.of("operator.read", "operator.write")),
+				Map.entry("role", role),
+				Map.entry("scopes", scopes),
+				Map.entry("device", device),
 				Map.entry("caps", List.of()),
 				Map.entry("commands", List.of()),
 				Map.entry("permissions", Map.of()),
@@ -255,13 +296,16 @@ public class OpenClawWebSocketClient implements OpenClawClient, WebSocket.Listen
 	}
 
 	private void handleResponse(GatewayResponse response) {
+		OpenClawGatewayException gatewayException = response.ok()
+				? null
+				: new OpenClawGatewayException(response.error());
 		CompletableFuture<GatewayResponse> pending = pendingRequests.remove(response.id());
 		if (pending != null) {
 			if (response.ok()) {
 				pending.complete(response);
 			}
 			else {
-				pending.completeExceptionally(new OpenClawGatewayException(response.error()));
+				pending.completeExceptionally(gatewayException);
 			}
 		}
 
@@ -270,8 +314,11 @@ public class OpenClawWebSocketClient implements OpenClawClient, WebSocket.Listen
 					&& "hello-ok".equals(response.payload().get("type"))) {
 				connectFuture.complete(null);
 			}
+			else if (gatewayException != null) {
+				failConnection(gatewayException);
+			}
 			else {
-				failConnection(new IllegalStateException("OpenClaw Gateway handshake failed"));
+				failConnection(new IllegalStateException("Unexpected OpenClaw Gateway handshake response"));
 			}
 		}
 	}

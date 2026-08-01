@@ -7,8 +7,10 @@ import org.yaml.snakeyaml.Yaml;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Component
 public class AgentConfigLoader {
@@ -36,11 +38,14 @@ public class AgentConfigLoader {
 		}
 
 		List<AgentDefinition> agentDefinitions = new ArrayList<>();
+		Set<String> names = new HashSet<>();
 		for (Object agentValue : agents) {
 			if (!(agentValue instanceof Map<?, ?> agent)) {
 				throw new IllegalStateException("Invalid agent definition");
 			}
-			agentDefinitions.add(toAgentDefinition(agent));
+			AgentDefinition agentDefinition = toAgentDefinition(agent);
+			validate(agentDefinition, names);
+			agentDefinitions.add(agentDefinition);
 		}
 		return agentDefinitions;
 	}
@@ -49,12 +54,34 @@ public class AgentConfigLoader {
 		AgentDefinition agentDefinition = new AgentDefinition();
 		agentDefinition.setName((String) agent.get("name"));
 		agentDefinition.setExecutor((String) agent.get("executor"));
+		agentDefinition.setExternalId((String) agent.get("externalId"));
 		agentDefinition.setCapabilities(toStringList(agent.get("capabilities")));
 		agentDefinition.setType((String) agent.get("type"));
 		agentDefinition.setDescription((String) agent.get("description"));
 		agentDefinition.setPermissionLevel((String) agent.get("permissionLevel"));
-		agentDefinition.setEnabled(Boolean.TRUE.equals(agent.get("enabled")));
+		if (agent.containsKey("enabled")) {
+			agentDefinition.setEnabled(Boolean.TRUE.equals(agent.get("enabled")));
+		}
 		return agentDefinition;
+	}
+
+	private void validate(AgentDefinition agent, Set<String> names) {
+		if (isBlank(agent.getName())) {
+			throw new IllegalStateException("Agent name is required");
+		}
+		if (!names.add(agent.getName())) {
+			throw new IllegalStateException("Duplicate agent name: " + agent.getName());
+		}
+		if (isBlank(agent.getExecutor())) {
+			throw new IllegalStateException("Executor is required for agent: " + agent.getName());
+		}
+		if ("openclaw".equals(agent.getExecutor()) && isBlank(agent.getExternalId())) {
+			throw new IllegalStateException("externalId is required for OpenClaw agent: " + agent.getName());
+		}
+	}
+
+	private boolean isBlank(String value) {
+		return value == null || value.isBlank();
 	}
 
 	private List<String> toStringList(Object value) {

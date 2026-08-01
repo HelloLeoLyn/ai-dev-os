@@ -1,6 +1,7 @@
 package com.aidevos.orchestrator.openclaw.config;
 
 import java.time.Duration;
+import java.nio.file.Path;
 
 import org.junit.jupiter.api.Test;
 
@@ -16,5 +17,7 @@ class OpenClawPropertiesTest {
 		assertEquals("", properties.getToken());
 		assertEquals(Duration.ofSeconds(5), properties.getConnectTimeout());
 		assertEquals(Duration.ofSeconds(30), properties.getRequestTimeout());
+		assertEquals(Path.of(System.getProperty("user.home"), ".ai-dev-os", "openclaw",
+				"device-identity.json"), properties.getDeviceIdentityPath());
 	}
 }

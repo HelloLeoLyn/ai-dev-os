@@ -34,7 +34,8 @@ class OpenClawExecutorTest {
 					new OpenClawTaskResult("run-1", "session-1", "ok", "Feature implemented")));
 
 		ExecutionContext context = new ExecutionContext();
-		context.setAgentName("planner");
+		context.setAgentName("browser-agent");
+		context.setExternalAgentId("planner");
 		context.setInput("Implement feature");
 		context.setWorkspace("/workspace/project");
 
@@ -58,6 +59,7 @@ class OpenClawExecutorTest {
 
 		ExecutionContext context = new ExecutionContext();
 		context.setAgentName("coder");
+		context.setExternalAgentId("coder");
 		context.setInput("Run task");
 
 		ExecutionResult result = new OpenClawExecutor(taskService).execute(context);
@@ -76,6 +78,7 @@ class OpenClawExecutorTest {
 
 		ExecutionContext context = new ExecutionContext();
 		context.setAgentName("coder");
+		context.setExternalAgentId("coder");
 		context.setInput("Run slow task");
 
 		ExecutionResult result = new OpenClawExecutor(taskService).execute(context);

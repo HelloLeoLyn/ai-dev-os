@@ -1,8 +1,9 @@
 package com.aidevos.orchestrator.execution;
 
-import com.aidevos.orchestrator.agent.AgentSelector;
+import com.aidevos.orchestrator.agent.AgentResolutionException;
+import com.aidevos.orchestrator.agent.AgentResolver;
+import com.aidevos.orchestrator.agent.ResolvedAgent;
 import com.aidevos.orchestrator.executor.AgentExecutor;
-import com.aidevos.orchestrator.executor.ExecutorManager;
 import com.aidevos.orchestrator.executor.git.GitExecutor;
 import com.aidevos.orchestrator.executor.git.GitResult;
 import com.aidevos.orchestrator.model.AgentDefinition;
@@ -10,39 +11,38 @@ import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.model.TaskDefinition;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
 import java.util.UUID;
 
 @Component
 public class ExecutionEngine {
 
-	private final ExecutorManager executorManager;
+	private final AgentResolver agentResolver;
 	private final ExecutionRecordManager executionRecordManager;
-	private final AgentSelector agentSelector;
 	private final GitExecutor gitExecutor;
 
-	public ExecutionEngine(ExecutorManager executorManager, ExecutionRecordManager executionRecordManager,
-			AgentSelector agentSelector, GitExecutor gitExecutor) {
-		this.executorManager = executorManager;
+	public ExecutionEngine(AgentResolver agentResolver, ExecutionRecordManager executionRecordManager,
+			GitExecutor gitExecutor) {
+		this.agentResolver = agentResolver;
 		this.executionRecordManager = executionRecordManager;
-		this.agentSelector = agentSelector;
 		this.gitExecutor = gitExecutor;
 	}
 
 	public ExecutionResult execute(TaskDefinition taskDefinition) {
-		String agentName = resolveAgentName(taskDefinition);
-		AgentExecutor executor = executorManager.getExecutor(agentName);
+		String agentName = taskDefinition.getAgentName();
 		ExecutionResult result;
 		GitResult beforeGitStatus = null;
 		GitResult afterGitDiff = null;
-		if (executor == null) {
-			result = failedResult(taskDefinition, agentName);
-		}
-		else {
-			ExecutionContext context = createContext(taskDefinition, agentName);
+		try {
+			ResolvedAgent resolvedAgent = agentResolver.resolve(taskDefinition);
+			agentName = resolvedAgent.definition().getName();
+			AgentExecutor executor = resolvedAgent.executor();
+			ExecutionContext context = createContext(taskDefinition, resolvedAgent.definition());
 			beforeGitStatus = gitExecutor.status(context.getWorkspace());
 			result = executor.execute(context);
 			afterGitDiff = gitExecutor.diff(context.getWorkspace());
+		}
+		catch (AgentResolutionException exception) {
+			result = failedResult(exception.getMessage());
 		}
 
 		ExecutionReport report = createReport(taskDefinition, agentName, result,
@@ -51,38 +51,22 @@ public class ExecutionEngine {
 		return result;
 	}
 
-	private String resolveAgentName(TaskDefinition taskDefinition) {
-		List<String> requiredCapabilities = taskDefinition.getRequiredCapabilities();
-		if (requiredCapabilities == null || requiredCapabilities.isEmpty()) {
-			return taskDefinition.getAgentName();
-		}
-
-		AgentDefinition selectedAgent = agentSelector.select(requiredCapabilities);
-		return selectedAgent == null ? null : selectedAgent.getName();
-	}
-
-	private ExecutionContext createContext(TaskDefinition taskDefinition, String agentName) {
+	private ExecutionContext createContext(TaskDefinition taskDefinition, AgentDefinition agent) {
 		ExecutionContext context = new ExecutionContext();
 		context.setTaskId(taskDefinition.getId());
 		context.setTaskName(taskDefinition.getName());
 		context.setDescription(taskDefinition.getDescription());
-		context.setAgentName(agentName);
+		context.setAgentName(agent.getName());
+		context.setExternalAgentId(agent.getExternalId());
 		context.setInput(taskDefinition.getDescription());
 		context.setWorkspace(System.getProperty("user.dir"));
 		return context;
 	}
 
-	private ExecutionResult failedResult(TaskDefinition taskDefinition, String agentName) {
+	private ExecutionResult failedResult(String message) {
 		ExecutionResult result = new ExecutionResult();
 		result.setSuccess(false);
-		if (taskDefinition.getRequiredCapabilities() != null
-				&& !taskDefinition.getRequiredCapabilities().isEmpty()) {
-			result.setMessage("Agent not found for required capabilities: "
-				+ taskDefinition.getRequiredCapabilities());
-		}
-		else {
-			result.setMessage("Agent not found: " + agentName);
-		}
+		result.setMessage(message);
 		result.setOutput(null);
 		return result;
 	}

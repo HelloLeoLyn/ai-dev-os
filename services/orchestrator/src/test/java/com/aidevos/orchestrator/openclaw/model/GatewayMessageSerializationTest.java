@@ -33,7 +33,7 @@ class GatewayMessageSerializationTest {
 				""", GatewayResponse.class);
 		GatewayEvent event = objectMapper.readValue(
 				"""
-				{"type":"event","event":"task.updated","payload":{"id":"task-1"},"seq":2,"stateVersion":3}
+				{"type":"event","event":"task.updated","payload":{"id":"task-1"},"seq":2,"stateVersion":{"presence":2,"health":3}}
 				""", GatewayEvent.class);
 
 		assertTrue(response.ok());
@@ -42,6 +42,7 @@ class GatewayMessageSerializationTest {
 		assertEquals("task.updated", event.event());
 		assertEquals("task-1", event.payload().get("id"));
 		assertEquals(2L, event.seq());
-		assertEquals(3L, event.stateVersion());
+		assertEquals(2L, event.stateVersion().presence());
+		assertEquals(3L, event.stateVersion().health());
 	}
 }

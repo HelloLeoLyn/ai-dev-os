@@ -6,6 +6,7 @@ public class ExecutionContext {
 	private String taskName;
 	private String description;
 	private String agentName;
+	private String externalAgentId;
 	private String input;
 	private String workspace;
 
@@ -42,6 +43,14 @@ public class ExecutionContext {
 
 	public void setAgentName(String agentName) {
 		this.agentName = agentName;
+	}
+
+	public String getExternalAgentId() {
+		return externalAgentId;
+	}
+
+	public void setExternalAgentId(String externalAgentId) {
+		this.externalAgentId = externalAgentId;
 	}
 
 	public String getInput() {

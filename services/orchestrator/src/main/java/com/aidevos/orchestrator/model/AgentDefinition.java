@@ -6,11 +6,12 @@ public class AgentDefinition {
 
 	private String name;
 	private String executor;
+	private String externalId;
 	private List<String> capabilities;
 	private String type;
 	private String description;
 	private String permissionLevel;
-	private boolean enabled;
+	private boolean enabled = true;
 
 	public AgentDefinition() {
 	}
@@ -29,6 +30,14 @@ public class AgentDefinition {
 
 	public void setExecutor(String executor) {
 		this.executor = executor;
+	}
+
+	public String getExternalId() {
+		return externalId;
+	}
+
+	public void setExternalId(String externalId) {
+		this.externalId = externalId;
 	}
 
 	public List<String> getCapabilities() {

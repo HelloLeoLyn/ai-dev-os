@@ -55,7 +55,7 @@ public class DashboardService {
 	private JobStatistics jobStatistics(List<ExecutionJob> jobs) {
 		long queued = countJobs(jobs, JobStatus.QUEUED);
 		long running = countJobs(jobs, JobStatus.RUNNING);
-		long succeeded = countJobs(jobs, JobStatus.SUCCEEDED);
+		long succeeded = countJobs(jobs, JobStatus.SUCCESS);
 		long failed = countJobs(jobs, JobStatus.FAILED);
 		return new JobStatistics(jobs.size(), queued, running, succeeded, failed,
 			percentage(succeeded, succeeded + failed));

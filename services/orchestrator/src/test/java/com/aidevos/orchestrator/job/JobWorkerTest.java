@@ -41,7 +41,7 @@ class JobWorkerTest {
 		});
 		ExecutionJob job = execute(engine, recordManager);
 
-		awaitStatus(job, JobStatus.SUCCEEDED);
+		awaitStatus(job, JobStatus.SUCCESS);
 
 		assertEquals(result, job.getResult());
 		assertEquals("record-1", job.getExecutionRecordId());

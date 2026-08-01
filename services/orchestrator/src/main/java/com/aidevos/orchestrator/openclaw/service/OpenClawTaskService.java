@@ -2,9 +2,11 @@ package com.aidevos.orchestrator.openclaw.service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 import com.aidevos.orchestrator.openclaw.client.OpenClawClient;
+import com.aidevos.orchestrator.openclaw.config.OpenClawProperties;
 import com.aidevos.orchestrator.openclaw.model.GatewayResponse;
 import com.aidevos.orchestrator.openclaw.model.OpenClawTaskRequest;
 import com.aidevos.orchestrator.openclaw.model.OpenClawTaskResult;
@@ -22,18 +24,21 @@ public class OpenClawTaskService {
 	private static final String STATUS_PENDING = "pending";
 
 	private final OpenClawClient openClawClient;
+	private final OpenClawProperties properties;
 
-	public OpenClawTaskService(OpenClawClient openClawClient) {
+	public OpenClawTaskService(OpenClawClient openClawClient, OpenClawProperties properties) {
 		this.openClawClient = openClawClient;
+		this.properties = properties;
 	}
 
 	public CompletableFuture<OpenClawTaskResult> execute(OpenClawTaskRequest request) {
 		validateRequest(request);
 		Map<String, Object> agentParams = Map.of(
 				"agentId", request.agentId(),
-				"message", request.message());
+				"message", request.message(),
+				"idempotencyKey", UUID.randomUUID().toString());
 
-		return openClawClient.request("agent", agentParams)
+		return request("agent", agentParams)
 			.thenCompose(agentResponse -> waitForAgent(agentResponse));
 	}
 
@@ -41,7 +46,9 @@ public class OpenClawTaskService {
 		String runId = requiredString(agentResponse.payload(), "runId", "agent");
 		String sessionKey = requiredString(agentResponse.payload(), "sessionKey", "agent");
 
-		return openClawClient.request("agent.wait", Map.of("runId", runId))
+		return request("agent.wait", Map.of(
+				"runId", runId,
+				"timeoutMs", properties.getAgentWaitTimeout().toMillis()))
 			.thenCompose(waitResponse -> handleWaitResponse(runId, sessionKey, waitResponse));
 	}
 
@@ -59,9 +66,16 @@ public class OpenClawTaskService {
 	}
 
 	private CompletableFuture<OpenClawTaskResult> loadHistory(String runId, String sessionKey) {
-		return openClawClient.request("chat.history", Map.of("sessionKey", sessionKey))
+		return request("chat.history", Map.of("sessionKey", sessionKey))
 			.thenApply(historyResponse -> new OpenClawTaskResult(
 					runId, sessionKey, STATUS_OK, parseHistoryOutput(historyResponse.payload())));
+	}
+
+	private CompletableFuture<GatewayResponse> request(String method, Map<String, Object> params) {
+		if (!openClawClient.isConnected()) {
+			openClawClient.connect().join();
+		}
+		return openClawClient.request(method, params);
 	}
 
 	private String parseHistoryOutput(Map<String, Object> payload) {
@@ -69,20 +83,44 @@ public class OpenClawTaskService {
 			throw new IllegalStateException("chat.history response is missing messages");
 		}
 
-		StringBuilder output = new StringBuilder();
+		String output = null;
 		for (Object item : messages) {
 			if (!(item instanceof Map<?, ?> message) || !"assistant".equals(message.get("role"))) {
 				continue;
 			}
-			Object content = message.get("content");
-			if (content instanceof String text && !text.isBlank()) {
-				if (!output.isEmpty()) {
-					output.append(System.lineSeparator());
-				}
-				output.append(text);
+			String text = extractText(message.get("content"));
+			if (text != null && !text.isBlank()) {
+				output = text;
 			}
 		}
-		return output.toString();
+		if (output == null) {
+			throw new IllegalStateException("chat.history response has no assistant output");
+		}
+		return output;
+	}
+
+	private String extractText(Object content) {
+		if (content instanceof String text) {
+			return text;
+		}
+		if (!(content instanceof List<?> parts)) {
+			return null;
+		}
+
+		StringBuilder text = new StringBuilder();
+		for (Object partValue : parts) {
+			if (!(partValue instanceof Map<?, ?> part)
+					|| !"text".equals(part.get("type"))
+					|| !(part.get("text") instanceof String value)
+					|| value.isBlank()) {
+				continue;
+			}
+			if (!text.isEmpty()) {
+				text.append(System.lineSeparator());
+			}
+			text.append(value);
+		}
+		return text.toString();
 	}
 
 	private String requiredString(Map<String, Object> payload, String field, String method) {

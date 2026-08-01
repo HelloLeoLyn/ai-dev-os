@@ -1,6 +1,8 @@
 package com.aidevos.orchestrator.execution;
 
+import com.aidevos.orchestrator.agent.AgentResolver;
 import com.aidevos.orchestrator.agent.AgentSelector;
+import com.aidevos.orchestrator.agent.ResolvedAgent;
 import com.aidevos.orchestrator.executor.AgentExecutor;
 import com.aidevos.orchestrator.executor.ExecutorManager;
 import com.aidevos.orchestrator.executor.ExecutorRegistry;
@@ -68,9 +70,9 @@ class ExecutionEngineTest {
 		CapturingExecutor capturingExecutor = new CapturingExecutor();
 		ExecutorRegistry executorRegistry = new ExecutorRegistry(List.of(capturingExecutor));
 		ExecutionEngine executionEngine = new ExecutionEngine(
-			new ExecutorManager(agentManager, executorRegistry),
-			executionRecordManager, new AgentSelector(agentManager), createGitExecutor());
-		TaskDefinition taskDefinition = createTask("legacy-agent");
+			createAgentResolver(agentManager, executorRegistry),
+			executionRecordManager, createGitExecutor());
+		TaskDefinition taskDefinition = createTask(null);
 		taskDefinition.setName("Plan implementation");
 		taskDefinition.setRequiredCapabilities(List.of("coding"));
 
@@ -82,6 +84,7 @@ class ExecutionEngineTest {
 		assertEquals("Plan implementation", context.getTaskName());
 		assertEquals("Create an implementation plan", context.getDescription());
 		assertEquals("executor", context.getAgentName());
+		assertEquals("external-executor", context.getExternalAgentId());
 		assertEquals("Create an implementation plan", context.getInput());
 		assertEquals(System.getProperty("user.dir"), context.getWorkspace());
 	}
@@ -91,7 +94,7 @@ class ExecutionEngineTest {
 		AgentManager agentManager = createAgentManager();
 		ExecutionRecordManager executionRecordManager = new ExecutionRecordManager();
 		ExecutionEngine executionEngine = createExecutionEngine(agentManager, executionRecordManager);
-		TaskDefinition taskDefinition = createTask("planner");
+		TaskDefinition taskDefinition = createTask(null);
 		taskDefinition.setRequiredCapabilities(List.of("unknown"));
 
 		ExecutionResult result = executionEngine.execute(taskDefinition);
@@ -113,7 +116,7 @@ class ExecutionEngineTest {
 
 	@Test
 	void shouldRecordGitStatusBeforeExecutionAndGitDiffAfterExecution() {
-		ExecutorManager executorManager = mock(ExecutorManager.class);
+		AgentResolver agentResolver = mock(AgentResolver.class);
 		AgentExecutor agentExecutor = mock(AgentExecutor.class);
 		GitExecutor gitExecutor = mock(GitExecutor.class);
 		ExecutionRecordManager executionRecordManager = new ExecutionRecordManager();
@@ -126,13 +129,14 @@ class ExecutionEngineTest {
 		GitResult diffResult = successfulGitResult(" README.md | 2 ++");
 		String workspace = System.getProperty("user.dir");
 
-		when(executorManager.getExecutor("planner")).thenReturn(agentExecutor);
+		AgentDefinition agentDefinition = createAgent("planner", List.of("analysis"));
+		when(agentResolver.resolve(taskDefinition)).thenReturn(new ResolvedAgent(agentDefinition, agentExecutor));
 		when(gitExecutor.status(workspace)).thenReturn(statusResult);
 		when(agentExecutor.execute(org.mockito.ArgumentMatchers.any(ExecutionContext.class)))
 			.thenReturn(executionResult);
 		when(gitExecutor.diff(workspace)).thenReturn(diffResult);
-		ExecutionEngine executionEngine = new ExecutionEngine(executorManager,
-			executionRecordManager, mock(AgentSelector.class), gitExecutor);
+		ExecutionEngine executionEngine = new ExecutionEngine(agentResolver,
+			executionRecordManager, gitExecutor);
 
 		ExecutionResult result = executionEngine.execute(taskDefinition);
 
@@ -157,7 +161,7 @@ class ExecutionEngineTest {
 		AgentManager agentManager = createAgentManager();
 		ExecutionRecordManager executionRecordManager = new ExecutionRecordManager();
 		ExecutionEngine executionEngine = createExecutionEngine(agentManager, executionRecordManager);
-		TaskDefinition taskDefinition = createTask("legacy-agent");
+		TaskDefinition taskDefinition = createTask(null);
 		taskDefinition.setRequiredCapabilities(requiredCapabilities);
 
 		ExecutionResult result = executionEngine.execute(taskDefinition);
@@ -171,8 +175,14 @@ class ExecutionEngineTest {
 	private ExecutionEngine createExecutionEngine(AgentManager agentManager,
 			ExecutionRecordManager executionRecordManager) {
 		ExecutorRegistry executorRegistry = new ExecutorRegistry(List.of(new MockAgentExecutor()));
-		return new ExecutionEngine(new ExecutorManager(agentManager, executorRegistry),
-			executionRecordManager, new AgentSelector(agentManager), createGitExecutor());
+		return new ExecutionEngine(createAgentResolver(agentManager, executorRegistry),
+			executionRecordManager, createGitExecutor());
+	}
+
+	private AgentResolver createAgentResolver(AgentManager agentManager,
+			ExecutorRegistry executorRegistry) {
+		return new AgentResolver(agentManager, new AgentSelector(agentManager),
+			new ExecutorManager(agentManager, executorRegistry));
 	}
 
 	private GitExecutor createGitExecutor() {
@@ -202,6 +212,7 @@ class ExecutionEngineTest {
 		AgentDefinition agentDefinition = new AgentDefinition();
 		agentDefinition.setName(name);
 		agentDefinition.setExecutor("mock");
+		agentDefinition.setExternalId("external-" + name);
 		agentDefinition.setCapabilities(capabilities);
 		return agentDefinition;
 	}
