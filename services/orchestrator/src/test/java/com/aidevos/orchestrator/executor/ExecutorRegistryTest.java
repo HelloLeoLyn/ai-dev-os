@@ -1,6 +1,7 @@
 package com.aidevos.orchestrator.executor;
 
 import com.aidevos.orchestrator.executor.command.CommandExecutor;
+import com.aidevos.orchestrator.openclaw.service.OpenClawTaskService;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -30,7 +31,7 @@ class ExecutorRegistryTest {
 
 	@Test
 	void shouldRegisterOpenClawExecutor() {
-		OpenClawExecutor openClawExecutor = new OpenClawExecutor(mock(CommandExecutor.class));
+		OpenClawExecutor openClawExecutor = new OpenClawExecutor(mock(OpenClawTaskService.class));
 		ExecutorRegistry executorRegistry = new ExecutorRegistry(List.of(openClawExecutor));
 
 		assertSame(openClawExecutor, executorRegistry.get("openclaw"));

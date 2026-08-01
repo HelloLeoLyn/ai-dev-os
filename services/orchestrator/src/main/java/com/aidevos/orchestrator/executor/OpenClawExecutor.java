@@ -2,21 +2,19 @@ package com.aidevos.orchestrator.executor;
 
 import com.aidevos.orchestrator.execution.ExecutionContext;
 import com.aidevos.orchestrator.execution.ExecutionResult;
-import com.aidevos.orchestrator.executor.command.CommandExecutor;
-import com.aidevos.orchestrator.executor.command.CommandOptions;
-import com.aidevos.orchestrator.executor.command.CommandResult;
-
-import java.util.List;
+import com.aidevos.orchestrator.openclaw.model.OpenClawTaskRequest;
+import com.aidevos.orchestrator.openclaw.model.OpenClawTaskResult;
+import com.aidevos.orchestrator.openclaw.service.OpenClawTaskService;
 
 import org.springframework.stereotype.Component;
 
 @Component
 public class OpenClawExecutor implements AgentExecutor {
 
-	private final CommandExecutor commandExecutor;
+	private final OpenClawTaskService taskService;
 
-	public OpenClawExecutor(CommandExecutor commandExecutor) {
-		this.commandExecutor = commandExecutor;
+	public OpenClawExecutor(OpenClawTaskService taskService) {
+		this.taskService = taskService;
 	}
 
 	@Override
@@ -26,20 +24,25 @@ public class OpenClawExecutor implements AgentExecutor {
 
 	@Override
 	public ExecutionResult execute(ExecutionContext context) {
-		CommandOptions options = new CommandOptions();
-		options.setCommand(List.of("openclaw", "--help"));
-		options.setWorkingDirectory(context.getWorkspace());
-		CommandResult commandResult = commandExecutor.execute(options);
+		OpenClawTaskRequest request = new OpenClawTaskRequest(context.getAgentName(), context.getInput());
+		OpenClawTaskResult taskResult = taskService.execute(request).join();
 
 		ExecutionResult result = new ExecutionResult();
-		result.setSuccess(commandResult.isSuccess());
-		if (commandResult.isSuccess()) {
+		result.setSuccess(taskResult.successful());
+		if (taskResult.successful()) {
 			result.setMessage("Task executed successfully");
-			result.setOutput(commandResult.getOutput());
+			result.setOutput(taskResult.output());
 		}
 		else {
-			result.setMessage(commandResult.getError());
+			result.setMessage(failureMessage(taskResult));
 		}
 		return result;
+	}
+
+	private String failureMessage(OpenClawTaskResult taskResult) {
+		if (taskResult.output() != null && !taskResult.output().isBlank()) {
+			return taskResult.output();
+		}
+		return "OpenClaw task failed: " + taskResult.status();
 	}
 }
