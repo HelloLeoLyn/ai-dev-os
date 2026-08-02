@@ -15,6 +15,11 @@ public class StepTaskFactory {
 
 	public TaskDefinition create(PlanRun planRun, PlanStep step, StepRun stepRun,
 			StepAttempt attempt) {
+		return create(planRun, step, stepRun, attempt, Map.of());
+	}
+
+	public TaskDefinition create(PlanRun planRun, PlanStep step, StepRun stepRun,
+			StepAttempt attempt, Map<String, Object> resolvedInputs) {
 		TaskDefinition task = new TaskDefinition();
 		task.setId(planRun.getId() + ":" + step.id() + ":" + attempt.getNumber());
 		task.setName(step.name());
@@ -22,11 +27,17 @@ public class StepTaskFactory {
 		task.setAgentName(step.assignment().agentName());
 		task.setRequiredCapabilities(step.assignment().requiredCapabilities());
 		Map<String, Object> parameters = new LinkedHashMap<>();
+		parameters.putAll(step.parameters());
+		if (resolvedInputs != null && !resolvedInputs.isEmpty()) {
+			parameters.put("inputs", Map.copyOf(resolvedInputs));
+		}
 		if (step.toolName() != null && !step.toolName().isBlank()) {
 			parameters.put("tool", Map.of("provider", step.toolProviderId(),
 				"name", step.toolName(), "arguments", step.toolArguments()));
 		}
-		else {
+		else if (step.parameters().isEmpty()) {
+			// Preserve the Phase 5 constructor contract where toolArguments carried
+			// ordinary step parameters for non-tool steps.
 			parameters.putAll(step.toolArguments());
 		}
 		task.setParameters(parameters);

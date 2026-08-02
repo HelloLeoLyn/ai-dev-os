@@ -47,6 +47,7 @@ public class PlanValidator {
 			validateStep(step, plan.snapshot(), errors);
 		}
 		validateDependencies(plan.dependencies(), steps, errors);
+		validateArtifactReferences(plan, steps, errors);
 		validateDag(plan.dependencies(), steps.keySet(), errors);
 	}
 
@@ -189,6 +190,48 @@ public class PlanValidator {
 			if (!seen.add(key)) {
 				errors.add("DEPENDENCY_DUPLICATE:" + dependency.fromStepId()
 					+ "->" + dependency.toStepId());
+			}
+		}
+	}
+
+	private void validateArtifactReferences(Plan plan, Map<String, PlanStep> steps,
+			List<String> errors) {
+		Set<String> dependencyKeys = new HashSet<>();
+		plan.dependencies().stream().filter(java.util.Objects::nonNull)
+			.forEach(dependency -> dependencyKeys.add(dependency.fromStepId() + "\u0000"
+				+ dependency.toStepId()));
+		for (PlanStep step : plan.steps()) {
+			if (step == null) {
+				continue;
+			}
+			Set<String> inputKeys = new HashSet<>();
+			for (ArtifactReference reference : step.inputArtifacts()) {
+				if (reference == null || blank(reference.fromStepId())
+						|| blank(reference.artifactType()) || blank(reference.inputKey())) {
+					errors.add("ARTIFACT_REFERENCE_INCOMPLETE:" + step.id());
+					continue;
+				}
+				if (!inputKeys.add(reference.inputKey())) {
+					errors.add("ARTIFACT_INPUT_KEY_DUPLICATE:" + step.id() + ":"
+						+ reference.inputKey());
+				}
+				PlanStep source = steps.get(reference.fromStepId());
+				if (source == null) {
+					errors.add("ARTIFACT_SOURCE_STEP_UNKNOWN:" + reference.fromStepId());
+					continue;
+				}
+				if (!dependencyKeys.contains(reference.fromStepId() + "\u0000" + step.id())) {
+					errors.add("ARTIFACT_SOURCE_DEPENDENCY_REQUIRED:" + reference.fromStepId()
+						+ "->" + step.id());
+				}
+				boolean declared = source.expectedArtifacts().stream().anyMatch(artifact ->
+					artifact != null && reference.artifactType().equals(artifact.type())
+						&& (blank(reference.artifactName())
+							|| reference.artifactName().equals(artifact.name())));
+				if (!declared) {
+					errors.add("ARTIFACT_SOURCE_NOT_DECLARED:" + reference.fromStepId() + ":"
+						+ reference.artifactType());
+				}
 			}
 		}
 	}

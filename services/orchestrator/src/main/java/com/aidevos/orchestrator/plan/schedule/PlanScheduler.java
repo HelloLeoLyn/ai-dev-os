@@ -20,6 +20,7 @@ import com.aidevos.orchestrator.job.JobStatus;
 import com.aidevos.orchestrator.job.JobSubmissionResponse;
 import com.aidevos.orchestrator.model.TaskDefinition;
 import com.aidevos.orchestrator.plan.Dependency;
+import com.aidevos.orchestrator.plan.ArtifactReference;
 import com.aidevos.orchestrator.plan.ExpectedArtifact;
 import com.aidevos.orchestrator.plan.Plan;
 import com.aidevos.orchestrator.plan.PlanStep;
@@ -48,6 +49,7 @@ public class PlanScheduler {
 	private final ReplanRequestService replanRequestService;
 	private final Clock clock;
 	private final Map<String, PlanRun> runs = new ConcurrentHashMap<>();
+	private final Map<String, String> runIdsByApproval = new ConcurrentHashMap<>();
 	private final ScheduledExecutorService monitor = Executors.newSingleThreadScheduledExecutor(
 		Thread.ofPlatform().daemon().name("plan-run-monitor").factory());
 
@@ -73,10 +75,13 @@ public class PlanScheduler {
 			TimeUnit.MILLISECONDS);
 	}
 
-	public PlanRun start(String approvalId) {
+	public synchronized PlanRun start(String approvalId) {
 		PlanApprovalRequest approval = approvalService.get(approvalId);
 		if (approval == null) {
 			throw new IllegalArgumentException("Plan approval not found: " + approvalId);
+		}
+		if (runIdsByApproval.containsKey(approvalId)) {
+			throw new IllegalStateException("Plan approval has already started a run");
 		}
 		if (approval.getStatus() != ApprovalStatus.APPROVED) {
 			throw new IllegalStateException("Plan must be approved before execution");
@@ -87,10 +92,33 @@ public class PlanScheduler {
 			.toList();
 		PlanRun run = new PlanRun(UUID.randomUUID().toString(), approvalId, plan, stepRuns,
 			Instant.now(clock));
-		runs.put(run.getId(), run);
+		register(approvalId, run);
+		try {
+			PlanApprovalRequest consumed = approvalService.consume(approvalId);
+			if (consumed.getStatus() != ApprovalStatus.CONSUMED) {
+				throw new IllegalStateException("Plan approval was not consumed");
+			}
+		}
+		catch (RuntimeException exception) {
+			unregister(approvalId, run.getId());
+			throw exception;
+		}
 		run.markRunning(Instant.now(clock));
 		advance(run);
 		return run;
+	}
+
+	private void register(String approvalId, PlanRun run) {
+		String existingRunId = runIdsByApproval.putIfAbsent(approvalId, run.getId());
+		if (existingRunId != null) {
+			throw new IllegalStateException("Plan approval has already started a run");
+		}
+		runs.put(run.getId(), run);
+	}
+
+	private void unregister(String approvalId, String runId) {
+		runs.remove(runId);
+		runIdsByApproval.remove(approvalId, runId);
 	}
 
 	public PlanRun get(String runId) {
@@ -177,13 +205,48 @@ public class PlanScheduler {
 		PlanStep definition = step(run.getPlan(), next.getStepId());
 		StepAttempt attempt = next.startAttempt(UUID.randomUUID().toString(), Instant.now(clock));
 		try {
-			TaskDefinition task = taskFactory.create(run, definition, next, attempt);
+			TaskDefinition task = taskFactory.create(run, definition, next, attempt,
+				resolveInputs(run, definition));
 			JobSubmissionResponse submission = jobService.submit(task);
 			attempt.bindJob(submission.jobId());
 		}
 		catch (RuntimeException exception) {
 			fail(run, next, attempt, errorMessage(exception), null, null, false);
 		}
+	}
+
+	private Map<String, Object> resolveInputs(PlanRun run, PlanStep step) {
+		Map<String, Object> inputs = new java.util.LinkedHashMap<>();
+		for (ArtifactReference reference : step.inputArtifacts()) {
+			StepRun sourceRun = stepRun(run, reference.fromStepId());
+			StepAttempt sourceAttempt = sourceRun.getCurrentAttempt();
+			ExecutionJob sourceJob = sourceAttempt == null ? null
+				: jobService.get(sourceAttempt.getJobId());
+			ExecutionArtifact artifact = sourceJob == null || sourceJob.getResult() == null
+				? null : sourceJob.getResult().getArtifacts().stream()
+					.filter(item -> reference.artifactType().equals(item.getType()))
+					.filter(item -> reference.artifactName() == null
+						|| reference.artifactName().isBlank()
+						|| reference.artifactName().equals(item.getName()))
+					.findFirst().orElse(null);
+			if (artifact == null) {
+				if (reference.required()) {
+					throw new IllegalStateException("Required input artifact is unavailable: "
+						+ reference.inputKey());
+				}
+				continue;
+			}
+			Map<String, Object> value = new java.util.LinkedHashMap<>();
+			value.put("fromStepId", reference.fromStepId());
+			value.put("executionRecordId", sourceJob.getExecutionRecordId());
+			value.put("type", artifact.getType());
+			value.put("name", artifact.getName());
+			value.put("mediaType", artifact.getMediaType());
+			value.put("uri", artifact.getUri());
+			value.put("content", artifact.getContent());
+			inputs.put(reference.inputKey(), value);
+		}
+		return inputs;
 	}
 
 	private boolean dependenciesSucceeded(PlanRun run, String stepId) {

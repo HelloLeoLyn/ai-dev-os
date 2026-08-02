@@ -37,12 +37,27 @@ public class BrowserTaskPromptBuilder {
 			Use the browser tool to perform exactly the browser operation below.
 			Do not use shell commands or a separate browser driver.
 			Task description: %s
+			Explicit inputs from approved predecessor artifacts: %s
 			Browser operation: %s
 
 			Return only one JSON object with this shape:
 			{"output":"short result summary","artifacts":[{"type":"screenshot","name":"screenshot.png","mediaType":"image/png","uri":"path-or-uri"}]}
 			Use an empty artifacts array when the operation produces no file. Preserve any screenshot path or URI returned by the browser tool.
-			""".formatted(description == null ? "" : description, writeJson(operation));
+			""".formatted(description == null ? "" : description,
+				writeJson(inputParameters(parameters)), writeJson(operation));
+	}
+
+	private Map<String, Object> inputParameters(Map<String, Object> parameters) {
+		if (parameters == null || !(parameters.get("inputs") instanceof Map<?, ?> source)) {
+			return Map.of();
+		}
+		Map<String, Object> inputs = new LinkedHashMap<>();
+		for (Map.Entry<?, ?> entry : source.entrySet()) {
+			if (entry.getKey() instanceof String key) {
+				inputs.put(key, entry.getValue());
+			}
+		}
+		return inputs;
 	}
 
 	private Map<String, Object> browserParameters(Map<String, Object> parameters) {

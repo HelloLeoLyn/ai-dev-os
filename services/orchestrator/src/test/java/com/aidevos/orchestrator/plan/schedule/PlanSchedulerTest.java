@@ -12,12 +12,14 @@ import java.util.Set;
 
 import com.aidevos.orchestrator.execution.ExecutionArtifact;
 import com.aidevos.orchestrator.execution.ExecutionResult;
+import com.aidevos.orchestrator.approval.ApprovalStatus;
 import com.aidevos.orchestrator.job.ExecutionJob;
 import com.aidevos.orchestrator.job.JobService;
 import com.aidevos.orchestrator.job.JobStatus;
 import com.aidevos.orchestrator.job.JobSubmissionResponse;
 import com.aidevos.orchestrator.model.TaskDefinition;
 import com.aidevos.orchestrator.plan.AgentAssignment;
+import com.aidevos.orchestrator.plan.ArtifactReference;
 import com.aidevos.orchestrator.plan.Dependency;
 import com.aidevos.orchestrator.plan.ExpectedArtifact;
 import com.aidevos.orchestrator.plan.FailurePolicy;
@@ -42,7 +44,10 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class PlanSchedulerTest {
@@ -56,6 +61,7 @@ class PlanSchedulerTest {
 	private ReplanRequestService replanRequestService;
 	private ReplanRequestStore replanRequestStore;
 	private PlanScheduler scheduler;
+	private PlanApprovalRequest currentApproval;
 
 	@BeforeEach
 	void setUp() {
@@ -66,6 +72,10 @@ class PlanSchedulerTest {
 			new FailureClassifier(), Clock.fixed(NOW, ZoneOffset.UTC));
 		when(jobService.submit(any())).thenAnswer(invocation -> submit(invocation.getArgument(0)));
 		when(jobService.get(any())).thenAnswer(invocation -> jobs.get(invocation.getArgument(0)));
+		when(approvalService.consume(any())).thenAnswer(invocation -> {
+			currentApproval.consume();
+			return currentApproval;
+		});
 		scheduler = new PlanScheduler(jobService, new StepTaskFactory(), approvalService,
 			replanRequestService,
 			Clock.fixed(NOW, ZoneOffset.UTC));
@@ -102,6 +112,37 @@ class PlanSchedulerTest {
 		assertEquals(PlanRunStatus.SUCCESS, run.getStatus());
 		assertEquals(List.of(StepRunStatus.SUCCESS, StepRunStatus.SUCCESS),
 			run.getSteps().stream().map(step -> step.getStatus()).toList());
+	}
+
+	@Test
+	void shouldPassOnlyExplicitlyReferencedArtifactsToDependentStep() {
+		PlanStep source = new PlanStep("source", "Source", "Produce evidence",
+			StepStatus.PLANNED, new AgentAssignment("coder", List.of("coding"), List.of()),
+			Map.of(), List.of(), null, null, Map.of(),
+			List.of(new ExpectedArtifact("text", "result", "text/plain", true, 1)),
+			RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN, false);
+		PlanStep consumer = new PlanStep("consumer", "Consumer", "Use evidence",
+			StepStatus.PLANNED, new AgentAssignment("coder", List.of("coding"), List.of()),
+			Map.of("mode", "focused"),
+			List.of(new ArtifactReference("source", "text", "result", "evidence", true)),
+			null, null, Map.of(), List.of(), RetryPolicy.noRetry(),
+			FailurePolicy.STOP_PLAN, false);
+		Plan plan = plan(List.of(source, consumer),
+			List.of(new Dependency("source", "consumer", true)));
+		approve(plan);
+
+		scheduler.start("approval-1");
+		ExecutionResult sourceResult = result(true, true);
+		sourceResult.getArtifacts().getFirst().setContent("explicit evidence");
+		job(0).markSucceeded(sourceResult, "record-source");
+		scheduler.reconcile();
+
+		Map<?, ?> inputs = (Map<?, ?>) submissions.get(1).getParameters().get("inputs");
+		Map<?, ?> evidence = (Map<?, ?>) inputs.get("evidence");
+		assertEquals("explicit evidence", evidence.get("content"));
+		assertEquals("record-source", evidence.get("executionRecordId"));
+		assertEquals("focused", submissions.get(1).getParameters().get("mode"));
+		assertEquals(Set.of("mode", "inputs"), submissions.get(1).getParameters().keySet());
 	}
 
 	@Test
@@ -163,16 +204,82 @@ class PlanSchedulerTest {
 		PlanRun run = scheduler.start("approval-1");
 
 		assertEquals(PlanRunStatus.RUNNING, run.getStatus());
+		assertEquals(ApprovalStatus.CONSUMED, currentApproval.getStatus());
+		assertEquals("approval-1", run.getApprovalId());
+		assertEquals(1, submissions.size());
+	}
+
+	@Test
+	void sameApprovalCannotStartASecondPlanRun() {
+		approve(plan(List.of(step("one", false)), List.of()));
+
+		PlanRun first = scheduler.start("approval-1");
+
+		assertThrows(IllegalStateException.class, () -> scheduler.start("approval-1"));
+		assertEquals(1, scheduler.getAll().size());
+		assertEquals(first.getId(), scheduler.getAll().getFirst().getId());
 		assertEquals(1, submissions.size());
 	}
 
 	@Test
 	void unapprovedPlanMustBeRejected() {
 		PlanApprovalRequest pending = approval(plan(List.of(step("one", false)), List.of()));
+		currentApproval = pending;
 		when(approvalService.get("approval-1")).thenReturn(pending);
 
 		assertThrows(IllegalStateException.class, () -> scheduler.start("approval-1"));
 		assertEquals(0, submissions.size());
+		verify(approvalService, never()).consume("approval-1");
+	}
+
+	@Test
+	void rejectedPlanMustBeRejected() {
+		PlanApprovalRequest rejected = approval(plan(List.of(step("one", false)), List.of()));
+		rejected.reject("reviewer", "unsafe", NOW);
+		currentApproval = rejected;
+		when(approvalService.get("approval-1")).thenReturn(rejected);
+
+		assertThrows(IllegalStateException.class, () -> scheduler.start("approval-1"));
+		assertEquals(0, submissions.size());
+		verify(approvalService, never()).consume("approval-1");
+	}
+
+	@Test
+	void consumedPlanMustBeRejected() {
+		approve(plan(List.of(step("one", false)), List.of()));
+		currentApproval.consume();
+
+		assertThrows(IllegalStateException.class, () -> scheduler.start("approval-1"));
+		assertEquals(0, submissions.size());
+	}
+
+	@Test
+	void planRunCreationFailureMustLeaveApprovalApproved() {
+		PlanApprovalRequest broken = mock(PlanApprovalRequest.class);
+		when(broken.getStatus()).thenReturn(ApprovalStatus.APPROVED);
+		when(broken.getPlan()).thenThrow(new IllegalStateException("plan unavailable"));
+		when(approvalService.get("approval-1")).thenReturn(broken);
+
+		assertThrows(IllegalStateException.class, () -> scheduler.start("approval-1"));
+
+		assertEquals(ApprovalStatus.APPROVED, broken.getStatus());
+		assertEquals(0, scheduler.getAll().size());
+		verify(approvalService, never()).consume("approval-1");
+	}
+
+	@Test
+	void firstJobSubmissionFailureMustLeaveConsumedApprovalAndFailedRun() {
+		approve(plan(List.of(step("one", false)), List.of()));
+		doThrow(new IllegalStateException("queue unavailable")).when(jobService).submit(any());
+
+		PlanRun run = scheduler.start("approval-1");
+
+		assertEquals(ApprovalStatus.CONSUMED, currentApproval.getStatus());
+		assertEquals(PlanRunStatus.FAILED, run.getStatus());
+		assertEquals("queue unavailable", run.getError());
+		assertEquals(StepRunStatus.FAILED, run.getSteps().getFirst().getStatus());
+		assertEquals(run.getId(), scheduler.getAll().getFirst().getId());
+		assertThrows(IllegalStateException.class, () -> scheduler.start("approval-1"));
 	}
 
 	@Test
@@ -203,6 +310,7 @@ class PlanSchedulerTest {
 	private void approve(Plan plan) {
 		PlanApprovalRequest approval = approval(plan);
 		approval.approve("reviewer", NOW);
+		currentApproval = approval;
 		when(approvalService.get("approval-1")).thenReturn(approval);
 	}
 

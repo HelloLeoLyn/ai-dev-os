@@ -10,6 +10,7 @@ public class CoderPromptBuilder {
 
 	public String build(ExecutionContext context) {
 		String testCommand = codingString(context, "testCommand");
+		Object inputs = context.getParameters().get("inputs");
 		String verification = testCommand == null
 			? "Run the smallest relevant verification available for the change."
 			: "Run this verification command if it is safe and applicable: " + testCommand;
@@ -19,8 +20,10 @@ public class CoderPromptBuilder {
 			Do not run git commit, git push, git reset, or destructive cleanup commands.
 			%s
 			Task: %s
+			Explicit inputs from approved predecessor artifacts: %s
 			Return a JSON object matching the provided output schema.
-			""".formatted(verification, context.getDescription());
+			""".formatted(verification, context.getDescription(),
+				inputs == null ? "{}" : inputs);
 	}
 
 	private String codingString(ExecutionContext context, String key) {
