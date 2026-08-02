@@ -18,13 +18,14 @@
 - Engine 完成 Agent 解析、Context 构造、Executor 调用、Result 返回和 ExecutionRecord 保存。
 - Agent 解析失败和 Executor `Exception` 会转换为失败结果。
 
-### 异步 Job 闭环
+### 异步 Job 与编码审批闭环
 
 - `JobService` 创建 Task 快照和 ExecutionJob。
 - `JobWorker` 使用有界队列和单线程 Worker。
-- Job 状态支持 QUEUED、RUNNING、SUCCESS、FAILED。
+- Job 状态支持 QUEUED、RUNNING、WAITING_APPROVAL、SUCCESS、FAILED。
 - Job 能关联 ExecutionRecord ID。
 - API 支持提交、按 ID 查询和按状态列表查询。
+- workspace-write 编码任务支持审批请求、批准后重新入队和拒绝结束；重新入队失败会恢复等待状态。
 
 ### Agent 注册与解析
 
@@ -50,6 +51,7 @@
 
 - 执行后生成 ExecutionRecord 和 ExecutionReport。
 - 提供摘要列表、状态/Task 过滤和详情 API。
+- 编码执行记录包含 Workspace、Sandbox、Approval、Git before/after、退出码、Codex threadId、起止时间和内嵌 Artifact。
 
 ### Schedule 与 Dashboard 基础能力
 
@@ -67,11 +69,11 @@
 
 ### Artifact
 
-`ExecutionResult.artifacts` 和 `ExecutionArtifact` 模型已存在。Browser 参数分支下的 OpenClaw Executor 能从约定 JSON 结果映射 Artifact；Mock、Codex 和普通 OpenClaw 执行仍只设置 message/output。ExecutionRecord 也没有独立 artifacts 字段或 Artifact 存储组件。
+`ExecutionResult.artifacts` 和 `ExecutionArtifact` 模型已存在。Browser 参数分支能映射截图等 Artifact；Codex 能生成 Git 状态、tracked/cached diff、untracked 列表与安全受限的文件内容、事件流和结果 Artifact，并随 ExecutionRecord 查询。仍没有独立 Artifact repository、下载 API 或对象存储。
 
 ### ExecutionContext 追踪字段
 
-ExecutionContext 已有 executionId、jobId、metadata 和 parameters。当前 Engine 只设置 parameters；executionId、jobId 和 metadata 没有在生产执行链中赋值。
+ExecutionContext 的 executionId、jobId、metadata 和 parameters 已进入生产执行链；后续仍需持久化和跨进程恢复。
 
 ### Executor 异常闭环
 
@@ -87,7 +89,7 @@ AgentDefinition 已有 type、description、permissionLevel，但 Resolver 和 C
 
 ### Codex Executor
 
-Codex Executor 能调用本地 CLI并读取 workspace/model 配置。当前没有 Codex 专属超时、取消、结构化输出解析、流式日志或 Artifact 转换；agents.yaml 中 workspace/model 默认为空。
+Codex Executor 已支持可配置 CLI 路径、正确的非交互 stdin EOF、approval policy、Workspace 允许根、Git 仓库校验、`read-only`/`workspace-write` Sandbox、写审批、硬超时、输出 schema、结构化摘要和 Artifact。仍缺少主动取消、实时流式事件和持久化 Artifact。
 
 ### OpenClaw Executor
 
@@ -95,11 +97,11 @@ OpenClaw 调用闭环已存在，但 `OpenClawExecutor.execute` 使用 `join()` 
 
 ### Command Approval
 
-策略和 `ApprovalGate` 类已经存在，但没有 Controller、持久化请求或人工批准交互。默认 application.properties 将 command policy 关闭。
+通用命令策略和 `ApprovalGate` 仍默认关闭；Coder Agent 另有 Task 级 Approval Controller 和内存审批流程。审批没有持久化、鉴权或操作者身份审计。
 
 ### Git 诊断
 
-`GitExecutor` 和 `ExecutionReport.beforeGitStatus/afterGitDiff` 仍存在；当前 `ExecutionEngine` 不调用 GitExecutor，因此新报告的两个字段默认未赋值。
+Codex Executor 通过 `GitInspector` 采集执行前后状态、分支、HEAD、diff、cached diff 和 NUL 分隔的 untracked 路径；ExecutionEngine 将关键内容和 approvalId 写入 ExecutionReport/ExecutionRecord。该诊断目前是 Codex 专属，不是所有 Executor 的通用步骤。
 
 ### 内存存储
 

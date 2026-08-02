@@ -7,7 +7,7 @@ import BaseCard from '../components/BaseCard.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import type { ExecutionJob, JobStatus } from '../types/job'
 
-const statusOptions: JobStatus[] = ['QUEUED', 'RUNNING', 'SUCCESS', 'FAILED']
+const statusOptions: JobStatus[] = ['QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'SUCCESS', 'FAILED']
 
 const jobs = ref<ExecutionJob[]>([])
 const selectedStatus = ref<JobStatus | ''>('')

@@ -14,6 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -33,7 +34,7 @@ class JobWorkerTest {
 		ExecutionEngine engine = mock(ExecutionEngine.class);
 		ExecutionRecordManager recordManager = new ExecutionRecordManager();
 		ExecutionResult result = result(true, "completed");
-		when(engine.execute(any(TaskDefinition.class))).thenAnswer(invocation -> {
+		when(engine.execute(any(TaskDefinition.class), anyString())).thenAnswer(invocation -> {
 			ExecutionRecord record = new ExecutionRecord();
 			record.setId("record-1");
 			recordManager.save(record);
@@ -56,7 +57,7 @@ class JobWorkerTest {
 	@Test
 	void shouldCompleteFailedExecution() throws Exception {
 		ExecutionEngine engine = mock(ExecutionEngine.class);
-		when(engine.execute(any(TaskDefinition.class))).thenReturn(result(false, "agent failed"));
+		when(engine.execute(any(TaskDefinition.class), anyString())).thenReturn(result(false, "agent failed"));
 		ExecutionJob job = execute(engine);
 
 		awaitStatus(job, JobStatus.FAILED);
@@ -68,12 +69,27 @@ class JobWorkerTest {
 	@Test
 	void shouldFailJobWhenEngineThrows() throws Exception {
 		ExecutionEngine engine = mock(ExecutionEngine.class);
-		when(engine.execute(any(TaskDefinition.class))).thenThrow(new AssertionError("engine crashed"));
+		when(engine.execute(any(TaskDefinition.class), anyString())).thenThrow(new AssertionError("engine crashed"));
 		ExecutionJob job = execute(engine);
 
 		awaitStatus(job, JobStatus.FAILED);
 
 		assertEquals("engine crashed", job.getError());
+	}
+
+	@Test
+	void shouldWaitForApprovalWithoutFailingJob() throws Exception {
+		ExecutionEngine engine = mock(ExecutionEngine.class);
+		ExecutionResult result = result(false, "APPROVAL_REQUIRED");
+		result.setApprovalRequired(true);
+		result.setApprovalId("approval-1");
+		when(engine.execute(any(TaskDefinition.class), anyString())).thenReturn(result);
+		ExecutionJob job = execute(engine);
+
+		awaitStatus(job, JobStatus.WAITING_APPROVAL);
+
+		assertEquals("approval-1", job.getApprovalId());
+		assertEquals(result, job.getResult());
 	}
 
 	private ExecutionJob execute(ExecutionEngine engine) {

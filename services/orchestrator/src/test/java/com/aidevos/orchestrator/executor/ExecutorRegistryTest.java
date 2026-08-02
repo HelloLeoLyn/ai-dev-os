@@ -4,6 +4,15 @@ import com.aidevos.orchestrator.executor.command.CommandExecutor;
 import com.aidevos.orchestrator.openclaw.service.OpenClawTaskService;
 import com.aidevos.orchestrator.browser.BrowserResultMapper;
 import com.aidevos.orchestrator.browser.BrowserTaskPromptBuilder;
+import com.aidevos.orchestrator.execution.workspace.WorkspaceResolver;
+import com.aidevos.orchestrator.executor.codex.CodexResultMapper;
+import com.aidevos.orchestrator.executor.git.GitInspector;
+import com.aidevos.orchestrator.approval.CodingApprovalService;
+import com.aidevos.orchestrator.execution.ArtifactContentLimiter;
+import com.aidevos.orchestrator.executor.codex.CodexProperties;
+import com.aidevos.orchestrator.executor.codex.CoderPromptBuilder;
+import com.aidevos.orchestrator.executor.codex.CodexOutputSchemaProvider;
+import com.aidevos.orchestrator.executor.git.UntrackedArtifactCollector;
 import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -26,7 +35,11 @@ class ExecutorRegistryTest {
 
 	@Test
 	void shouldRegisterCodexExecutor() {
-		CodexExecutor codexExecutor = new CodexExecutor(mock(CommandExecutor.class));
+		CodexExecutor codexExecutor = new CodexExecutor(mock(CommandExecutor.class),
+			mock(WorkspaceResolver.class), mock(GitInspector.class), mock(CodexResultMapper.class),
+			mock(CodingApprovalService.class), new ArtifactContentLimiter(10_000),
+			new CodexProperties(), new CoderPromptBuilder(), mock(CodexOutputSchemaProvider.class),
+			mock(UntrackedArtifactCollector.class));
 		ExecutorRegistry executorRegistry = new ExecutorRegistry(List.of(codexExecutor));
 
 		assertSame(codexExecutor, executorRegistry.get("codex"));

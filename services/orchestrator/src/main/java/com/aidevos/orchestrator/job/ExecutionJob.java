@@ -18,6 +18,7 @@ public class ExecutionJob {
 	private volatile String executionRecordId;
 	private volatile String resultSummary;
 	private volatile String errorMessage;
+	private volatile String approvalId;
 
 	public ExecutionJob(String id, TaskDefinition taskSnapshot) {
 		this.id = id;
@@ -58,6 +59,37 @@ public class ExecutionJob {
 		this.errorMessage = error;
 		status = JobStatus.FAILED;
 		completedAt = Instant.now();
+	}
+
+	public synchronized void markWaitingApproval(ExecutionResult result, String executionRecordId) {
+		this.result = result;
+		this.executionRecordId = executionRecordId;
+		this.approvalId = result.getApprovalId();
+		status = JobStatus.WAITING_APPROVAL;
+	}
+
+	public synchronized boolean resumeAfterApproval() {
+		if (status != JobStatus.WAITING_APPROVAL) {
+			return false;
+		}
+		status = JobStatus.QUEUED;
+		return true;
+	}
+
+	public synchronized void restoreWaitingApproval() {
+		if (status == JobStatus.QUEUED && approvalId != null) {
+			status = JobStatus.WAITING_APPROVAL;
+		}
+	}
+
+	public synchronized boolean rejectApproval() {
+		if (status != JobStatus.WAITING_APPROVAL) {
+			return false;
+		}
+		status = JobStatus.FAILED;
+		errorMessage = "Approval rejected";
+		completedAt = Instant.now();
+		return true;
 	}
 
 	private String summarize(ExecutionResult executionResult) {
@@ -117,4 +149,6 @@ public class ExecutionJob {
 	public String getError() {
 		return errorMessage;
 	}
+
+	public String getApprovalId() { return approvalId; }
 }

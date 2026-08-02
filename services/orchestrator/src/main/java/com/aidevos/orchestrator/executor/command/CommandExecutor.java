@@ -3,12 +3,14 @@ package com.aidevos.orchestrator.executor.command;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import com.aidevos.orchestrator.executor.command.approval.ApprovalDecision;
 import com.aidevos.orchestrator.executor.command.approval.ApprovalGate;
@@ -65,11 +67,22 @@ public class CommandExecutor {
 			}
 			process = processBuilder.start();
 			Process runningProcess = process;
+			closeInput(runningProcess.getOutputStream());
 
 			try (ExecutorService streamExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
 				Future<String> output = streamExecutor.submit(() -> read(runningProcess.getInputStream()));
 				Future<String> error = streamExecutor.submit(() -> read(runningProcess.getErrorStream()));
-				int exitCode = runningProcess.waitFor();
+				if (options.getTimeout() != null && !runningProcess.waitFor(
+						options.getTimeout().toNanos(), TimeUnit.NANOSECONDS)) {
+					runningProcess.descendants().forEach(ProcessHandle::destroyForcibly);
+					runningProcess.destroyForcibly();
+					runningProcess.waitFor();
+					return result(false, -1, "", "Command timed out after " + options.getTimeout());
+				}
+				if (options.getTimeout() == null) {
+					runningProcess.waitFor();
+				}
+				int exitCode = runningProcess.exitValue();
 
 				return result(exitCode == 0, exitCode, output.get(), error.get());
 			}
@@ -92,6 +105,10 @@ public class CommandExecutor {
 
 	private String read(InputStream inputStream) throws IOException {
 		return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+	}
+
+	private void closeInput(OutputStream input) throws IOException {
+		input.close();
 	}
 
 	private CommandResult result(boolean success, int exitCode, String output, String error) {

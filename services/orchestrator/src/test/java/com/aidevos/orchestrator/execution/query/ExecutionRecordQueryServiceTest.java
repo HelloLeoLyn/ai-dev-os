@@ -4,6 +4,7 @@ import java.util.List;
 
 import com.aidevos.orchestrator.execution.ExecutionRecordManager;
 import com.aidevos.orchestrator.execution.ExecutionReport;
+import com.aidevos.orchestrator.execution.ExecutionArtifact;
 import com.aidevos.orchestrator.model.ExecutionRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -73,6 +74,10 @@ class ExecutionRecordQueryServiceTest {
 		assertEquals("execution output", detail.output());
 		assertEquals(record.getReport(), detail.report());
 		assertEquals("git diff", detail.report().getAfterGitDiff());
+		assertEquals(1, detail.artifacts().size());
+		assertEquals("git-diff", detail.artifacts().getFirst().getType());
+		assertEquals("/workspace", detail.workspace());
+		assertEquals("workspace-write", detail.sandbox());
 		assertFalse(service.get("unknown").isPresent());
 	}
 
@@ -92,6 +97,11 @@ class ExecutionRecordQueryServiceTest {
 		record.setMessage("message");
 		record.setOutput("execution output");
 		record.setReport(report);
+		ExecutionArtifact artifact = new ExecutionArtifact();
+		artifact.setType("git-diff");
+		record.setArtifacts(List.of(artifact));
+		record.setWorkspace("/workspace");
+		record.setSandbox("workspace-write");
 		return record;
 	}
 }

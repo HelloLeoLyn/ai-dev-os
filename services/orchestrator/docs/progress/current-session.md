@@ -14,6 +14,8 @@
 - 当前架构反向文档已经生成在 `docs/generated/`。
 - Phase 2-B 最小 Browser Agent 接入已体现在当前代码中：Task 可携带 `parameters.browser`，并复用 `browser-agent → OpenClawExecutor → main Agent → browser tool` 链路执行。
 - Browser 结果可按约定 JSON 映射为 `ExecutionResult.output` 和截图等 `ExecutionArtifact`；非 Browser OpenClaw 任务保持原行为。
+- Phase 3 Coder Agent 已完成产品级最小闭环：受限 Workspace、显式 Sandbox、workspace-write 审批、批准后恢复 Job、可配置 Codex CLI、正确 stdin EOF、Git 前后证据、tracked/staged/untracked Artifact、ExecutionRecord 审计字段、结构化输出 schema 和硬超时。
+- `danger-full-access` 被明确拒绝；`read-only` 不触发写审批，`workspace-write` 默认需要审批。
 
 ### Browser Runtime
 
@@ -111,12 +113,12 @@ Windows 防火墙仅允许 WSL2 子网 `172.27.0.0/20` 访问 TCP 9223。开发/
 
 ## 4. 下一步任务
 
-Phase 2-B 的代码、单元测试和真实 Browser Runtime 最小闭环均已完成。后续可在不改变现有控制链的前提下继续补充：
+Phase 2-B 与 Phase 3 最小闭环均已完成真实验收。后续应保持当前边界，不提前进入 Phase 4；Phase 3 可选增强包括：
 
-1. 为 click、input、snapshot、screenshot 和 assert 增加各自的真实验收 Task。
-2. 增加 Browser 参数按 action 的必填字段校验。
-3. 将 Artifact 接入 ExecutionRecord 保存、查询与前端展示。
-4. 保持 OpenClaw 协议、认证和 Browser 控制链不变。
+1. 审批持久化、鉴权和操作者身份审计。
+2. 主动取消与实时流式执行事件。
+3. 独立 Artifact repository 和下载/生命周期管理。
+4. 保持 Workspace、Sandbox、Approval 和 Git 证据边界不变。
 
 当前不应一次性引入 Hermes Planner、MCP Tool Layer 或新的 Playwright 控制链。
 
@@ -131,13 +133,13 @@ Phase 2-B 的代码、单元测试和真实 Browser Runtime 最小闭环均已�
 
 ### Artifact
 
-- Artifact 模型已经存在，Browser OpenClaw 分支可从约定 JSON 输出映射 Artifact；普通 OpenClaw、Mock 和 Codex 执行仍不生成 Artifact。
+- Artifact 模型已经存在，Browser OpenClaw 分支可映射截图，Codex 可生成 Git 与执行结果 Artifact；普通 OpenClaw 和 Mock 仍不生成 Artifact。
 - 没有 Artifact repository、文件下载 API、生命周期管理或访问控制。
-- 前端尚未按截图、文件、测试报告或日志类型展示 Artifact。
+- 前端可查看 ExecutionRecord 的基础 Artifact 数据，但尚未按截图、文件、测试报告或日志类型提供专用展示/下载。
 
 ### ExecutionContext 与执行可靠性
 
-- `executionId`、`jobId` 和 metadata 尚未在当前生产执行链中完整赋值。
+- `executionId`、`jobId` 和编码审计 metadata 已接入生产执行链，但均为内存记录，重启不可恢复。
 - Executor 的 `Exception` 已统一转换，但 `Error`、记录保存失败及结果构建失败不在同一保证范围内。
 - Executor SPI 仍是同步返回；OpenClawExecutor 内部使用 `join()` 等待异步调用。
 
@@ -146,7 +148,7 @@ Phase 2-B 的代码、单元测试和真实 Browser Runtime 最小闭环均已�
 - Capability 仍使用字符串列表，没有独立 Capability 模型。
 - AgentSelector 使用注册顺序选择首个匹配项，没有健康度、负载或优先级路由。
 - `permissionLevel` 尚未连接 CommandPolicy 或实际执行权限。
-- CodexExecutor 当前是本地 CLI 包装，缺少结构化输出、取消、流式日志和 Artifact 映射。
+- CodexExecutor 已有可配置 CLI、非交互 stdin EOF、结构化输出、硬超时和 Artifact 映射，仍缺少主动取消与实时流式日志。
 
 ### 后续目标能力
 
@@ -161,6 +163,10 @@ Phase 2-B 的代码、单元测试和真实 Browser Runtime 最小闭环均已�
 - 新增 Browser 指令构造和结果映射组件。
 - 扩展 Task parameters、ExecutionContext 参数合并和异步 Job 参数快照。
 - 更新 Browser 验收 Task、前端 Task 类型和相关单元测试。
-- 后端完整测试 129 个全部通过；新增链路定向测试 17 个全部通过；前端类型检查和生产构建通过。
+- Phase 2-B 基线后继续实现 Phase 3 Coder Agent 控制面、审计和结果链。
+- 后端完整测试 156 个全部通过；Phase 3 收尾定向测试 44 个通过；前端类型检查和生产构建通过。
+- 真实审批门验证通过：批准前 Job 为 WAITING_APPROVAL、审批为 PENDING、Git HEAD/工作树不变；批准后成功恢复为 RUNNING。
+- Codex CLI 无事件的根因已确认为调用方未关闭 stdin；项目内 CommandExecutor 现会提供 EOF，无需 `/tmp` 包装器。真实 tracked 与 untracked 两轮均完成 `WAITING_APPROVAL → APPROVED → RUNNING → SUCCESS`，审批最终 CONSUMED，ExecutionRecord 保存 approvalId、exitCode 和 threadId，HEAD 未变化且无自动 commit/push。
+- tracked 轮生成非空 diff Artifact；untracked 轮生成文件列表与 UTF-8 内容 Artifact，并具备大小限制、二进制判断、越界符号链接拒绝和安全截断。
 - 真实 `openclaw-test` 执行成功：output 确认 example.com 标题断言通过，Artifact 为 1878×1917、35687 字节的 PNG 截图。
 - 未修改 OpenClaw 配置、Windows Browser Runtime、防火墙或 CDP 配置；验收后已停止本次临时启动的 Orchestrator 后端。

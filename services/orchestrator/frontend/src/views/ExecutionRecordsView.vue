@@ -10,7 +10,7 @@ import type {
   ExecutionStatus,
 } from '../types/execution'
 
-const statusOptions: ExecutionStatus[] = ['SUCCESS', 'FAILED']
+const statusOptions: ExecutionStatus[] = ['SUCCESS', 'FAILED', 'WAITING_APPROVAL']
 
 const records = ref<ExecutionRecordSummary[]>([])
 const selectedStatus = ref<ExecutionStatus | ''>('')

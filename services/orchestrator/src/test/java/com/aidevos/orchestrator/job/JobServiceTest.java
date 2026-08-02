@@ -12,6 +12,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class JobServiceTest {
 
@@ -58,6 +59,25 @@ class JobServiceTest {
 		assertEquals("original", snapshot.getDescription());
 		assertEquals(List.of("coding"), snapshot.getRequiredCapabilities());
 		assertEquals(Map.of("action", "navigate"), snapshot.getParameters().get("browser"));
+	}
+
+	@Test
+	void shouldRestoreWaitingStatusWhenApprovalRequeueFails() {
+		JobStore store = new JobStore();
+		JobWorker worker = mock(JobWorker.class);
+		JobService service = new JobService(store, worker);
+		ExecutionJob job = new ExecutionJob("job-1", task("coding"));
+		job.markRunning();
+		com.aidevos.orchestrator.execution.ExecutionResult result =
+			new com.aidevos.orchestrator.execution.ExecutionResult();
+		result.setApprovalRequired(true);
+		result.setApprovalId("approval-1");
+		job.markWaitingApproval(result, "record-1");
+		store.save(job);
+		when(worker.submit(job)).thenReturn(false);
+
+		assertEquals(false, service.resumeAfterApproval("job-1"));
+		assertEquals(JobStatus.WAITING_APPROVAL, job.getStatus());
 	}
 
 	private TaskDefinition task(String description) {

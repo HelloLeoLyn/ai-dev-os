@@ -70,11 +70,14 @@ public class JobWorker {
 		job.markRunning();
 		try {
 			ExecutionCapture<ExecutionResult> capture = executionRecordManager.capture(
-				() -> executionEngine.execute(job.getTaskSnapshot()));
+				() -> executionEngine.execute(job.getTaskSnapshot(), job.getId()));
 			ExecutionResult result = capture.result();
 			ExecutionRecord record = capture.executionRecord();
 			String executionRecordId = record == null ? null : record.getId();
-			if (result.isSuccess()) {
+			if (result.isApprovalRequired()) {
+				job.markWaitingApproval(result, executionRecordId);
+			}
+			else if (result.isSuccess()) {
 				job.markSucceeded(result, executionRecordId);
 			}
 			else {

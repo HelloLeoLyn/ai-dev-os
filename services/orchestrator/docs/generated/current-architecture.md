@@ -17,7 +17,7 @@
 
 | 模块 | 主要包或目录 | 当前职责 |
 | --- | --- | --- |
-| API | `controller` | Task、Job、Agent、ExecutionRecord、Schedule、Dashboard HTTP API |
+| API | `controller` | Task、Job、Approval、Agent、ExecutionRecord、Schedule、Dashboard HTTP API |
 | Task | `task`、`model/TaskDefinition` | JSON Task 加载、注册、查询、状态与通用 parameters 字段维护 |
 | Job | `job` | Task 快照、内存队列、单 Worker 执行和 Job 状态维护 |
 | Agent | `agent`、`manager/AgentManager` | Agent 注册、按名称或 capability 解析 |
@@ -25,7 +25,9 @@
 | Execution | `execution` | 上下文构造、Executor 调用、结果和执行记录 |
 | OpenClaw | `openclaw` | Protocol v4 WebSocket 客户端、握手、请求关联和 Agent 调用适配 |
 | Command | `executor/command` | 本地进程执行、命令策略和审批判断 |
-| Git | `executor/git` | Git status/diff 命令封装；当前未接入 `ExecutionEngine` |
+| Git | `executor/git` | Git 仓库校验与执行前后 status、branch、HEAD、diff、cached diff 快照 |
+| Workspace | `execution/workspace` | 真实路径解析、允许根目录约束和 Git 仓库校验 |
+| Approval | `approval` | workspace-write 编码任务的内存审批请求、批准消费和拒绝 |
 | Schedule | `schedule` | Cron 注册、触发和 Job 提交 |
 | Dashboard | `dashboard` | Task、Job、ExecutionRecord 的内存统计聚合 |
 | Frontend | `frontend/src` | Dashboard、Task、Job、Agent、Schedule 和执行记录页面 |
@@ -93,7 +95,7 @@ Task 不存在时返回 404。Agent 解析失败或 Executor 抛出 `Exception` 
 
 `JobService.submit` 复制 Task 字段形成快照，创建 `ExecutionJob`，先保存到 `JobStore`，再通过 `JobWorker.submit` 放入有界队列。队列满时删除刚保存的 Job，并由 Controller 返回 HTTP 429。
 
-`JobWorker` 使用单线程 `ExecutorService` 和 `ArrayBlockingQueue`。Worker 将 Job 标记为 RUNNING，通过 `ExecutionRecordManager.capture` 调用 `ExecutionEngine.execute`，取得本次保存的 ExecutionRecord ID，最后将 Job 标记为 SUCCESS 或 FAILED。
+`JobWorker` 使用单线程 `ExecutorService` 和 `ArrayBlockingQueue`。Worker 将 Job 标记为 RUNNING，通过 `ExecutionRecordManager.capture` 调用 `ExecutionEngine.execute`。编码任务需要写权限时会进入 `WAITING_APPROVAL`；批准后重新入队并消费一次性审批，拒绝则结束为 FAILED。正常执行后取得本次保存的 ExecutionRecord ID，最后标记为 SUCCESS 或 FAILED。
 
 ## 5. Agent 流程
 
@@ -131,10 +133,10 @@ Spring 将全部 `AgentExecutor` Bean 注入 `ExecutorRegistry`。Registry 以 `
 当前实现：
 
 - `MockAgentExecutor`：返回模拟文本。
-- `CodexExecutor`：通过 `CommandExecutor` 执行 `codex exec`，可读取 `workspace` 和 `model` 参数。
+- `CodexExecutor`：校验 Workspace 和 Sandbox，执行审批门，采集 Git 前后快照，并通过带硬超时的 `CommandExecutor` 执行可配置路径的 Codex CLI。命令显式传入 approval policy、workspace、sandbox、model、JSON 和 output schema；CommandExecutor 在启动后关闭 stdin，保留 stdout/stderr、退出码、硬超时和进程树终止。结果转换为摘要、Git/Codex Artifact 和审计 metadata。
 - `OpenClawExecutor`：读取 `agentId` 参数并调用 `OpenClawTaskService`；当参数包含 `browser` Map 时，通过 `BrowserTaskPromptBuilder` 构造 browser tool 指令，并由 `BrowserResultMapper` 将约定 JSON 结果中的截图等条目映射为 `ExecutionArtifact`。非 Browser Task 保持原有文本调用和结果映射。
 
-`ExecutionEngine.createContext` 当前填充 Task/Agent 文本字段、进程工作目录、Task parameters 和 Agent executorConfig；`executionId`、`jobId`、`metadata` 当前没有在该方法中赋值。
+`ExecutionEngine.createContext` 填充 executionId、jobId、Task/Agent 文本字段、进程工作目录、Task parameters 和 Agent executorConfig。执行记录保存 workspace、sandbox、approvalId、branch、before/after HEAD、exitCode、Codex threadId 和起止时间等审计字段。
 
 Task parameters 会先写入 `ExecutionContext.parameters`，随后叠加 Agent executorConfig，因此 Task 不能覆盖 `agentId` 等 Executor 配置。
 
@@ -187,3 +189,5 @@ sequenceDiagram
 - OpenClaw device identity：`OpenClawDeviceIdentityStore` 使用配置路径中的本地 JSON 文件。
 
 应用重启后，除 classpath Task、YAML Agent、Spring 配置的 Schedule 和设备 identity 外，运行时创建的 Task、Job、ExecutionRecord 和 Schedule 注册信息不会由代码自动恢复。
+
+Codex Approval 同样保存在内存中；应用重启会丢失待审批请求和等待中的 Job。Artifact 当前内嵌于 ExecutionRecord：tracked、staged 和新建 untracked 文件分别由普通 diff、cached diff、untracked 列表/内容 Artifact 表达。未跟踪内容只从已验证 Workspace 内读取，应用二进制判断、字节上限和文本截断，但尚无独立文件存储或下载 API。

@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.time.Instant;
 
 @Component
 public class ExecutionEngine {
@@ -25,13 +26,19 @@ public class ExecutionEngine {
 	}
 
 	public ExecutionResult execute(TaskDefinition taskDefinition) {
+		return execute(taskDefinition, null);
+	}
+
+	public ExecutionResult execute(TaskDefinition taskDefinition, String jobId) {
+		Instant startedAt = Instant.now();
 		String agentName = taskDefinition.getAgentName();
+		ExecutionContext context = null;
 		ExecutionResult result;
 		try {
 			ResolvedAgent resolvedAgent = agentResolver.resolve(taskDefinition);
 			agentName = resolvedAgent.definition().getName();
 			AgentExecutor executor = resolvedAgent.executor();
-			ExecutionContext context = createContext(taskDefinition, resolvedAgent.definition());
+			context = createContext(taskDefinition, resolvedAgent.definition(), jobId);
 			try {
 				result = executor.execute(context);
 			}
@@ -44,12 +51,15 @@ public class ExecutionEngine {
 		}
 
 		ExecutionReport report = createReport(taskDefinition, agentName, result);
-		executionRecordManager.save(createRecord(taskDefinition, agentName, result, report));
+		executionRecordManager.save(createRecord(taskDefinition, agentName, result, report,
+			context, startedAt));
 		return result;
 	}
 
-	private ExecutionContext createContext(TaskDefinition taskDefinition, AgentDefinition agent) {
+	private ExecutionContext createContext(TaskDefinition taskDefinition, AgentDefinition agent, String jobId) {
 		ExecutionContext context = new ExecutionContext();
+		context.setExecutionId(UUID.randomUUID().toString());
+		context.setJobId(jobId);
 		context.setTaskId(taskDefinition.getId());
 		context.setTaskName(taskDefinition.getName());
 		context.setDescription(taskDefinition.getDescription());
@@ -88,19 +98,63 @@ public class ExecutionEngine {
 		report.setAgentName(agentName);
 		report.setSuccess(result.isSuccess());
 		report.setOutput(result.getOutput());
+		report.setBeforeGitStatus(artifactContent(result, "git-status-before"));
+		report.setAfterGitDiff(artifactContent(result, "git-diff"));
 		return report;
 	}
 
 	private ExecutionRecord createRecord(TaskDefinition taskDefinition, String agentName,
-			ExecutionResult result, ExecutionReport report) {
+			ExecutionResult result, ExecutionReport report, ExecutionContext context,
+			Instant startedAt) {
 		ExecutionRecord record = new ExecutionRecord();
 		record.setId(UUID.randomUUID().toString());
 		record.setTaskId(taskDefinition.getId());
 		record.setAgentName(agentName);
-		record.setStatus(result.isSuccess() ? "SUCCESS" : "FAILED");
+		record.setStatus(result.isApprovalRequired() ? "WAITING_APPROVAL"
+			: result.isSuccess() ? "SUCCESS" : "FAILED");
 		record.setMessage(result.getMessage());
 		record.setOutput(result.getOutput());
+		record.setArtifacts(new java.util.ArrayList<>(result.getArtifacts()));
+		record.setExecutionId(context == null ? null : context.getExecutionId());
+		record.setJobId(context == null ? null : context.getJobId());
+		record.setWorkspace(metadataString(result, "workspace"));
+		record.setSandbox(metadataString(result, "sandbox"));
+		record.setApprovalId(result.getApprovalId() != null ? result.getApprovalId()
+			: contextMetadataString(context, "approvalId"));
+		record.setBranch(metadataString(result, "branch"));
+		record.setBeforeHead(metadataString(result, "beforeHead"));
+		record.setAfterHead(metadataString(result, "afterHead"));
+		record.setExitCode(metadataInteger(result, "exitCode"));
+		record.setCodexThreadId(metadataString(result, "codexThreadId"));
+		record.setStartedAt(startedAt);
+		record.setCompletedAt(Instant.now());
 		record.setReport(report);
 		return record;
+	}
+
+	private String artifactContent(ExecutionResult result, String type) {
+		return result.getArtifacts().stream()
+			.filter(artifact -> type.equals(artifact.getType()))
+			.map(ExecutionArtifact::getContent)
+			.findFirst()
+			.orElse(null);
+	}
+
+	private String metadataString(ExecutionResult result, String key) {
+		Object value = result.getMetadata().get(key);
+		return value instanceof String text ? text : null;
+	}
+
+	private Integer metadataInteger(ExecutionResult result, String key) {
+		Object value = result.getMetadata().get(key);
+		return value instanceof Number number ? number.intValue() : null;
+	}
+
+	private String contextMetadataString(ExecutionContext context, String key) {
+		if (context == null) {
+			return null;
+		}
+		Object value = context.getMetadata().get(key);
+		return value instanceof String text ? text : null;
 	}
 }

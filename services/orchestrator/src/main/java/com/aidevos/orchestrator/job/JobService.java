@@ -38,6 +38,23 @@ public class JobService {
 		return status == null ? jobStore.getAll() : jobStore.getByStatus(status);
 	}
 
+	public boolean resumeAfterApproval(String jobId) {
+		ExecutionJob job = jobStore.get(jobId);
+		if (job == null || !job.resumeAfterApproval()) {
+			return false;
+		}
+		if (jobWorker.submit(job)) {
+			return true;
+		}
+		job.restoreWaitingApproval();
+		return false;
+	}
+
+	public boolean rejectApproval(String jobId) {
+		ExecutionJob job = jobStore.get(jobId);
+		return job != null && job.rejectApproval();
+	}
+
 	private TaskDefinition snapshot(TaskDefinition source) {
 		TaskDefinition snapshot = new TaskDefinition();
 		snapshot.setId(source.getId());

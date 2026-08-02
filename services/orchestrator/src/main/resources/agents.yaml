@@ -19,6 +19,7 @@ agents:
     codex:
       workspace:
       model:
+      sandbox: workspace-write
     capabilities:
       - coding
       - git

@@ -1,7 +1,7 @@
 import type { ExecutionResult } from './execution'
 import type { TaskDefinition } from './task'
 
-export type JobStatus = 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'FAILED'
+export type JobStatus = 'QUEUED' | 'RUNNING' | 'WAITING_APPROVAL' | 'SUCCESS' | 'FAILED'
 
 export interface ExecutionJob {
   id: string
@@ -16,6 +16,7 @@ export interface ExecutionJob {
   resultSummary: string | null
   errorMessage: string | null
   error: string | null
+  approvalId: string | null
 }
 
 export interface JobSubmissionResponse {

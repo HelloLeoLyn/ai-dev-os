@@ -48,6 +48,10 @@ class ExecutionEngineTest {
 		assertEquals("SUCCESS", record.getStatus());
 		assertEquals(result.getMessage(), record.getMessage());
 		assertEquals(result.getOutput(), record.getOutput());
+		assertEquals(result.getArtifacts(), record.getArtifacts());
+		assertNotNull(record.getExecutionId());
+		assertNotNull(record.getStartedAt());
+		assertNotNull(record.getCompletedAt());
 	}
 
 	@Test
@@ -145,6 +149,45 @@ class ExecutionEngineTest {
 		assertFalse(report.isSuccess());
 		assertNull(report.getBeforeGitStatus());
 		assertNull(report.getAfterGitDiff());
+	}
+
+	@Test
+	void shouldPersistApprovalIdForSuccessfulExecution() {
+		assertApprovalIdPersisted(false, "SUCCESS");
+	}
+
+	@Test
+	void shouldPersistApprovalIdForFailedExecution() {
+		assertApprovalIdPersisted(true, "FAILED");
+	}
+
+	private void assertApprovalIdPersisted(boolean fail, String expectedStatus) {
+		AgentResolver agentResolver = mock(AgentResolver.class);
+		AgentExecutor agentExecutor = mock(AgentExecutor.class);
+		ExecutionRecordManager records = new ExecutionRecordManager();
+		TaskDefinition task = createTask("planner");
+		AgentDefinition agent = createAgent("planner", List.of("analysis"));
+		when(agentResolver.resolve(task)).thenReturn(new ResolvedAgent(agent, agentExecutor));
+		when(agentExecutor.getType()).thenReturn("codex");
+		when(agentExecutor.execute(org.mockito.ArgumentMatchers.any(ExecutionContext.class)))
+			.thenAnswer(invocation -> {
+				ExecutionContext context = invocation.getArgument(0);
+				context.getMetadata().put("approvalId", "approval-1");
+				if (fail) {
+					throw new IllegalStateException("codex failed");
+				}
+				ExecutionResult result = new ExecutionResult();
+				result.setSuccess(true);
+				result.setMessage("Task executed successfully");
+				return result;
+			});
+
+		new ExecutionEngine(agentResolver, records).execute(task, "job-1");
+
+		ExecutionRecord record = records.getAll().get(0);
+		assertEquals(expectedStatus, record.getStatus());
+		assertEquals("job-1", record.getJobId());
+		assertEquals("approval-1", record.getApprovalId());
 	}
 
 	private void assertCapabilityExecution(List<String> requiredCapabilities, String expectedAgentName) {
