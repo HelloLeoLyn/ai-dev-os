@@ -117,6 +117,9 @@ public class ExecutionEngine {
 		record.setArtifacts(new java.util.ArrayList<>(result.getArtifacts()));
 		record.setExecutionId(context == null ? null : context.getExecutionId());
 		record.setJobId(context == null ? null : context.getJobId());
+		record.setPlanRunId(taskMetadataString(taskDefinition, "planRunId"));
+		record.setStepRunId(taskMetadataString(taskDefinition, "stepRunId"));
+		record.setAttemptId(taskMetadataString(taskDefinition, "attemptId"));
 		record.setWorkspace(metadataString(result, "workspace"));
 		record.setSandbox(metadataString(result, "sandbox"));
 		record.setApprovalId(result.getApprovalId() != null ? result.getApprovalId()
@@ -155,6 +158,14 @@ public class ExecutionEngine {
 			return null;
 		}
 		Object value = context.getMetadata().get(key);
+		return value instanceof String text ? text : null;
+	}
+
+	private String taskMetadataString(TaskDefinition taskDefinition, String key) {
+		if (taskDefinition.getMetadata() == null) {
+			return null;
+		}
+		Object value = taskDefinition.getMetadata().get(key);
 		return value instanceof String text ? text : null;
 	}
 }

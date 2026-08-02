@@ -38,3 +38,13 @@ agents:
       agentId: main
     capabilities:
       - browser
+
+  - name: mcp-reader
+    description: Executes explicitly declared read-only tool calls
+    enabled: true
+    type: system
+    permissionLevel: read-only
+    executor: tool
+    capabilities:
+      - tool
+      - read-only

@@ -9,6 +9,8 @@ import com.aidevos.orchestrator.executor.codex.CodexResultMapper;
 import com.aidevos.orchestrator.executor.git.GitInspector;
 import com.aidevos.orchestrator.approval.CodingApprovalService;
 import com.aidevos.orchestrator.execution.ArtifactContentLimiter;
+import com.aidevos.orchestrator.tool.ToolArtifactMapper;
+import com.aidevos.orchestrator.tool.ToolRouter;
 import com.aidevos.orchestrator.executor.codex.CodexProperties;
 import com.aidevos.orchestrator.executor.codex.CoderPromptBuilder;
 import com.aidevos.orchestrator.executor.codex.CodexOutputSchemaProvider;
@@ -53,6 +55,15 @@ class ExecutorRegistryTest {
 		ExecutorRegistry executorRegistry = new ExecutorRegistry(List.of(openClawExecutor));
 
 		assertSame(openClawExecutor, executorRegistry.get("openclaw"));
+	}
+
+	@Test
+	void shouldRegisterToolExecutor() {
+		ToolExecutor toolExecutor = new ToolExecutor(mock(ToolRouter.class),
+			mock(ToolArtifactMapper.class));
+		ExecutorRegistry executorRegistry = new ExecutorRegistry(List.of(toolExecutor));
+
+		assertSame(toolExecutor, executorRegistry.get("tool"));
 	}
 
 	@Test

@@ -18,6 +18,9 @@ public class ExecutionRecord {
 	private List<ExecutionArtifact> artifacts = new ArrayList<>();
 	private String executionId;
 	private String jobId;
+	private String planRunId;
+	private String stepRunId;
+	private String attemptId;
 	private String workspace;
 	private String sandbox;
 	private String approvalId;
@@ -100,6 +103,12 @@ public class ExecutionRecord {
 	public void setExecutionId(String executionId) { this.executionId = executionId; }
 	public String getJobId() { return jobId; }
 	public void setJobId(String jobId) { this.jobId = jobId; }
+	public String getPlanRunId() { return planRunId; }
+	public void setPlanRunId(String planRunId) { this.planRunId = planRunId; }
+	public String getStepRunId() { return stepRunId; }
+	public void setStepRunId(String stepRunId) { this.stepRunId = stepRunId; }
+	public String getAttemptId() { return attemptId; }
+	public void setAttemptId(String attemptId) { this.attemptId = attemptId; }
 	public String getWorkspace() { return workspace; }
 	public void setWorkspace(String workspace) { this.workspace = workspace; }
 	public String getSandbox() { return sandbox; }

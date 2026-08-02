@@ -64,6 +64,7 @@ public class JobService {
 		List<String> capabilities = source.getRequiredCapabilities();
 		snapshot.setRequiredCapabilities(capabilities == null ? null : List.copyOf(capabilities));
 		snapshot.setParameters(copyMap(source.getParameters()));
+		snapshot.setMetadata(copyMap(source.getMetadata()));
 		snapshot.setStatus(source.getStatus());
 		return snapshot;
 	}

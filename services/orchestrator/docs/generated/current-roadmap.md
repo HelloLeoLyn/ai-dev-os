@@ -1,5 +1,23 @@
 # 基于当前代码的能力盘点
 
+## 0. 2026-08-02 里程碑状态（优先于下方历史盘点）
+
+- Phase 1～3：Orchestrator、Browser Agent、Secure Codex Agent 已完成。
+- Phase 4：Tool Core、MCP Client、MCP Execution、Tool Approval 已完成。
+- Phase 5：Plan Model、Hermes Planner SPI、Plan Approval、顺序 Plan Execution、Replanning 已完成。
+- Phase 6-A：真实 Coding 子链验收成功，链路为
+  `WAITING_APPROVAL → APPROVED → CONSUMED → RUNNING → SUCCESS`。
+- 全量后端回归 219 个测试通过（1 个需显式环境开关的 MCP acceptance 默认跳过）；
+  filesystem MCP acceptance 已另外显式启用并真实通过。
+- Phase 6-A Codex 验收产生非空 tracked Git diff，测试通过，ExecutionRecord 审计完整，
+  HEAD 未变化且没有自动 commit/push。
+
+Phase 6-B 目标：把 Hermes 从固定单 Step 升级为串行多 Agent Plan，覆盖 Browser、MCP read-only、
+Coder 和 Tester，并保持全部人工审批与安全边界。已知外部阻塞是 localhost Browser navigation policy；
+不得通过关闭全局策略解决。
+
+下方内容保留为早期反向工程盘点，其中“缺失 Hermes/MCP”等表述已被后续 Phase 4～5 实现取代。
+
 > 本文中的“已完成”“已存在但未完善”“缺失”只表示当前代码可观察状态，不表示产品承诺或计划。缺失项通过当前生产源码和资源文件中不存在对应实现来判断。
 
 ## 1. 已完成能力

@@ -12,6 +12,7 @@ public class TaskDefinition {
 	private String agentName;
 	private List<String> requiredCapabilities;
 	private Map<String, Object> parameters = new LinkedHashMap<>();
+	private Map<String, Object> metadata = new LinkedHashMap<>();
 	private String status;
 
 	public TaskDefinition() {
@@ -63,6 +64,14 @@ public class TaskDefinition {
 
 	public void setParameters(Map<String, Object> parameters) {
 		this.parameters = parameters;
+	}
+
+	public Map<String, Object> getMetadata() {
+		return metadata;
+	}
+
+	public void setMetadata(Map<String, Object> metadata) {
+		this.metadata = metadata;
 	}
 
 	public String getStatus() {

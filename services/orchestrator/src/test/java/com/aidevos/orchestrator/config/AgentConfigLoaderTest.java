@@ -15,12 +15,13 @@ class AgentConfigLoaderTest {
 
 		List<AgentDefinition> agents = agentConfigLoader.loadAgents();
 
-		assertEquals(5, agents.size());
+		assertEquals(6, agents.size());
 		assertAgent(agents.get(0), "planner", "mock", List.of("analysis"));
 		assertAgent(agents.get(1), "executor", "mock", List.of("coding", "git"));
 		assertAgent(agents.get(2), "coder", "codex", List.of("coding", "git"));
 		assertAgent(agents.get(3), "tester", "openclaw", List.of("testing", "browser"));
 		assertAgent(agents.get(4), "browser-agent", "openclaw", List.of("browser"));
+		assertAgent(agents.get(5), "mcp-reader", "tool", List.of("tool", "read-only"));
 		assertEquals("main", agents.get(3).getExecutorConfig().get("agentId"));
 		assertEquals("main", agents.get(4).getExecutorConfig().get("agentId"));
 		assertEquals(null, agents.get(2).getExecutorConfig().get("workspace"));
@@ -29,6 +30,7 @@ class AgentConfigLoaderTest {
 		assertEquals("system", agents.get(2).getType());
 		assertEquals("standard", agents.get(2).getPermissionLevel());
 		assertEquals(true, agents.get(2).isEnabled());
+		assertEquals("read-only", agents.get(5).getPermissionLevel());
 	}
 
 	private void assertAgent(AgentDefinition agent, String name, String executor, List<String> capabilities) {

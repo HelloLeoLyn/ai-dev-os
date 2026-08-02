@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Component
 public class ExecutorRegistry {
@@ -23,5 +24,9 @@ public class ExecutorRegistry {
 
 	public AgentExecutor get(String type) {
 		return executors.get(type);
+	}
+
+	public Set<String> getTypes() {
+		return Set.copyOf(executors.keySet());
 	}
 }

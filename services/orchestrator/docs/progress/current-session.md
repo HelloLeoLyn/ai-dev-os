@@ -4,6 +4,36 @@
 
 本文记录 AI Dev OS Orchestrator 当前仓库实现状态，以及本次会话实际验证的本机运行环境。仓库能力与外部 OpenClaw Browser Runtime 状态分开描述。
 
+## 0. v0.6.0 Phase 6-A 里程碑
+
+Phase 1～5 已完成，当前代码已经形成以下能力链：
+
+- Orchestrator、Task/Job、AgentResolver 和 ExecutionEngine。
+- OpenClaw Browser Agent 与 Screenshot Artifact。
+- Secure Codex Agent、Workspace/Sandbox、Coding Approval 和 Git Artifact。
+- Tool Core、MCP Client、确定性 Tool Execution 和 Tool Approval。
+- Hermes Plan Model、Planner SPI、Plan Approval、顺序 PlanScheduler 和 Replanning。
+
+Phase 6-A 已在隔离临时 Git 仓库完成真实 Coding 子链验收：
+
+```text
+WAITING_APPROVAL → APPROVED → CONSUMED → RUNNING → SUCCESS
+```
+
+验收确认 Codex 在 `workspace-write` 下修改 tracked 文件并运行测试；Git diff Artifact、
+ExecutionRecord、approvalId、Codex threadId、workspace、sandbox、before/after HEAD 均完整。
+HEAD 前后保持一致，没有自动 commit 或 push。真实 filesystem MCP read-only 验收通过；
+OpenClaw Gateway、browser tool、Chrome CDP 和 Screenshot 输出也分别通过真实探测。
+
+当前已知集成缺口：
+
+1. `HermesPlanner` 当前仅生成固定单 Step，尚不能生成 Browser → MCP → Coder → Tester 多 Agent Plan。
+2. OpenClaw Browser 对临时 localhost 登录页返回 `browser navigation blocked by policy`；全局安全策略未被绕过或关闭。
+
+下一阶段 Phase 6-B 将实现可验证的串行多 Agent Plan，并继续复用现有 Plan Approval、
+Coding Approval、Tool Approval 和 PlanScheduler，不引入并行或自动审批。localhost 测试许可
+需要先完成独立的最小范围安全设计与确认。
+
 ## 1. 当前完成阶段
 
 ### Orchestrator

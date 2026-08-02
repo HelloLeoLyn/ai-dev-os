@@ -33,6 +33,29 @@
 | Frontend | `frontend/src` | Dashboard、Task、Job、Agent、Schedule 和执行记录页面 |
 | 配置 | `src/main/resources` | Agent YAML、Task JSON、Spring/OpenClaw/Job 配置 |
 
+### 2.1 Phase 4～5 新增模块
+
+| 模块 | 主要包 | 当前职责 |
+| --- | --- | --- |
+| Tool Core | `tool` | ToolDefinition、ToolInvocation、ToolRegistry、ToolRouter 和 Artifact 映射 |
+| MCP Client | `tool/mcp` | stdio Session、initialize、tools/list、tools/call 和错误转换 |
+| Tool Approval | `tool/approval` | ALLOW/DENY/REQUIRE_APPROVAL 下的独立工具审批审计 |
+| Plan Model | `plan` | 不可变 Plan、PlanStep、Dependency、Snapshot 和 DAG Validator |
+| Planner | `planner` | Planner SPI、Hermes/Fake Planner、PlanDraft 和 PlannerService |
+| Plan Approval | `plan/approval` | Plan 版本哈希冻结、人工批准/拒绝和审计 |
+| Plan Run | `plan/run`、`plan/schedule` | PlanRun、StepRun、StepAttempt、串行 DAG 调度和 Artifact 成功门槛 |
+| Replanning | `planner/replan` | 失败分类、ReplanRequest、新版本校验和重新审批标记 |
+
+当前规划执行主链：
+
+```text
+User Request → Planner → PlanDraft → PlanValidator → Plan Approval
+→ PlanScheduler → StepTaskFactory → JobService → ExecutionEngine
+→ AgentResolver → AgentExecutor → Artifact / ExecutionRecord
+```
+
+Phase 6-A 已真实验证其中 Coding 子链；完整多 Agent Plan 留待 Phase 6-B。
+
 ## 3. 核心调用链
 
 当前存在同步执行和异步 Job 执行两条入口，两者最终调用同一个 `ExecutionEngine.execute`。
