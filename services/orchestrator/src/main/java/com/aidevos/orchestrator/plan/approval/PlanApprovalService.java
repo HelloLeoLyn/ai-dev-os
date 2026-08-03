@@ -11,6 +11,9 @@ import java.util.TreeMap;
 import java.util.UUID;
 
 import com.aidevos.orchestrator.plan.Plan;
+import com.aidevos.orchestrator.audit.AuditService;
+import com.aidevos.orchestrator.audit.EventType;
+import com.aidevos.orchestrator.approval.ApprovalStatus;
 import com.aidevos.orchestrator.plan.PlanValidationResult;
 import com.aidevos.orchestrator.plan.PlanValidator;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,19 +27,26 @@ public class PlanApprovalService {
 	private final PlanValidator validator;
 	private final ObjectMapper objectMapper;
 	private final Clock clock;
+	private final AuditService auditService;
 
 	@Autowired
 	public PlanApprovalService(PlanApprovalRepository store, PlanValidator validator,
-			ObjectMapper objectMapper) {
-		this(store, validator, objectMapper, Clock.systemUTC());
+			ObjectMapper objectMapper, AuditService auditService) {
+		this(store, validator, objectMapper, Clock.systemUTC(), auditService);
 	}
 
 	PlanApprovalService(PlanApprovalRepository store, PlanValidator validator,
 			ObjectMapper objectMapper, Clock clock) {
+		this(store, validator, objectMapper, clock, AuditService.noop());
+	}
+
+	PlanApprovalService(PlanApprovalRepository store, PlanValidator validator,
+			ObjectMapper objectMapper, Clock clock, AuditService auditService) {
 		this.store = store;
 		this.validator = validator;
 		this.objectMapper = objectMapper;
 		this.clock = clock;
+		this.auditService = auditService;
 	}
 
 	public PlanApprovalRequest create(String requestId, Plan plan) {
@@ -50,25 +60,37 @@ public class PlanApprovalService {
 		String hash = hash(plan);
 		PlanApprovalRequest request = new PlanApprovalRequest(UUID.randomUUID().toString(),
 			requestId, plan, hash, Instant.now(clock));
-		return store.save(request);
+		PlanApprovalRequest saved = store.save(request);
+		auditService.planApprovalEvent(EventType.PLAN_APPROVAL_REQUESTED, saved, null,
+			ApprovalStatus.PENDING.name());
+		return saved;
 	}
 
 	public PlanApprovalRequest approve(String id, String approver) {
 		PlanApprovalRequest request = requireRequest(id);
 		request.approve(approver, Instant.now(clock));
-		return store.save(request);
+		PlanApprovalRequest saved = store.save(request);
+		auditService.planApprovalEvent(EventType.PLAN_APPROVAL_APPROVED, saved,
+			ApprovalStatus.PENDING.name(), ApprovalStatus.APPROVED.name());
+		return saved;
 	}
 
 	public PlanApprovalRequest reject(String id, String approver, String reason) {
 		PlanApprovalRequest request = requireRequest(id);
 		request.reject(approver, reason, Instant.now(clock));
-		return store.save(request);
+		PlanApprovalRequest saved = store.save(request);
+		auditService.planApprovalEvent(EventType.PLAN_APPROVAL_REJECTED, saved,
+			ApprovalStatus.PENDING.name(), ApprovalStatus.REJECTED.name());
+		return saved;
 	}
 
 	public PlanApprovalRequest consume(String id) {
 		PlanApprovalRequest request = requireRequest(id);
 		request.consume();
-		return store.save(request);
+		PlanApprovalRequest saved = store.save(request);
+		auditService.planApprovalEvent(EventType.PLAN_APPROVAL_CONSUMED, saved,
+			ApprovalStatus.APPROVED.name(), ApprovalStatus.CONSUMED.name());
+		return saved;
 	}
 
 	public PlanApprovalRequest get(String id) {

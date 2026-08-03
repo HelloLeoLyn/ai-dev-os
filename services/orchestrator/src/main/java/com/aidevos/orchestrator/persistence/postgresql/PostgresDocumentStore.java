@@ -7,9 +7,13 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import javax.sql.DataSource;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
@@ -67,14 +71,29 @@ public class PostgresDocumentStore {
 	}
 
 	private void migrate() {
-		try (var input=getClass().getResourceAsStream("/db/migration/V1__repository_documents.sql")) {
-			if(input==null) throw new IllegalStateException("Persistence migration is missing");
-			String sql=new String(input.readAllBytes(), StandardCharsets.UTF_8);
+		try {
+			Resource[] migrations = new PathMatchingResourcePatternResolver()
+				.getResources("classpath*:/db/migration/V*.sql");
+			Arrays.sort(migrations, Comparator.comparingInt(this::migrationVersion));
+			if (migrations.length == 0) throw new IllegalStateException("Persistence migrations are missing");
 			try(Connection connection=dataSource.getConnection(); var statement=connection.createStatement()) {
-				for(String command:sql.split(";")) if(!command.isBlank()) statement.execute(command);
+				for (Resource migration : migrations) {
+					try (var input = migration.getInputStream()) {
+						String sql = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+						for(String command:sql.split(";")) if(!command.isBlank()) statement.execute(command);
+					}
+				}
 			}
 		}
 		catch(IOException|SQLException exception) { throw failure("migrate","schema",exception); }
+	}
+
+	private int migrationVersion(Resource migration) {
+		String name = migration.getFilename();
+		if (name == null || !name.matches("V[0-9]+__.+\\.sql")) {
+			throw new IllegalStateException("Invalid persistence migration name: " + name);
+		}
+		return Integer.parseInt(name.substring(1, name.indexOf("__")));
 	}
 
 	private IllegalStateException failure(String operation,String type,Exception cause) {

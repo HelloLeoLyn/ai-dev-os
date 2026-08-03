@@ -6,7 +6,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.aidevos.orchestrator.audit.AuditService;
+import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.model.TaskDefinition;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -14,10 +17,17 @@ public class JobService {
 
 	private final JobRepository jobStore;
 	private final JobWorker jobWorker;
+	private final AuditService auditService;
 
 	public JobService(JobRepository jobStore, JobWorker jobWorker) {
+		this(jobStore, jobWorker, AuditService.noop());
+	}
+
+	@Autowired
+	public JobService(JobRepository jobStore, JobWorker jobWorker, AuditService auditService) {
 		this.jobStore = jobStore;
 		this.jobWorker = jobWorker;
+		this.auditService = auditService;
 	}
 
 	public JobSubmissionResponse submit(TaskDefinition taskDefinition) {
@@ -27,6 +37,7 @@ public class JobService {
 			jobStore.remove(job.getId());
 			throw new JobQueueFullException();
 		}
+		auditService.jobEvent(EventType.JOB_SUBMITTED, job, null, JobStatus.QUEUED.name());
 		return new JobSubmissionResponse(job.getId(), job.getTaskId(), JobStatus.QUEUED);
 	}
 
@@ -45,6 +56,8 @@ public class JobService {
 		}
 		if (jobWorker.submit(job)) {
 			jobStore.save(job);
+			auditService.jobEvent(EventType.JOB_RESUBMITTED, job,
+				JobStatus.WAITING_APPROVAL.name(), JobStatus.QUEUED.name());
 			return true;
 		}
 		job.restoreWaitingApproval();
@@ -56,6 +69,8 @@ public class JobService {
 		ExecutionJob job = jobStore.get(jobId);
 		if (job == null || !job.rejectApproval()) return false;
 		jobStore.save(job);
+		auditService.jobEvent(EventType.JOB_APPROVAL_REJECTED, job,
+			JobStatus.WAITING_APPROVAL.name(), JobStatus.FAILED.name());
 		return true;
 	}
 

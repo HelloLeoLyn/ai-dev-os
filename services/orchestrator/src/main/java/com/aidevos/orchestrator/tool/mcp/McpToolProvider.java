@@ -11,6 +11,8 @@ import com.aidevos.orchestrator.tool.ToolDefinition;
 import com.aidevos.orchestrator.tool.ToolInvocation;
 import com.aidevos.orchestrator.tool.ToolProvider;
 import com.aidevos.orchestrator.tool.ToolResult;
+import com.aidevos.orchestrator.audit.AuditService;
+import com.aidevos.orchestrator.audit.EventType;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -19,12 +21,19 @@ public class McpToolProvider implements ToolProvider, AutoCloseable {
 	private final String id;
 	private final McpClient client;
 	private final ObjectMapper objectMapper;
+	private final AuditService auditService;
 	private volatile List<ToolDefinition> tools;
 
 	public McpToolProvider(String id, McpClient client, ObjectMapper objectMapper) {
+		this(id, client, objectMapper, AuditService.noop());
+	}
+
+	public McpToolProvider(String id, McpClient client, ObjectMapper objectMapper,
+			AuditService auditService) {
 		this.id = id;
 		this.client = client;
 		this.objectMapper = objectMapper;
+		this.auditService = auditService;
 	}
 
 	@Override
@@ -36,6 +45,7 @@ public class McpToolProvider implements ToolProvider, AutoCloseable {
 	public synchronized List<ToolDefinition> getTools() {
 		if (tools == null) {
 			client.initialize();
+			auditService.mcpEvent(EventType.MCP_SESSION_STARTED, id, null, "STARTED");
 			tools = client.listTools().stream().map(this::definition).toList();
 		}
 		return tools;
@@ -43,6 +53,7 @@ public class McpToolProvider implements ToolProvider, AutoCloseable {
 
 	@Override
 	public ToolResult invoke(ToolInvocation invocation) {
+		auditService.mcpEvent(EventType.MCP_CALL_STARTED, id, invocation, "RUNNING");
 		try {
 			JsonNode response = client.callTool(invocation.toolName(), invocation.arguments(),
 				invocation.timeout());
@@ -51,15 +62,22 @@ public class McpToolProvider implements ToolProvider, AutoCloseable {
 			String output = content.stream().filter(item -> item.content() != null)
 				.map(ToolContent::content).findFirst().orElse(null);
 			if (error) {
+				auditService.mcpEvent(EventType.MCP_CALL_FAILED, id, invocation, "FAILED");
 				return new ToolResult(null, null, false, "MCP_TOOL_ERROR",
 					output == null ? "MCP tool returned an error" : output, output, content,
 					metadata());
 			}
+			auditService.mcpEvent(EventType.MCP_CALL_COMPLETED, id, invocation, "COMPLETED");
 			return new ToolResult(null, null, true, "OK", "Tool executed successfully",
 				output, content, metadata());
 		}
 		catch (McpException exception) {
+			auditService.mcpEvent(EventType.MCP_CALL_FAILED, id, invocation, "FAILED");
 			return ToolResult.failure(exception.getCode(), exception.getMessage());
+		}
+		catch (RuntimeException exception) {
+			auditService.mcpEvent(EventType.MCP_CALL_FAILED, id, invocation, "FAILED");
+			throw exception;
 		}
 	}
 

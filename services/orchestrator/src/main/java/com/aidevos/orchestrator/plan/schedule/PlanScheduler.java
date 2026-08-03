@@ -11,6 +11,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import com.aidevos.orchestrator.approval.ApprovalStatus;
+import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.execution.ExecutionArtifact;
 import com.aidevos.orchestrator.execution.ExecutionResult;
 import com.aidevos.orchestrator.job.ExecutionJob;
@@ -50,39 +51,48 @@ public class PlanScheduler {
 	private final ReplanRequestService replanRequestService;
 	private final Clock clock;
 	private final PlanRunRepository runRepository;
+	private final AuditService auditService;
 	private final ScheduledExecutorService monitor = Executors.newSingleThreadScheduledExecutor(
 		Thread.ofPlatform().daemon().name("plan-run-monitor").factory());
 
 	public PlanScheduler(JobService jobService, StepTaskFactory taskFactory,
 			PlanApprovalService approvalService, ReplanRequestService replanRequestService) {
 		this(jobService, taskFactory, approvalService, replanRequestService,
-			new InMemoryPlanRunRepository(), Clock.systemUTC());
+			new InMemoryPlanRunRepository(), Clock.systemUTC(), AuditService.noop());
 	}
 
 	@Autowired
 	public PlanScheduler(JobService jobService, StepTaskFactory taskFactory,
 			PlanApprovalService approvalService, ReplanRequestService replanRequestService,
-			PlanRunRepository runRepository) {
+			PlanRunRepository runRepository, AuditService auditService) {
 		this(jobService, taskFactory, approvalService, replanRequestService,
-			runRepository, Clock.systemUTC());
+			runRepository, Clock.systemUTC(), auditService);
 	}
 
 	PlanScheduler(JobService jobService, StepTaskFactory taskFactory,
 			PlanApprovalService approvalService, ReplanRequestService replanRequestService,
 			Clock clock) {
 		this(jobService, taskFactory, approvalService, replanRequestService,
-			new InMemoryPlanRunRepository(), clock);
+			new InMemoryPlanRunRepository(), clock, AuditService.noop());
 	}
 
 	PlanScheduler(JobService jobService, StepTaskFactory taskFactory,
 			PlanApprovalService approvalService, ReplanRequestService replanRequestService,
 			PlanRunRepository runRepository, Clock clock) {
+		this(jobService, taskFactory, approvalService, replanRequestService, runRepository, clock,
+			AuditService.noop());
+	}
+
+	PlanScheduler(JobService jobService, StepTaskFactory taskFactory,
+			PlanApprovalService approvalService, ReplanRequestService replanRequestService,
+			PlanRunRepository runRepository, Clock clock, AuditService auditService) {
 		this.jobService = jobService;
 		this.taskFactory = taskFactory;
 		this.approvalService = approvalService;
 		this.replanRequestService = replanRequestService;
 		this.clock = clock;
 		this.runRepository = runRepository;
+		this.auditService = auditService;
 	}
 
 	@PostConstruct
@@ -119,9 +129,12 @@ public class PlanScheduler {
 			unregister(approvalId, run.getId());
 			throw exception;
 		}
+		auditService.planRunCreated(run);
+		PlanRunStatus before = run.getStatus();
 		run.markRunning(Instant.now(clock));
 		advance(run);
 		runRepository.save(run);
+		auditService.planRunTransition(run, before.name(), run.getStatus().name());
 		return run;
 	}
 
@@ -158,6 +171,7 @@ public class PlanScheduler {
 
 	private void reconcile(PlanRun run) {
 		synchronized (run) {
+			PlanRunStatus beforeStatus = run.getStatus();
 			try {
 			if (terminal(run.getStatus())) {
 				return;
@@ -200,7 +214,10 @@ public class PlanScheduler {
 			active.markSuccess(now);
 			advance(run);
 			}
-			finally { runRepository.save(run); }
+			finally {
+				runRepository.save(run);
+				auditService.planRunTransition(run, beforeStatus.name(), run.getStatus().name());
+			}
 		}
 	}
 

@@ -1,6 +1,8 @@
 package com.aidevos.orchestrator.execution;
 
 import com.aidevos.orchestrator.agent.AgentResolutionException;
+import com.aidevos.orchestrator.audit.AuditService;
+import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.agent.AgentResolver;
 import com.aidevos.orchestrator.agent.ResolvedAgent;
 import com.aidevos.orchestrator.executor.AgentExecutor;
@@ -8,6 +10,7 @@ import com.aidevos.orchestrator.model.AgentDefinition;
 import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.model.TaskDefinition;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -19,10 +22,18 @@ public class ExecutionEngine {
 
 	private final AgentResolver agentResolver;
 	private final ExecutionRecordManager executionRecordManager;
+	private final AuditService auditService;
 
 	public ExecutionEngine(AgentResolver agentResolver, ExecutionRecordManager executionRecordManager) {
+		this(agentResolver, executionRecordManager, AuditService.noop());
+	}
+
+	@Autowired
+	public ExecutionEngine(AgentResolver agentResolver, ExecutionRecordManager executionRecordManager,
+			AuditService auditService) {
 		this.agentResolver = agentResolver;
 		this.executionRecordManager = executionRecordManager;
+		this.auditService = auditService;
 	}
 
 	public ExecutionResult execute(TaskDefinition taskDefinition) {
@@ -39,11 +50,20 @@ public class ExecutionEngine {
 			agentName = resolvedAgent.definition().getName();
 			AgentExecutor executor = resolvedAgent.executor();
 			context = createContext(taskDefinition, resolvedAgent.definition(), jobId);
+			auditService.agentEvent(EventType.AGENT_EXECUTION_STARTED, taskDefinition,
+				context.getExecutionId(), jobId, agentName, "RUNNING");
+			auditService.executionEvent(EventType.EXECUTION_STARTED, taskDefinition,
+				context.getExecutionId(), jobId, null, "RUNNING", agentName);
 			try {
 				result = executor.execute(context);
+				auditService.agentEvent(result.isSuccess() ? EventType.AGENT_EXECUTION_COMPLETED
+					: EventType.AGENT_EXECUTION_FAILED, taskDefinition, context.getExecutionId(),
+					jobId, agentName, result.isSuccess() ? "COMPLETED" : "FAILED");
 			}
 			catch (Exception exception) {
 				result = failedResult(executorFailureMessage(executor, exception));
+				auditService.agentEvent(EventType.AGENT_EXECUTION_FAILED, taskDefinition,
+					context.getExecutionId(), jobId, agentName, "FAILED");
 			}
 		}
 		catch (AgentResolutionException exception) {
@@ -51,8 +71,13 @@ public class ExecutionEngine {
 		}
 
 		ExecutionReport report = createReport(taskDefinition, agentName, result);
-		executionRecordManager.save(createRecord(taskDefinition, agentName, result, report,
-			context, startedAt));
+		ExecutionRecord record = createRecord(taskDefinition, agentName, result, report,
+			context, startedAt);
+		executionRecordManager.save(record);
+		EventType completedType = result.isApprovalRequired() ? EventType.EXECUTION_WAITING_APPROVAL
+			: result.isSuccess() ? EventType.EXECUTION_COMPLETED : EventType.EXECUTION_FAILED;
+		auditService.executionEvent(completedType, taskDefinition, record.getExecutionId(), jobId,
+			record.getId(), record.getStatus(), agentName);
 		return result;
 	}
 

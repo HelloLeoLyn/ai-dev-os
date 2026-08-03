@@ -10,6 +10,10 @@ import java.util.UUID;
 
 import com.aidevos.orchestrator.tool.ToolDefinition;
 import com.aidevos.orchestrator.tool.ToolInvocation;
+import com.aidevos.orchestrator.audit.AuditService;
+import com.aidevos.orchestrator.audit.EventType;
+import com.aidevos.orchestrator.approval.ApprovalStatus;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
 
@@ -18,10 +22,18 @@ public class ToolApprovalService {
 
 	private final ToolApprovalRepository store;
 	private final ObjectMapper objectMapper;
+	private final AuditService auditService;
 
 	public ToolApprovalService(ToolApprovalRepository store, ObjectMapper objectMapper) {
+		this(store, objectMapper, AuditService.noop());
+	}
+
+	@Autowired
+	public ToolApprovalService(ToolApprovalRepository store, ObjectMapper objectMapper,
+			AuditService auditService) {
 		this.store = store;
 		this.objectMapper = objectMapper;
+		this.auditService = auditService;
 	}
 
 	public ToolApprovalDecision authorize(ToolInvocation invocation, ToolDefinition definition,
@@ -33,6 +45,8 @@ public class ToolApprovalService {
 			permissionLevel);
 		if (existing != null && existing.consume()) {
 			store.save(existing);
+			auditService.toolApprovalEvent(EventType.TOOL_APPROVAL_CONSUMED, existing,
+				ApprovalStatus.APPROVED.name(), existing.getStatus().name());
 			return new ToolApprovalDecision(false, existing.getId());
 		}
 		if (existing != null) {
@@ -43,14 +57,21 @@ public class ToolApprovalService {
 			invocation.providerId(), invocation.toolName(), argumentsHash, invocation.workspace(),
 			permissionLevel, reason);
 		store.save(request);
+		auditService.toolApprovalEvent(EventType.TOOL_APPROVAL_REQUESTED, request, null,
+			request.getStatus().name());
 		return new ToolApprovalDecision(true, request.getId());
 	}
 
 	public ToolApprovalRequest approve(String id) {
 		ToolApprovalRequest request = store.get(id);
 		if (request != null) {
+			ApprovalStatus before = request.getStatus();
 			request.approve();
 			store.save(request);
+			if (before != request.getStatus()) {
+				auditService.toolApprovalEvent(EventType.TOOL_APPROVAL_APPROVED, request,
+					before.name(), request.getStatus().name());
+			}
 		}
 		return request;
 	}

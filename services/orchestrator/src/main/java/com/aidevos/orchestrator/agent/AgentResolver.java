@@ -7,6 +7,9 @@ import com.aidevos.orchestrator.executor.ExecutorManager;
 import com.aidevos.orchestrator.manager.AgentManager;
 import com.aidevos.orchestrator.model.AgentDefinition;
 import com.aidevos.orchestrator.model.TaskDefinition;
+import com.aidevos.orchestrator.audit.AuditService;
+import com.aidevos.orchestrator.audit.EventType;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -15,12 +18,20 @@ public class AgentResolver {
 	private final AgentManager agentManager;
 	private final AgentSelector agentSelector;
 	private final ExecutorManager executorManager;
+	private final AuditService auditService;
 
 	public AgentResolver(AgentManager agentManager, AgentSelector agentSelector,
 			ExecutorManager executorManager) {
+		this(agentManager, agentSelector, executorManager, AuditService.noop());
+	}
+
+	@Autowired
+	public AgentResolver(AgentManager agentManager, AgentSelector agentSelector,
+			ExecutorManager executorManager, AuditService auditService) {
 		this.agentManager = agentManager;
 		this.agentSelector = agentSelector;
 		this.executorManager = executorManager;
+		this.auditService = auditService;
 	}
 
 	public ResolvedAgent resolve(TaskDefinition taskDefinition) {
@@ -32,6 +43,8 @@ public class AgentResolver {
 			throw new AgentResolutionException("Executor not found: " + agent.getExecutor()
 				+ " for agent: " + agent.getName());
 		}
+		auditService.agentEvent(EventType.AGENT_SELECTED, taskDefinition, null, null,
+			agent.getName(), "SELECTED");
 		return new ResolvedAgent(agent, executor);
 	}
 
