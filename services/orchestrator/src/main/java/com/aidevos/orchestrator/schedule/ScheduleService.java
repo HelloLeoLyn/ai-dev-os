@@ -2,8 +2,6 @@ package com.aidevos.orchestrator.schedule;
 
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 import com.aidevos.orchestrator.job.JobQueueFullException;
 import com.aidevos.orchestrator.job.JobService;
@@ -24,25 +22,33 @@ public class ScheduleService implements ApplicationRunner {
 	private final TaskManager taskManager;
 	private final JobService jobService;
 	private final ScheduleProperties properties;
-	private final Map<String, ScheduledTask> scheduledTasks = new ConcurrentHashMap<>();
+	private final ScheduleRepository repository;
 
 	public ScheduleService(TaskScheduler taskScheduler, TaskManager taskManager,
 			JobService jobService, ScheduleProperties properties) {
+		this(taskScheduler, taskManager, jobService, properties, new InMemoryScheduleRepository());
+	}
+
+	@org.springframework.beans.factory.annotation.Autowired
+	public ScheduleService(TaskScheduler taskScheduler, TaskManager taskManager,
+			JobService jobService, ScheduleProperties properties, ScheduleRepository repository) {
 		this.taskScheduler = taskScheduler;
 		this.taskManager = taskManager;
 		this.jobService = jobService;
 		this.properties = properties;
+		this.repository = repository;
 	}
 
 	@Override
 	public void run(ApplicationArguments args) {
+		repository.getAll().forEach(this::register);
 		properties.getTasks().forEach(this::register);
 	}
 
 	public synchronized ScheduledTask register(ScheduledTask scheduledTask) {
 		ScheduledTask snapshot = snapshot(scheduledTask);
 		taskScheduler.validate(snapshot);
-		scheduledTasks.put(snapshot.getId(), snapshot);
+		repository.save(snapshot);
 		if (snapshot.isEnabled()) {
 			taskScheduler.schedule(snapshot, () -> trigger(snapshot.getId()));
 		}
@@ -53,23 +59,24 @@ public class ScheduleService implements ApplicationRunner {
 	}
 
 	public synchronized List<ScheduledTask> getAll() {
-		return scheduledTasks.values().stream()
+		return repository.getAll().stream()
 			.sorted(Comparator.comparing(ScheduledTask::getId))
 			.map(this::snapshot)
 			.toList();
 	}
 
 	public synchronized boolean remove(String scheduleId) {
-		ScheduledTask removed = scheduledTasks.remove(scheduleId);
+		ScheduledTask removed = repository.get(scheduleId);
 		if (removed == null) {
 			return false;
 		}
+		repository.remove(scheduleId);
 		taskScheduler.cancel(scheduleId);
 		return true;
 	}
 
 	private synchronized void trigger(String scheduleId) {
-		ScheduledTask scheduledTask = scheduledTasks.get(scheduleId);
+		ScheduledTask scheduledTask = repository.get(scheduleId);
 		if (scheduledTask == null || !scheduledTask.isEnabled()) {
 			return;
 		}

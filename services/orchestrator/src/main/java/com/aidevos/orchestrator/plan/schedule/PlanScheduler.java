@@ -6,7 +6,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -32,6 +31,8 @@ import com.aidevos.orchestrator.plan.run.PlanRunStatus;
 import com.aidevos.orchestrator.plan.run.StepAttempt;
 import com.aidevos.orchestrator.plan.run.StepRun;
 import com.aidevos.orchestrator.plan.run.StepRunStatus;
+import com.aidevos.orchestrator.plan.run.PlanRunRepository;
+import com.aidevos.orchestrator.plan.run.InMemoryPlanRunRepository;
 import com.aidevos.orchestrator.planner.replan.ReplanRequestService;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -48,25 +49,40 @@ public class PlanScheduler {
 	private final PlanApprovalService approvalService;
 	private final ReplanRequestService replanRequestService;
 	private final Clock clock;
-	private final Map<String, PlanRun> runs = new ConcurrentHashMap<>();
-	private final Map<String, String> runIdsByApproval = new ConcurrentHashMap<>();
+	private final PlanRunRepository runRepository;
 	private final ScheduledExecutorService monitor = Executors.newSingleThreadScheduledExecutor(
 		Thread.ofPlatform().daemon().name("plan-run-monitor").factory());
 
-	@Autowired
 	public PlanScheduler(JobService jobService, StepTaskFactory taskFactory,
 			PlanApprovalService approvalService, ReplanRequestService replanRequestService) {
-		this(jobService, taskFactory, approvalService, replanRequestService, Clock.systemUTC());
+		this(jobService, taskFactory, approvalService, replanRequestService,
+			new InMemoryPlanRunRepository(), Clock.systemUTC());
+	}
+
+	@Autowired
+	public PlanScheduler(JobService jobService, StepTaskFactory taskFactory,
+			PlanApprovalService approvalService, ReplanRequestService replanRequestService,
+			PlanRunRepository runRepository) {
+		this(jobService, taskFactory, approvalService, replanRequestService,
+			runRepository, Clock.systemUTC());
 	}
 
 	PlanScheduler(JobService jobService, StepTaskFactory taskFactory,
 			PlanApprovalService approvalService, ReplanRequestService replanRequestService,
 			Clock clock) {
+		this(jobService, taskFactory, approvalService, replanRequestService,
+			new InMemoryPlanRunRepository(), clock);
+	}
+
+	PlanScheduler(JobService jobService, StepTaskFactory taskFactory,
+			PlanApprovalService approvalService, ReplanRequestService replanRequestService,
+			PlanRunRepository runRepository, Clock clock) {
 		this.jobService = jobService;
 		this.taskFactory = taskFactory;
 		this.approvalService = approvalService;
 		this.replanRequestService = replanRequestService;
 		this.clock = clock;
+		this.runRepository = runRepository;
 	}
 
 	@PostConstruct
@@ -80,7 +96,7 @@ public class PlanScheduler {
 		if (approval == null) {
 			throw new IllegalArgumentException("Plan approval not found: " + approvalId);
 		}
-		if (runIdsByApproval.containsKey(approvalId)) {
+		if (runRepository.findRunIdByApproval(approvalId) != null) {
 			throw new IllegalStateException("Plan approval has already started a run");
 		}
 		if (approval.getStatus() != ApprovalStatus.APPROVED) {
@@ -105,32 +121,28 @@ public class PlanScheduler {
 		}
 		run.markRunning(Instant.now(clock));
 		advance(run);
+		runRepository.save(run);
 		return run;
 	}
 
 	private void register(String approvalId, PlanRun run) {
-		String existingRunId = runIdsByApproval.putIfAbsent(approvalId, run.getId());
-		if (existingRunId != null) {
-			throw new IllegalStateException("Plan approval has already started a run");
-		}
-		runs.put(run.getId(), run);
+		runRepository.create(approvalId, run);
 	}
 
 	private void unregister(String approvalId, String runId) {
-		runs.remove(runId);
-		runIdsByApproval.remove(approvalId, runId);
+		runRepository.remove(approvalId, runId);
 	}
 
 	public PlanRun get(String runId) {
-		return runs.get(runId);
+		return runRepository.get(runId);
 	}
 
 	public List<PlanRun> getAll() {
-		return List.copyOf(runs.values());
+		return runRepository.getAll();
 	}
 
 	public void reconcile() {
-		for (PlanRun run : new ArrayList<>(runs.values())) {
+		for (PlanRun run : new ArrayList<>(runRepository.getAll())) {
 			reconcile(run);
 		}
 	}
@@ -146,6 +158,7 @@ public class PlanScheduler {
 
 	private void reconcile(PlanRun run) {
 		synchronized (run) {
+			try {
 			if (terminal(run.getStatus())) {
 				return;
 			}
@@ -186,6 +199,8 @@ public class PlanScheduler {
 			attempt.markSuccess(job.getExecutionRecordId(), now);
 			active.markSuccess(now);
 			advance(run);
+			}
+			finally { runRepository.save(run); }
 		}
 	}
 

@@ -20,18 +20,18 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class PlanApprovalService {
 
-	private final PlanApprovalStore store;
+	private final PlanApprovalRepository store;
 	private final PlanValidator validator;
 	private final ObjectMapper objectMapper;
 	private final Clock clock;
 
 	@Autowired
-	public PlanApprovalService(PlanApprovalStore store, PlanValidator validator,
+	public PlanApprovalService(PlanApprovalRepository store, PlanValidator validator,
 			ObjectMapper objectMapper) {
 		this(store, validator, objectMapper, Clock.systemUTC());
 	}
 
-	PlanApprovalService(PlanApprovalStore store, PlanValidator validator,
+	PlanApprovalService(PlanApprovalRepository store, PlanValidator validator,
 			ObjectMapper objectMapper, Clock clock) {
 		this.store = store;
 		this.validator = validator;
@@ -56,19 +56,19 @@ public class PlanApprovalService {
 	public PlanApprovalRequest approve(String id, String approver) {
 		PlanApprovalRequest request = requireRequest(id);
 		request.approve(approver, Instant.now(clock));
-		return request;
+		return store.save(request);
 	}
 
 	public PlanApprovalRequest reject(String id, String approver, String reason) {
 		PlanApprovalRequest request = requireRequest(id);
 		request.reject(approver, reason, Instant.now(clock));
-		return request;
+		return store.save(request);
 	}
 
 	public PlanApprovalRequest consume(String id) {
 		PlanApprovalRequest request = requireRequest(id);
 		request.consume();
-		return request;
+		return store.save(request);
 	}
 
 	public PlanApprovalRequest get(String id) {

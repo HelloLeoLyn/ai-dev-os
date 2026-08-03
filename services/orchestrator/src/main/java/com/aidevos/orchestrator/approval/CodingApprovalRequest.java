@@ -26,6 +26,21 @@ public class CodingApprovalRequest {
 		this.status = ApprovalStatus.PENDING;
 	}
 
+	public static CodingApprovalRequest restore(String id, String taskId, String jobId,
+			String workspace, String sandbox, String reason, Instant createdAt,
+			ApprovalStatus status, Instant decidedAt) {
+		return new CodingApprovalRequest(id, taskId, jobId, workspace, sandbox, reason,
+			createdAt, status, decidedAt);
+	}
+
+	private CodingApprovalRequest(String id, String taskId, String jobId, String workspace,
+			String sandbox, String reason, Instant createdAt, ApprovalStatus status,
+			Instant decidedAt) {
+		this.id=id; this.taskId=taskId; this.jobId=jobId; this.workspace=workspace;
+		this.sandbox=sandbox; this.reason=reason; this.createdAt=createdAt;
+		this.status=status; this.decidedAt=decidedAt;
+	}
+
 	public synchronized void approve() {
 		if (status == ApprovalStatus.PENDING) {
 			status = ApprovalStatus.APPROVED;

@@ -6,9 +6,11 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 @Component
-public class PlanApprovalStore {
+@ConditionalOnProperty(prefix = "aidevos.persistence", name = "type", havingValue = "in-memory", matchIfMissing = true)
+public class PlanApprovalStore implements PlanApprovalRepository {
 
 	private final Map<String, PlanApprovalRequest> requests = new LinkedHashMap<>();
 	private final Map<String, String> frozenVersions = new LinkedHashMap<>();

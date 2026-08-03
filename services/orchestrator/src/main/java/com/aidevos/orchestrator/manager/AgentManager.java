@@ -3,29 +3,34 @@ package com.aidevos.orchestrator.manager;
 import com.aidevos.orchestrator.model.AgentDefinition;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Component
 public class AgentManager {
 
-	private final Map<String, AgentDefinition> agents = new LinkedHashMap<>();
+	private final AgentRepository repository;
+
+	public AgentManager() { this(new InMemoryAgentRepository()); }
+
+	@Autowired
+	public AgentManager(AgentRepository repository) { this.repository = repository; }
 
 	public void register(AgentDefinition agentDefinition) {
-		agents.put(agentDefinition.getName(), agentDefinition);
+		repository.save(agentDefinition);
 	}
 
 	public AgentDefinition getAgent(String name) {
-		return agents.get(name);
+		return repository.get(name);
 	}
 
 	public List<AgentDefinition> getAllAgents() {
-		return new ArrayList<>(agents.values());
+		return repository.getAll();
 	}
 
 	public AgentDefinition removeAgent(String name) {
-		return agents.remove(name);
+		AgentDefinition existing = repository.get(name);
+		repository.remove(name);
+		return existing;
 	}
 }

@@ -16,7 +16,7 @@ public class ToolApprovalRequest {
 	private final String workspace;
 	private final String permissionLevel;
 	private final String reason;
-	private final Instant createdAt = Instant.now();
+	private final Instant createdAt;
 	private ApprovalStatus status = ApprovalStatus.PENDING;
 	private Instant decidedAt;
 
@@ -33,6 +33,25 @@ public class ToolApprovalRequest {
 		this.workspace = workspace;
 		this.permissionLevel = permissionLevel;
 		this.reason = reason;
+		this.createdAt = Instant.now();
+	}
+
+	public static ToolApprovalRequest restore(String id, String executionId, String invocationId,
+			String jobId, String providerId, String toolName, String argumentsHash,
+			String workspace, String permissionLevel, String reason, Instant createdAt,
+			ApprovalStatus status, Instant decidedAt) {
+		return new ToolApprovalRequest(id, executionId, invocationId, jobId, providerId,
+			toolName, argumentsHash, workspace, permissionLevel, reason, createdAt, status, decidedAt);
+	}
+
+	private ToolApprovalRequest(String id, String executionId, String invocationId, String jobId,
+			String providerId, String toolName, String argumentsHash, String workspace,
+			String permissionLevel, String reason, Instant createdAt, ApprovalStatus status,
+			Instant decidedAt) {
+		this.id=id; this.executionId=executionId; this.invocationId=invocationId; this.jobId=jobId;
+		this.providerId=providerId; this.toolName=toolName; this.argumentsHash=argumentsHash;
+		this.workspace=workspace; this.permissionLevel=permissionLevel; this.reason=reason;
+		this.createdAt=createdAt; this.status=status; this.decidedAt=decidedAt;
 	}
 
 	public synchronized void approve() {

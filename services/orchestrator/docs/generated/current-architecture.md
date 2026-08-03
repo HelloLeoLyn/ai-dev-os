@@ -204,13 +204,8 @@ sequenceDiagram
 
 ## 8. 当前存储与生命周期
 
-- Task：`TaskManager` 内存 Map。
-- Agent：`AgentManager` 内存 `LinkedHashMap`。
-- Job：`JobStore` 内存 `ConcurrentHashMap`。
-- ExecutionRecord：`ExecutionRecordManager` 内存 `LinkedHashMap`。
-- Schedule：`ScheduleService` 内存 Map，调度句柄在 `TaskScheduler` 内存 Map。
-- OpenClaw device identity：`OpenClawDeviceIdentityStore` 使用配置路径中的本地 JSON 文件。
+Phase 7-A 将业务状态统一抽象为 Repository。Task、Agent、Job、ExecutionRecord、Schedule、Coding/Tool/Plan Approval、ReplanRequest 和 PlanRun 均保留默认 InMemory 实现，并可通过 `aidevos.persistence.type=postgresql` 切换到 PostgreSQL JSONB 文档实现。数据库连接只读取 `AI_DEV_OS_POSTGRES_URL`、`AI_DEV_OS_POSTGRES_USER` 和 `AI_DEV_OS_POSTGRES_PASSWORD`，默认模式不会连接数据库。
 
-应用重启后，除 classpath Task、YAML Agent、Spring 配置的 Schedule 和设备 identity 外，运行时创建的 Task、Job、ExecutionRecord 和 Schedule 注册信息不会由代码自动恢复。
+PostgreSQL 使用版本化迁移脚本创建 `repository_documents`，以 repository type 与 entity ID 为主键；PlanRun 对 approval ID 建立唯一索引。状态机对象通过显式 snapshot/restore 恢复，Approval、Job、PlanRun/StepRun/Attempt 的当前状态与审计时间不会因反序列化退回初始值。Schedule 启动时会重新注册已持久化定义。
 
-Codex Approval 同样保存在内存中；应用重启会丢失待审批请求和等待中的 Job。Artifact 当前内嵌于 ExecutionRecord：tracked、staged 和新建 untracked 文件分别由普通 diff、cached diff、untracked 列表/内容 Artifact 表达。未跟踪内容只从已验证 Workspace 内读取，应用二进制判断、字节上限和文本截断，但尚无独立文件存储或下载 API。
+进程期对象仍有意不持久化：TaskScheduler 的 `ScheduledFuture`、Tool/Executor/Planner registry、MCP session、OpenClaw pending request，以及含本机身份信息的 OpenClaw device identity。Artifact 仍内嵌于 ExecutionRecord，尚无独立对象存储或下载 API。已持久化的 QUEUED/RUNNING Job 在进程重启后的自动接管属于后续恢复调度能力，不在本阶段改变现有执行流程。

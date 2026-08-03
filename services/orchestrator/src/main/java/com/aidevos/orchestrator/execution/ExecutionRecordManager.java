@@ -3,21 +3,26 @@ package com.aidevos.orchestrator.execution;
 import com.aidevos.orchestrator.model.ExecutionRecord;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Component
 public class ExecutionRecordManager {
 
-	private final Map<String, ExecutionRecord> records = new LinkedHashMap<>();
+	private final ExecutionRecordRepository repository;
 	private final ThreadLocal<AtomicReference<ExecutionRecord>> capture = new ThreadLocal<>();
 
+	public ExecutionRecordManager() { this(new InMemoryExecutionRecordRepository()); }
+
+	@Autowired
+	public ExecutionRecordManager(ExecutionRecordRepository repository) {
+		this.repository = repository;
+	}
+
 	public synchronized void save(ExecutionRecord executionRecord) {
-		records.put(executionRecord.getId(), executionRecord);
+		repository.save(executionRecord);
 		AtomicReference<ExecutionRecord> capturedRecord = capture.get();
 		if (capturedRecord != null) {
 			capturedRecord.set(executionRecord);
@@ -25,11 +30,11 @@ public class ExecutionRecordManager {
 	}
 
 	public synchronized ExecutionRecord get(String id) {
-		return records.get(id);
+		return repository.get(id);
 	}
 
 	public synchronized List<ExecutionRecord> getAll() {
-		return new ArrayList<>(records.values());
+		return repository.getAll();
 	}
 
 	public <T> ExecutionCapture<T> capture(Supplier<T> execution) {

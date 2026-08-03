@@ -24,6 +24,14 @@ public class PlanRun {
 		this.steps = List.copyOf(steps);
 		this.createdAt = createdAt;
 	}
+	public static PlanRun restore(String id, String approvalId, Plan plan, List<StepRun> steps,
+			Instant createdAt, PlanRunStatus status, String error, Instant startedAt,
+			Instant completedAt) {
+		PlanRun value = new PlanRun(id, approvalId, plan, steps, createdAt);
+		value.status=status; value.error=error; value.startedAt=startedAt;
+		value.completedAt=completedAt;
+		return value;
+	}
 
 	public synchronized void markRunning(Instant time) {
 		status = PlanRunStatus.RUNNING;

@@ -17,16 +17,16 @@ import org.springframework.stereotype.Service;
 @Service
 public class ReplanRequestService {
 
-	private final ReplanRequestStore store;
+	private final ReplanRequestRepository store;
 	private final FailureClassifier classifier;
 	private final Clock clock;
 
 	@Autowired
-	public ReplanRequestService(ReplanRequestStore store, FailureClassifier classifier) {
+	public ReplanRequestService(ReplanRequestRepository store, FailureClassifier classifier) {
 		this(store, classifier, Clock.systemUTC());
 	}
 
-	public ReplanRequestService(ReplanRequestStore store, FailureClassifier classifier, Clock clock) {
+	public ReplanRequestService(ReplanRequestRepository store, FailureClassifier classifier, Clock clock) {
 		this.store = store;
 		this.classifier = classifier;
 		this.clock = clock;

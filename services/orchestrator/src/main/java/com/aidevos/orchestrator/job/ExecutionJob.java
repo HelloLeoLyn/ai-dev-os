@@ -28,6 +28,22 @@ public class ExecutionJob {
 		this.status = JobStatus.QUEUED;
 	}
 
+	public static ExecutionJob restore(String id, TaskDefinition taskSnapshot, Instant createdAt,
+			JobStatus status, Instant startedAt, Instant completedAt, ExecutionResult result,
+			String executionRecordId, String resultSummary, String errorMessage, String approvalId) {
+		return new ExecutionJob(id, taskSnapshot, createdAt, status, startedAt, completedAt,
+			result, executionRecordId, resultSummary, errorMessage, approvalId);
+	}
+
+	private ExecutionJob(String id, TaskDefinition taskSnapshot, Instant createdAt, JobStatus status,
+			Instant startedAt, Instant completedAt, ExecutionResult result, String executionRecordId,
+			String resultSummary, String errorMessage, String approvalId) {
+		this.id=id; this.taskId=taskSnapshot.getId(); this.taskSnapshot=taskSnapshot;
+		this.createdAt=createdAt; this.status=status; this.startedAt=startedAt;
+		this.completedAt=completedAt; this.result=result; this.executionRecordId=executionRecordId;
+		this.resultSummary=resultSummary; this.errorMessage=errorMessage; this.approvalId=approvalId;
+	}
+
 	public synchronized void markRunning() {
 		if (status != JobStatus.QUEUED) {
 			return;

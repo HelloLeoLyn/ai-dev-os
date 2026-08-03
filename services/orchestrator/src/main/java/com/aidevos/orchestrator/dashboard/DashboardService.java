@@ -9,7 +9,7 @@ import java.util.Map;
 import com.aidevos.orchestrator.execution.ExecutionRecordManager;
 import com.aidevos.orchestrator.job.ExecutionJob;
 import com.aidevos.orchestrator.job.JobStatus;
-import com.aidevos.orchestrator.job.JobStore;
+import com.aidevos.orchestrator.job.JobRepository;
 import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.model.TaskDefinition;
 import com.aidevos.orchestrator.task.TaskManager;
@@ -21,10 +21,10 @@ public class DashboardService {
 	private static final int RECENT_JOB_LIMIT = 10;
 
 	private final TaskManager taskManager;
-	private final JobStore jobStore;
+	private final JobRepository jobStore;
 	private final ExecutionRecordManager executionRecordManager;
 
-	public DashboardService(TaskManager taskManager, JobStore jobStore,
+	public DashboardService(TaskManager taskManager, JobRepository jobStore,
 			ExecutionRecordManager executionRecordManager) {
 		this.taskManager = taskManager;
 		this.jobStore = jobStore;

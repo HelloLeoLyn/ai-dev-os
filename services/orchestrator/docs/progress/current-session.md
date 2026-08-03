@@ -190,6 +190,15 @@ Phase 2-B 与 Phase 3 最小闭环均已完成真实验收。后续应保持当�
 
 ## 6. 本次记录范围
 
+### Phase 7-A Persistence（待 Review，未提交）
+
+- 新增协议化 Repository 边界，覆盖 Task、Agent、Job、ExecutionRecord、Schedule、Coding/Tool/Plan Approval、ReplanRequest 与 PlanRun。
+- 默认继续使用 InMemory Repository，保持既有 API 和测试构造方式；通过 `aidevos.persistence.type=postgresql` 显式切换 PostgreSQL。
+- PostgreSQL 使用 JSONB 文档表和版本化迁移脚本，Plan Approval 与 PlanRun 的冻结/唯一性规则保持不变。
+- Job、Approval、PlanRun/StepRun/Attempt 使用显式状态快照恢复；Schedule 会在启动时恢复持久化定义。
+- 不持久化进程句柄、registry、MCP session、OpenClaw pending request 或本机设备身份/认证信息。
+- 本阶段未修改 Planner、ExecutionEngine、AgentExecutor 或执行/审批决策逻辑；未 commit、未 push。
+
 - 新增 Browser 指令构造和结果映射组件。
 - 扩展 Task parameters、ExecutionContext 参数合并和异步 Job 参数快照。
 - 更新 Browser 验收 Task、前端 Task 类型和相关单元测试。

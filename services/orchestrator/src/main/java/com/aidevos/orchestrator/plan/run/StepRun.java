@@ -18,6 +18,14 @@ public class StepRun {
 		this.id = id;
 		this.stepId = stepId;
 	}
+	public static StepRun restore(String id, String stepId, List<StepAttempt> attempts,
+			StepRunStatus status, String error, Instant startedAt, Instant completedAt) {
+		StepRun value = new StepRun(id, stepId);
+		value.attempts.addAll(attempts == null ? List.of() : attempts);
+		value.status=status; value.error=error; value.startedAt=startedAt;
+		value.completedAt=completedAt;
+		return value;
+	}
 
 	public synchronized StepAttempt startAttempt(String attemptId, Instant time) {
 		if (status != StepRunStatus.PENDING) {

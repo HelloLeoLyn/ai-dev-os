@@ -16,10 +16,10 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class ToolApprovalService {
 
-	private final ToolApprovalStore store;
+	private final ToolApprovalRepository store;
 	private final ObjectMapper objectMapper;
 
-	public ToolApprovalService(ToolApprovalStore store, ObjectMapper objectMapper) {
+	public ToolApprovalService(ToolApprovalRepository store, ObjectMapper objectMapper) {
 		this.store = store;
 		this.objectMapper = objectMapper;
 	}
@@ -32,6 +32,7 @@ public class ToolApprovalService {
 			invocation.providerId(), invocation.toolName(), argumentsHash, invocation.workspace(),
 			permissionLevel);
 		if (existing != null && existing.consume()) {
+			store.save(existing);
 			return new ToolApprovalDecision(false, existing.getId());
 		}
 		if (existing != null) {
@@ -49,6 +50,7 @@ public class ToolApprovalService {
 		ToolApprovalRequest request = store.get(id);
 		if (request != null) {
 			request.approve();
+			store.save(request);
 		}
 		return request;
 	}
@@ -57,6 +59,7 @@ public class ToolApprovalService {
 		ToolApprovalRequest request = store.get(id);
 		if (request != null) {
 			request.reject();
+			store.save(request);
 		}
 		return request;
 	}

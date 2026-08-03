@@ -9,10 +9,10 @@ import org.springframework.stereotype.Service;
 @Service
 public class CodingApprovalService {
 
-	private final ApprovalStore store;
+	private final CodingApprovalRepository store;
 	private final CodingApprovalProperties properties;
 
-	public CodingApprovalService(ApprovalStore store, CodingApprovalProperties properties) {
+	public CodingApprovalService(CodingApprovalRepository store, CodingApprovalProperties properties) {
 		this.store = store;
 		this.properties = properties;
 	}
@@ -24,6 +24,7 @@ public class CodingApprovalService {
 		}
 		CodingApprovalRequest existing = store.findReusable(context.getTaskId(), context.getJobId());
 		if (existing != null && existing.consume()) {
+			store.save(existing);
 			context.getMetadata().put("approvalId", existing.getId());
 			return null;
 		}
@@ -43,6 +44,7 @@ public class CodingApprovalService {
 		CodingApprovalRequest request = store.get(id);
 		if (request != null) {
 			request.approve();
+			store.save(request);
 		}
 		return request;
 	}
@@ -51,6 +53,7 @@ public class CodingApprovalService {
 		CodingApprovalRequest request = store.get(id);
 		if (request != null) {
 			request.reject();
+			store.save(request);
 		}
 		return request;
 	}

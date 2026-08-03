@@ -19,6 +19,14 @@ public class StepAttempt {
 		this.createdAt = createdAt;
 		this.status = StepRunStatus.RUNNING;
 	}
+	public static StepAttempt restore(String id, int number, Instant createdAt,
+			StepRunStatus status, String jobId, String executionRecordId, String error,
+			Instant completedAt) {
+		StepAttempt value = new StepAttempt(id, number, createdAt);
+		value.status=status; value.jobId=jobId; value.executionRecordId=executionRecordId;
+		value.error=error; value.completedAt=completedAt;
+		return value;
+	}
 
 	public synchronized void bindJob(String submittedJobId) { jobId = submittedJobId; }
 	public synchronized void markWaitingApproval() { status = StepRunStatus.WAITING_APPROVAL; }

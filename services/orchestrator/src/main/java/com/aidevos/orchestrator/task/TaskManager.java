@@ -3,36 +3,42 @@ package com.aidevos.orchestrator.task;
 import com.aidevos.orchestrator.model.TaskDefinition;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Component
 public class TaskManager {
 
-	private final Map<String, TaskDefinition> tasks = new LinkedHashMap<>();
+	private final TaskRepository repository;
+
+	public TaskManager() { this(new InMemoryTaskRepository()); }
+
+	@Autowired
+	public TaskManager(TaskRepository repository) { this.repository = repository; }
 
 	public synchronized void register(TaskDefinition taskDefinition) {
-		tasks.put(taskDefinition.getId(), taskDefinition);
+		repository.save(taskDefinition);
 	}
 
 	public synchronized TaskDefinition getTask(String id) {
-		return tasks.get(id);
+		return repository.get(id);
 	}
 
 	public synchronized List<TaskDefinition> getAllTasks() {
-		return new ArrayList<>(tasks.values());
+		return repository.getAll();
 	}
 
 	public synchronized TaskDefinition removeTask(String id) {
-		return tasks.remove(id);
+		TaskDefinition existing = repository.get(id);
+		repository.remove(id);
+		return existing;
 	}
 
 	public synchronized void updateStatus(String id, String status) {
-		TaskDefinition taskDefinition = tasks.get(id);
+		TaskDefinition taskDefinition = repository.get(id);
 		if (taskDefinition != null) {
 			taskDefinition.setStatus(status);
+			repository.save(taskDefinition);
 		}
 	}
 }

@@ -32,6 +32,15 @@ public class PlanApprovalRequest {
 		this.status = ApprovalStatus.PENDING;
 	}
 
+	public static PlanApprovalRequest restore(String id, String requestId, Plan plan,
+			String hash, Instant createdAt, ApprovalStatus status, ApprovalStatus decision,
+			Instant decidedAt, String approver, String rejectionReason) {
+		PlanApprovalRequest request = new PlanApprovalRequest(id, requestId, plan, hash, createdAt);
+		request.status=status; request.decision=decision; request.decidedAt=decidedAt;
+		request.approver=approver; request.rejectionReason=rejectionReason;
+		return request;
+	}
+
 	public synchronized void approve(String decidedBy, Instant decisionTime) {
 		requirePending();
 		approver = requireText(decidedBy, "Approver is required");

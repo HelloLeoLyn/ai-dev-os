@@ -7,9 +7,11 @@ import java.util.Map;
 
 import com.aidevos.orchestrator.approval.ApprovalStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 @Component
-public class ToolApprovalStore {
+@ConditionalOnProperty(prefix = "aidevos.persistence", name = "type", havingValue = "in-memory", matchIfMissing = true)
+public class ToolApprovalStore implements ToolApprovalRepository {
 
 	private final Map<String, ToolApprovalRequest> requests = new LinkedHashMap<>();
 

@@ -21,20 +21,28 @@ public class JobWorker {
 
 	private final ExecutionEngine executionEngine;
 	private final ExecutionRecordManager executionRecordManager;
+	private final JobRepository jobRepository;
 	private final BlockingQueue<ExecutionJob> queue;
 	private final ExecutorService workerExecutor;
 	private volatile boolean running;
 
 	public JobWorker(ExecutionEngine executionEngine,
 			@Value("${execution.jobs.capacity:100}") int capacity) {
-		this(executionEngine, new ExecutionRecordManager(), capacity);
+		this(executionEngine, new ExecutionRecordManager(), null, capacity);
+	}
+
+	public JobWorker(ExecutionEngine executionEngine, ExecutionRecordManager executionRecordManager,
+			@Value("${execution.jobs.capacity:100}") int capacity) {
+		this(executionEngine, executionRecordManager, null, capacity);
 	}
 
 	@Autowired
 	public JobWorker(ExecutionEngine executionEngine, ExecutionRecordManager executionRecordManager,
+			JobRepository jobRepository,
 			@Value("${execution.jobs.capacity:100}") int capacity) {
 		this.executionEngine = executionEngine;
 		this.executionRecordManager = executionRecordManager;
+		this.jobRepository = jobRepository;
 		this.queue = new ArrayBlockingQueue<>(capacity);
 		this.workerExecutor = Executors.newSingleThreadExecutor(
 			Thread.ofPlatform().name("execution-job-worker").factory());
@@ -68,6 +76,7 @@ public class JobWorker {
 
 	private void execute(ExecutionJob job) {
 		job.markRunning();
+		save(job);
 		try {
 			ExecutionCapture<ExecutionResult> capture = executionRecordManager.capture(
 				() -> executionEngine.execute(job.getTaskSnapshot(), job.getId()));
@@ -87,6 +96,13 @@ public class JobWorker {
 		catch (Throwable ex) {
 			job.markFailed(null, errorMessage(ex));
 		}
+		finally {
+			save(job);
+		}
+	}
+
+	private void save(ExecutionJob job) {
+		if (jobRepository != null) jobRepository.save(job);
 	}
 
 	private String errorMessage(Throwable ex) {

@@ -6,9 +6,11 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 @Component
-public class ReplanRequestStore {
+@ConditionalOnProperty(prefix = "aidevos.persistence", name = "type", havingValue = "in-memory", matchIfMissing = true)
+public class ReplanRequestStore implements ReplanRequestRepository {
 
 	private final Map<String, ReplanRequest> requests = new LinkedHashMap<>();
 

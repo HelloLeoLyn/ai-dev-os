@@ -159,8 +159,9 @@ Task JSON 解析和 API 注册已存在，但没有 Bean Validation 或独立 sc
 
 ### 持久化
 
-- 没有数据库依赖、JPA/JDBC Repository、迁移脚本或外部 Job Queue。
-- Job、ExecutionRecord 和运行时 Task 不会跨进程恢复。
+- Phase 7-A 已进入 Review：业务 Store 已抽象为 Repository，默认 InMemory，可配置切换 PostgreSQL，并提供 JSONB 迁移脚本与状态快照恢复。
+- 已覆盖 Task、Agent、Job、ExecutionRecord、Schedule、三类 Approval、ReplanRequest 和 PlanRun。
+- 后续阶段仍需解决进程重启后对未完成 Job/PlanRun 的接管、独立 Artifact 存储与多实例协调；本阶段不改变现有执行流程。
 
 ### Job 控制
 

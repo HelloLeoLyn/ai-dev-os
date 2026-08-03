@@ -12,10 +12,10 @@ import org.springframework.stereotype.Service;
 @Service
 public class JobService {
 
-	private final JobStore jobStore;
+	private final JobRepository jobStore;
 	private final JobWorker jobWorker;
 
-	public JobService(JobStore jobStore, JobWorker jobWorker) {
+	public JobService(JobRepository jobStore, JobWorker jobWorker) {
 		this.jobStore = jobStore;
 		this.jobWorker = jobWorker;
 	}
@@ -44,15 +44,19 @@ public class JobService {
 			return false;
 		}
 		if (jobWorker.submit(job)) {
+			jobStore.save(job);
 			return true;
 		}
 		job.restoreWaitingApproval();
+		jobStore.save(job);
 		return false;
 	}
 
 	public boolean rejectApproval(String jobId) {
 		ExecutionJob job = jobStore.get(jobId);
-		return job != null && job.rejectApproval();
+		if (job == null || !job.rejectApproval()) return false;
+		jobStore.save(job);
+		return true;
 	}
 
 	private TaskDefinition snapshot(TaskDefinition source) {
