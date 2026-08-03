@@ -1,4 +1,5 @@
 export * from './agent'
+export * from './audit'
 export * from './dashboard'
 export * from './execution'
 export * from './job'

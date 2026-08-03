@@ -104,6 +104,19 @@ onMounted(loadJob)
         </div>
       </dl>
     </BaseCard>
+
+    <BaseCard v-if="job">
+      <div class="timeline-link-row">
+        <div>
+          <p class="page-eyebrow">Audit</p>
+          <h2>Job Timeline</h2>
+          <p>Inspect status transitions and correlated execution events.</p>
+        </div>
+        <RouterLink class="button timeline-link" :to="`/audit/jobs/${encodeURIComponent(job.id)}`">
+          View timeline
+        </RouterLink>
+      </div>
+    </BaseCard>
   </section>
 </template>
 
@@ -170,6 +183,30 @@ onMounted(loadJob)
   text-align: center;
 }
 
+.timeline-link-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.timeline-link-row h2,
+.timeline-link-row p {
+  margin: 0;
+}
+
+.timeline-link-row p:last-child {
+  margin-top: 0.5rem;
+  color: var(--color-text-muted);
+}
+
+.timeline-link {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
 @media (max-width: 640px) {
   .detail-grid {
     grid-template-columns: 1fr;
@@ -177,6 +214,15 @@ onMounted(loadJob)
 
   .detail-grid__wide {
     grid-column: auto;
+  }
+
+  .timeline-link-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .timeline-link {
+    justify-content: center;
   }
 }
 </style>

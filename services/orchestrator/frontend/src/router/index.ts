@@ -1,17 +1,37 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 
 import AgentsView from '../views/AgentsView.vue'
+import AuditConsoleView from '../views/AuditConsoleView.vue'
 import DashboardView from '../views/DashboardView.vue'
+import ExecutionTimelineView from '../views/ExecutionTimelineView.vue'
 import ExecutionRecordDetailView from '../views/ExecutionRecordDetailView.vue'
 import ExecutionRecordsView from '../views/ExecutionRecordsView.vue'
 import JobDetailView from '../views/JobDetailView.vue'
+import JobTimelineView from '../views/JobTimelineView.vue'
 import JobsView from '../views/JobsView.vue'
 import SchedulesView from '../views/SchedulesView.vue'
 import TasksView from '../views/TasksView.vue'
+import PlanRunTimelineView from '../views/PlanRunTimelineView.vue'
 
 const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/dashboard' },
   { path: '/dashboard', component: DashboardView, meta: { title: 'Dashboard' } },
+  { path: '/audit', component: AuditConsoleView, meta: { title: 'Audit Console' } },
+  {
+    path: '/audit/plan-runs/:id',
+    component: PlanRunTimelineView,
+    meta: { title: 'PlanRun Timeline' },
+  },
+  {
+    path: '/audit/executions/:id',
+    component: ExecutionTimelineView,
+    meta: { title: 'Execution Timeline' },
+  },
+  {
+    path: '/audit/jobs/:id',
+    component: JobTimelineView,
+    meta: { title: 'Job Timeline' },
+  },
   { path: '/jobs', component: JobsView, meta: { title: 'Jobs' } },
   { path: '/jobs/:id', component: JobDetailView, meta: { title: 'Job Details' } },
   {
