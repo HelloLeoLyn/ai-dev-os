@@ -1,10 +1,25 @@
 # 当前开发状态
 
-更新日期：2026-08-02
+更新日期：2026-08-03
+
+## 0. 本次会话结论：Phase 7 基线完成
+
+本次会话严格停留在 Review、修复与验证范围，没有进入 Phase 8。
+
+- Review 覆盖 PostgreSQL Persistence、Audit Core、Timeline API 和 Audit Console，重点检查既有执行链、状态一致性、重复事件、审计遗漏及性能风险。
+- 补齐生产 Planning / PlanRun API，以及 Plan、Replan、Step、Agent selection、Tool/MCP、ExecutionRecord 和 Artifact 审计事件。
+- PostgreSQL 查询改为数据库侧过滤、分页与 count；状态 Repository 使用二级条件查询；PlanVersion freeze 落入数据库约束。
+- 新增 audit outbox migration 与发布重试；Timeline API/Console 增加总数、是否还有下一页及翻页交互。
+- Hermes 多 Agent 步骤支持显式 `toolArguments`，保留原 `sourcePath` 兼容行为。
+- 新增 Phase 7 端到端验收测试，完整验证 User Request 到 Timeline 的执行与审计关联。
+
+最终验证：`mvn test` 264 项，0 failure、0 error、1 skipped，Testcontainers PostgreSQL 实际运行通过；`Phase7EndToEndTest` 1/1 通过；InMemory 与 PostgreSQL 模式均真实启动并返回 Audit API 200；前端 TypeScript 检查和 production build 通过。
+
+已知边界：PostgreSQL audit outbox 当前提供持久入队、发布与失败重试，但尚未与各业务 Repository 状态更新组成同一个 JDBC 事务。前端保留 575.62 kB chunk warning。后续处理必须重新分析、制定计划并等待确认。
 
 本文记录 AI Dev OS Orchestrator 当前仓库实现状态，以及本次会话实际验证的本机运行环境。仓库能力与外部 OpenClaw Browser Runtime 状态分开描述。
 
-## 0. v0.6.0 Phase 6-A 里程碑
+## 0.1 v0.6.0 Phase 6-A 里程碑（历史）
 
 Phase 1～5 已完成，当前代码已经形成以下能力链：
 

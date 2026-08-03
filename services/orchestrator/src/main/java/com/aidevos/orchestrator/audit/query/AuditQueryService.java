@@ -16,6 +16,8 @@ public class AuditQueryService {
 	public AuditEventPage query(EventQuery query) {
 		List<AuditEventView> events = repository.query(query).stream()
 			.map(AuditEventView::from).toList();
-		return new AuditEventPage(query.offset(), query.limit(), events.size(), events);
+		long total = repository.count(query);
+		return new AuditEventPage(query.offset(), query.limit(), events.size(), total,
+			query.offset() + events.size() < total, events);
 	}
 }

@@ -12,6 +12,7 @@ import java.util.concurrent.TimeUnit;
 
 import com.aidevos.orchestrator.approval.ApprovalStatus;
 import com.aidevos.orchestrator.audit.AuditService;
+import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.execution.ExecutionArtifact;
 import com.aidevos.orchestrator.execution.ExecutionResult;
 import com.aidevos.orchestrator.job.ExecutionJob;
@@ -188,15 +189,25 @@ public class PlanScheduler {
 				return;
 			}
 			if (job.getStatus() == JobStatus.WAITING_APPROVAL) {
+				String from = active.getStatus().name();
 				attempt.markWaitingApproval();
 				active.markWaitingApproval();
 				run.markWaitingApproval();
+				if (!from.equals(active.getStatus().name())) {
+					auditService.stepEvent(EventType.STEP_WAITING_APPROVAL, run, active, attempt,
+						from, active.getStatus().name());
+				}
 				return;
 			}
 			if (job.getStatus() == JobStatus.QUEUED || job.getStatus() == JobStatus.RUNNING) {
+				String from = active.getStatus().name();
 				attempt.markRunning();
 				active.markRunning();
 				run.markRunning(Instant.now(clock));
+				if (StepRunStatus.WAITING_APPROVAL.name().equals(from)) {
+					auditService.stepEvent(EventType.STEP_RESUMED, run, active, attempt, from,
+						active.getStatus().name());
+				}
 				return;
 			}
 			if (job.getStatus() == JobStatus.FAILED) {
@@ -212,6 +223,8 @@ public class PlanScheduler {
 			Instant now = Instant.now(clock);
 			attempt.markSuccess(job.getExecutionRecordId(), now);
 			active.markSuccess(now);
+			auditService.stepEvent(EventType.STEP_SUCCEEDED, run, active, attempt, "RUNNING",
+				active.getStatus().name());
 			advance(run);
 			}
 			finally {
@@ -236,11 +249,15 @@ public class PlanScheduler {
 		}
 		PlanStep definition = step(run.getPlan(), next.getStepId());
 		StepAttempt attempt = next.startAttempt(UUID.randomUUID().toString(), Instant.now(clock));
+		auditService.stepEvent(EventType.STEP_ATTEMPT_STARTED, run, next, attempt, "PENDING",
+			next.getStatus().name());
 		try {
 			TaskDefinition task = taskFactory.create(run, definition, next, attempt,
 				resolveInputs(run, definition));
 			JobSubmissionResponse submission = jobService.submit(task);
 			attempt.bindJob(submission.jobId());
+			auditService.stepEvent(EventType.STEP_JOB_BOUND, run, next, attempt,
+				attempt.getStatus().name(), attempt.getStatus().name());
 		}
 		catch (RuntimeException exception) {
 			fail(run, next, attempt, errorMessage(exception), null, null, false);
@@ -326,6 +343,8 @@ public class PlanScheduler {
 			attempt.markFailed(recordId, message, now);
 		}
 		step.markFailed(message, now);
+		auditService.stepEvent(EventType.STEP_FAILED, run, step, attempt, "RUNNING",
+			step.getStatus().name());
 		PlanStep definition = step(run.getPlan(), step.getStepId());
 		if (definition.failurePolicy() == FailurePolicy.REQUEST_REPLAN) {
 			replanRequestService.create(run, step, job, message, artifactMissing);

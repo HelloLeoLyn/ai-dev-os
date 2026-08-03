@@ -5,6 +5,10 @@ import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.model.TaskDefinition;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalRequest;
 import com.aidevos.orchestrator.plan.run.PlanRun;
+import com.aidevos.orchestrator.plan.run.StepAttempt;
+import com.aidevos.orchestrator.plan.run.StepRun;
+import com.aidevos.orchestrator.planner.PlanningRequest;
+import com.aidevos.orchestrator.planner.replan.ReplanRequest;
 import com.aidevos.orchestrator.approval.CodingApprovalRequest;
 import com.aidevos.orchestrator.tool.ToolInvocation;
 import com.aidevos.orchestrator.tool.approval.ToolApprovalRequest;
@@ -91,6 +95,14 @@ public class AuditService {
 			record.getId(), null, record.getApprovalId(), "SYSTEM", "execution-record-manager",
 			"Execution record saved", Map.of("artifactCount", record.getArtifacts().size()),
 			"EXECUTION_RECORD_SAVED:record:" + record.getId()));
+		if (!record.getArtifacts().isEmpty()) {
+			record(event(EventType.ARTIFACTS_RECORDED, "execution-record", record.getId(), null,
+				record.getStatus(), record.getTaskId(), null, null, record.getPlanRunId(),
+				record.getStepRunId(), record.getAttemptId(), record.getJobId(), record.getExecutionId(),
+				record.getId(), null, record.getApprovalId(), "SYSTEM", "execution-record-manager",
+				"Execution artifacts recorded", Map.of("artifactCount", record.getArtifacts().size()),
+				"ARTIFACTS_RECORDED:record:" + record.getId()));
+		}
 	}
 
 	public void toolEvent(EventType type, ToolInvocation invocation, String approvalId,
@@ -115,7 +127,8 @@ public class AuditService {
 			null, invocation == null ? null : invocation.jobId(),
 			invocation == null ? null : invocation.executionId(), null,
 			invocation == null ? null : invocation.invocationId(), null, "SYSTEM", providerId,
-			type.name(), metadata, type + ":mcp:" + aggregateId));
+			type.name(), metadata, type + ":mcp:" + aggregateId
+				+ (invocation == null ? ":" + UUID.randomUUID() : "")));
 	}
 
 	public void toolApprovalEvent(EventType type, ToolApprovalRequest approval, String fromStatus,
@@ -144,7 +157,38 @@ public class AuditService {
 			metadata(task, "planId"), metadataInteger(task, "planVersion"),
 			metadata(task, "planRunId"), metadata(task, "stepRunId"), metadata(task, "attemptId"),
 			jobId, executionId, null, null, null, "AGENT", agentName, type.name(), Map.of(),
-			type + ":agent:" + aggregateId));
+			type + ":agent:" + aggregateId + ":" + value(jobId)));
+	}
+
+	public void planEvent(EventType type, PlanningRequest request, String status,
+			List<String> errors) {
+		String requestId = request == null ? "unknown" : request.requestId();
+		Map<String, Object> metadata = errors == null || errors.isEmpty()
+			? Map.of() : Map.of("errors", List.copyOf(errors));
+		record(event(type, "planning-request", requestId, null, status, null, null, null,
+			null, null, null, null, null, null, null, null, "USER", requestId, type.name(),
+			metadata, type + ":planning-request:" + requestId));
+	}
+
+	public void stepEvent(EventType type, PlanRun run, StepRun step, StepAttempt attempt,
+			String fromStatus, String toStatus) {
+		String attemptId = attempt == null ? null : attempt.getId();
+		String jobId = attempt == null ? null : attempt.getJobId();
+		String recordId = attempt == null ? null : attempt.getExecutionRecordId();
+		record(event(type, "step-run", step.getId(), fromStatus, toStatus, null, run.getPlanId(),
+			run.getPlanVersion(), run.getId(), step.getId(), attemptId, jobId, null, recordId,
+			null, null, "SYSTEM", "plan-scheduler", type.name(),
+			Map.of("stepId", step.getStepId()), type + ":step:" + step.getId() + ":"
+				+ value(attemptId)));
+	}
+
+	public void replanEvent(ReplanRequest request) {
+		record(event(EventType.REPLAN_REQUESTED, "replan-request", request.id(), null, "CREATED",
+			null, request.originalPlanId(), request.originalPlanVersion(), request.failedPlanRunId(),
+			null, null, null, null, null, null, null, "SYSTEM", "replan-service",
+			"Replan requested", Map.of("failedStepId", request.failedStepId(),
+				"classification", request.failureClassification().name()),
+			"REPLAN_REQUESTED:replan:" + request.id()));
 	}
 
 	public void planRunCreated(PlanRun run) {
@@ -178,7 +222,13 @@ public class AuditService {
 		record(event(type, "plan-run", run.getId(), fromStatus, toStatus, null, run.getPlanId(),
 			run.getPlanVersion(), run.getId(), null, null, null, null, null, null,
 			run.getApprovalId(), "SYSTEM", "plan-scheduler", type.name(), Map.of(),
-			type + ":plan-run:" + run.getId() + ":" + value(fromStatus) + ":" + value(toStatus)));
+			type + ":plan-run:" + run.getId() + ":" + value(fromStatus) + ":" + value(toStatus)
+				+ ":" + currentAttemptId(run)));
+	}
+
+	private String currentAttemptId(PlanRun run) {
+		return run.getSteps().stream().map(StepRun::getCurrentAttempt).filter(java.util.Objects::nonNull)
+			.map(StepAttempt::getId).reduce((first, second) -> second).orElse("");
 	}
 
 	private EventRecord event(EventType type, String aggregateType, String aggregateId,

@@ -33,6 +33,8 @@ export interface ExecutionTimeline {
   offset: number
   limit: number
   count: number
+  totalCount: number
+  hasMore: boolean
   events: AuditEvent[]
 }
 

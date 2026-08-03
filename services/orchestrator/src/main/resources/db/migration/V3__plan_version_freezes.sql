@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS plan_version_freezes (
+    version_key VARCHAR(512) PRIMARY KEY,
+    snapshot_hash VARCHAR(128) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

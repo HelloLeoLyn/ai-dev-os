@@ -13,6 +13,7 @@ import com.aidevos.orchestrator.plan.run.StepRun;
 import com.aidevos.orchestrator.plan.run.StepRunStatus;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import com.aidevos.orchestrator.audit.AuditService;
 
 @Service
 public class ReplanRequestService {
@@ -20,16 +21,28 @@ public class ReplanRequestService {
 	private final ReplanRequestRepository store;
 	private final FailureClassifier classifier;
 	private final Clock clock;
+	private final AuditService auditService;
+
+	public ReplanRequestService(ReplanRequestRepository store, FailureClassifier classifier) {
+		this(store, classifier, Clock.systemUTC(), AuditService.noop());
+	}
 
 	@Autowired
-	public ReplanRequestService(ReplanRequestRepository store, FailureClassifier classifier) {
-		this(store, classifier, Clock.systemUTC());
+	public ReplanRequestService(ReplanRequestRepository store, FailureClassifier classifier,
+			AuditService auditService) {
+		this(store, classifier, Clock.systemUTC(), auditService);
 	}
 
 	public ReplanRequestService(ReplanRequestRepository store, FailureClassifier classifier, Clock clock) {
+		this(store, classifier, clock, AuditService.noop());
+	}
+
+	public ReplanRequestService(ReplanRequestRepository store, FailureClassifier classifier,
+			Clock clock, AuditService auditService) {
 		this.store = store;
 		this.classifier = classifier;
 		this.clock = clock;
+		this.auditService = auditService;
 	}
 
 	public ReplanRequest create(PlanRun run, StepRun failedStep, ExecutionJob job,
@@ -41,6 +54,7 @@ public class ReplanRequestService {
 			completedSteps(run), summary(job, reason), artifacts(result), run.getPlan(),
 			Instant.now(clock));
 		store.save(request);
+		auditService.replanEvent(request);
 		return request;
 	}
 

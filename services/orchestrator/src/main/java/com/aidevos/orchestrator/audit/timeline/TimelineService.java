@@ -38,6 +38,8 @@ public class TimelineService {
 		if (id == null || id.isBlank()) throw new IllegalArgumentException("Timeline id is required");
 		List<AuditEventView> events = repository.query(query).stream()
 			.map(AuditEventView::from).toList();
-		return new ExecutionTimeline(scope, id, query.offset(), query.limit(), events.size(), events);
+		long total = repository.count(query);
+		return new ExecutionTimeline(scope, id, query.offset(), query.limit(), events.size(), total,
+			query.offset() + events.size() < total, events);
 	}
 }

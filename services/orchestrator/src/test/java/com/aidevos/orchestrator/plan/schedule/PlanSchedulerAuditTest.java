@@ -53,7 +53,8 @@ class PlanSchedulerAuditTest {
 		scheduler.reconcile();
 
 		assertEquals(PlanRunStatus.RUNNING, run.getStatus());
-		assertEquals(List.of(EventType.PLAN_RUN_CREATED, EventType.PLAN_RUN_STARTED),
+		assertEquals(List.of(EventType.PLAN_RUN_CREATED, EventType.STEP_ATTEMPT_STARTED,
+			EventType.STEP_JOB_BOUND, EventType.PLAN_RUN_STARTED),
 			events.query(EventQuery.all()).stream().map(EventRecord::type).toList());
 	}
 }

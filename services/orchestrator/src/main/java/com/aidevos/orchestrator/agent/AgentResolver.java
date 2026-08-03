@@ -43,8 +43,6 @@ public class AgentResolver {
 			throw new AgentResolutionException("Executor not found: " + agent.getExecutor()
 				+ " for agent: " + agent.getName());
 		}
-		auditService.agentEvent(EventType.AGENT_SELECTED, taskDefinition, null, null,
-			agent.getName(), "SELECTED");
 		return new ResolvedAgent(agent, executor);
 	}
 

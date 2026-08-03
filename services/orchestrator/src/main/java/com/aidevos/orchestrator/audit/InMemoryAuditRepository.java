@@ -40,4 +40,10 @@ public class InMemoryAuditRepository implements AuditRepository {
 		return events.values().stream().filter(effective::matches).sorted(ORDER)
 			.skip(effective.offset()).limit(effective.limit()).toList();
 	}
+
+	@Override
+	public synchronized long count(EventQuery query) {
+		EventQuery effective = query == null ? EventQuery.all() : query;
+		return events.values().stream().filter(effective::matches).count();
+	}
 }

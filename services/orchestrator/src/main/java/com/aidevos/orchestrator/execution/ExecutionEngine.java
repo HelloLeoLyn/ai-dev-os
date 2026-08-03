@@ -42,14 +42,17 @@ public class ExecutionEngine {
 
 	public ExecutionResult execute(TaskDefinition taskDefinition, String jobId) {
 		Instant startedAt = Instant.now();
+		String executionId = UUID.randomUUID().toString();
 		String agentName = taskDefinition.getAgentName();
 		ExecutionContext context = null;
 		ExecutionResult result;
 		try {
 			ResolvedAgent resolvedAgent = agentResolver.resolve(taskDefinition);
 			agentName = resolvedAgent.definition().getName();
+			auditService.agentEvent(EventType.AGENT_SELECTED, taskDefinition, executionId, jobId,
+				agentName, "SELECTED");
 			AgentExecutor executor = resolvedAgent.executor();
-			context = createContext(taskDefinition, resolvedAgent.definition(), jobId);
+			context = createContext(taskDefinition, resolvedAgent.definition(), jobId, executionId);
 			auditService.agentEvent(EventType.AGENT_EXECUTION_STARTED, taskDefinition,
 				context.getExecutionId(), jobId, agentName, "RUNNING");
 			auditService.executionEvent(EventType.EXECUTION_STARTED, taskDefinition,
@@ -81,9 +84,10 @@ public class ExecutionEngine {
 		return result;
 	}
 
-	private ExecutionContext createContext(TaskDefinition taskDefinition, AgentDefinition agent, String jobId) {
+	private ExecutionContext createContext(TaskDefinition taskDefinition, AgentDefinition agent, String jobId,
+			String executionId) {
 		ExecutionContext context = new ExecutionContext();
-		context.setExecutionId(UUID.randomUUID().toString());
+		context.setExecutionId(executionId);
 		context.setJobId(jobId);
 		context.setTaskId(taskDefinition.getId());
 		context.setTaskName(taskDefinition.getName());

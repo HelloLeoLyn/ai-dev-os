@@ -52,6 +52,8 @@ public class HermesPlanner implements Planner {
 		String sourcePath = text(input, "sourcePath", "README.md");
 		String toolProvider = text(input, "toolProvider", "filesystem");
 		String toolName = text(input, "toolName", "read_text_file");
+		Map<String, Object> toolArguments = objectMap(input.get("toolArguments"));
+		if (toolArguments.isEmpty()) toolArguments = Map.of("path", sourcePath);
 
 		PlanStep browser = new PlanStep("browser-inspect", "Inspect login page",
 			"Open the target page and capture its observable state.", StepStatus.PLANNED,
@@ -65,7 +67,7 @@ public class HermesPlanner implements Planner {
 			"Read only the explicitly selected project file through MCP.", StepStatus.PLANNED,
 			new AgentAssignment("mcp-reader", List.of("tool", "read-only"), List.of()),
 			Map.of(), List.of(new ArtifactReference("browser-inspect", "screenshot", null,
-				"browserEvidence", true)), toolProvider, toolName, Map.of("path", sourcePath),
+				"browserEvidence", true)), toolProvider, toolName, toolArguments,
 			List.of(new ExpectedArtifact("mcp-text", null, "text/plain", true, 1)),
 			RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN, false);
 
@@ -115,6 +117,15 @@ public class HermesPlanner implements Planner {
 	private String text(Map<String, Object> input, String key, String fallback) {
 		Object value = input.get(key);
 		return value instanceof String text && !text.isBlank() ? text : fallback;
+	}
+
+	private Map<String, Object> objectMap(Object value) {
+		if (!(value instanceof Map<?, ?> source)) return Map.of();
+		Map<String, Object> copy = new LinkedHashMap<>();
+		for (Map.Entry<?, ?> entry : source.entrySet()) {
+			if (entry.getKey() instanceof String key) copy.put(key, entry.getValue());
+		}
+		return Map.copyOf(copy);
 	}
 
 	@Override

@@ -13,6 +13,8 @@ import com.aidevos.orchestrator.planner.replan.ReplanValidator;
 import com.aidevos.orchestrator.planner.replan.ReplanningResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import com.aidevos.orchestrator.audit.AuditService;
+import com.aidevos.orchestrator.audit.EventType;
 
 @Service
 public class PlannerService {
@@ -20,17 +22,24 @@ public class PlannerService {
 	private final Map<String, Planner> planners;
 	private final PlanValidator validator;
 	private final ReplanValidator replanValidator;
+	private final AuditService auditService;
 
 	public PlannerService(List<Planner> planners, PlanValidator validator) {
-		this(planners, validator, new ReplanValidator(validator));
+		this(planners, validator, new ReplanValidator(validator), AuditService.noop());
+	}
+
+	public PlannerService(List<Planner> planners, PlanValidator validator,
+			ReplanValidator replanValidator) {
+		this(planners, validator, replanValidator, AuditService.noop());
 	}
 
 	@Autowired
 	public PlannerService(List<Planner> planners, PlanValidator validator,
-			ReplanValidator replanValidator) {
+			ReplanValidator replanValidator, AuditService auditService) {
 		this.planners = index(planners);
 		this.validator = validator;
 		this.replanValidator = replanValidator;
+		this.auditService = auditService;
 	}
 
 	public ReplanningResult replan(String plannerName, ReplanRequest request) {
@@ -82,8 +91,11 @@ public class PlannerService {
 			Plan candidate = draft.toPlan();
 			PlanValidationResult validation = validator.validate(candidate);
 			if (!validation.valid()) {
+				auditService.planEvent(EventType.PLAN_VALIDATION_FAILED, request, "FAILED",
+					validation.errors());
 				return PlanningResult.failure(planner.name(), draft, validation.errors());
 			}
+			auditService.planEvent(EventType.PLAN_CREATED, request, "CREATED", List.of());
 			return PlanningResult.success(planner.name(), draft, candidate);
 		}
 		catch (RuntimeException exception) {

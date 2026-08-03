@@ -13,6 +13,19 @@ import static org.mockito.Mockito.*;
 
 class AgentAuditTest {
 	@Test
+	void repeatedTaskExecutionsKeepDistinctAgentSelectionEvents() throws Exception {
+		InMemoryAuditRepository events = new InMemoryAuditRepository();
+		AuditService audit = new AuditService(events);
+		ExecutionEngine engine = engine(audit, successfulExecutor());
+		TaskDefinition task = task();
+
+		engine.execute(task);
+		engine.execute(task);
+
+		assertEquals(2, events.query(EventQuery.all()).stream()
+			.filter(event -> event.type() == EventType.AGENT_SELECTED).count());
+	}
+	@Test
 	void recordsSelectedStartedAndCompletedAgentEvents() throws Exception {
 		InMemoryAuditRepository events = new InMemoryAuditRepository();
 		AuditService audit = new AuditService(events);

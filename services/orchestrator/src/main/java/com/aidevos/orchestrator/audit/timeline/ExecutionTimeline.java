@@ -9,6 +9,8 @@ public record ExecutionTimeline(
 		int offset,
 		int limit,
 		int count,
+		long totalCount,
+		boolean hasMore,
 		List<AuditEventView> events) {
 	public ExecutionTimeline {
 		events = List.copyOf(events);

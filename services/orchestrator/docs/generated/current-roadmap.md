@@ -1,6 +1,21 @@
 # 基于当前代码的能力盘点
 
-## 0. 2026-08-02 里程碑状态（优先于下方历史盘点）
+## 0. 2026-08-03 Phase 7 完整基线
+
+Phase 7 已完成 Review、问题修复和完整验证，当前暂停在 Phase 7 基线，不进入 Phase 8。
+
+- PostgreSQL Persistence：InMemory/PostgreSQL Repository 双模式、V1～V4 migration history、数据库级 PlanVersion freeze、主要二级条件查询和状态恢复。
+- Audit Core：补齐 Plan、Replan、Step、Agent selection/execution、Tool/MCP、ExecutionRecord 与 Artifact 审计链。
+- PostgreSQL Audit：SQL 过滤、分页和 count 下推；durable outbox、发布状态和失败重试。
+- Timeline API / Console：`totalCount`、`hasMore`、前后翻页与区间展示。
+- Production API：`POST /api/planning`、`POST /api/plan-runs`、`GET /api/plan-runs` 和详情查询。
+- Phase 7 E2E：`User Request → Hermes Plan → Plan Approval → PlanScheduler → Job → Agent → Tool/MCP → Execution → Audit Event → Timeline Console`。
+
+验证结果：Maven 264 tests（0 failures、0 errors、1 个外部 filesystem MCP 可选项 skipped）；Testcontainers PostgreSQL 实际运行通过；InMemory/PostgreSQL 启动与 Audit API 通过；前端 TypeScript 和 production build 通过。
+
+已知边界：audit outbox 已保证事件持久入队、发布及失败重试，但业务状态写入与 outbox 尚未处于同一 JDBC 事务；前端主 chunk 约 575.62 kB。两项留作后续经确认的治理工作。
+
+## 0.1 2026-08-02 里程碑状态（历史）
 
 - Phase 1～3：Orchestrator、Browser Agent、Secure Codex Agent 已完成。
 - Phase 4：Tool Core、MCP Client、MCP Execution、Tool Approval 已完成。

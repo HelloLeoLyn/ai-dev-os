@@ -31,7 +31,8 @@ class ExecutionAuditTest {
 
 		assertTrue(engine.execute(task, "job-1").isSuccess());
 
-		assertEquals(List.of(EventType.AGENT_EXECUTION_STARTED, EventType.EXECUTION_STARTED,
+		assertEquals(List.of(EventType.AGENT_SELECTED, EventType.AGENT_EXECUTION_STARTED,
+			EventType.EXECUTION_STARTED,
 			EventType.AGENT_EXECUTION_COMPLETED, EventType.EXECUTION_RECORD_SAVED,
 			EventType.EXECUTION_COMPLETED), events.query(EventQuery.all()).stream()
 			.map(EventRecord::type).toList());

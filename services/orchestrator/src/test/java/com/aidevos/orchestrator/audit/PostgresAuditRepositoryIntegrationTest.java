@@ -29,7 +29,7 @@ class PostgresAuditRepositoryIntegrationTest extends AuditRepositoryContract {
 		dataSource.setPassword(POSTGRES.getPassword());
 		new PostgresDocumentStore(dataSource, new ObjectMapper());
 		try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
-			statement.execute("TRUNCATE audit_events RESTART IDENTITY");
+			statement.execute("TRUNCATE audit_outbox, audit_events RESTART IDENTITY");
 		}
 		repository = new PostgresAuditRepository(dataSource, new ObjectMapper());
 	}

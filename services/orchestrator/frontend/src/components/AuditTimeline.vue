@@ -14,6 +14,8 @@ const props = defineProps<{
 const timeline = ref<ExecutionTimeline | null>(null)
 const loading = ref(true)
 const errorMessage = ref<string | null>(null)
+const offset = ref(0)
+const pageSize = 100
 
 const jobStates = ['QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'SUCCESS', 'FAILED'] as const
 
@@ -75,7 +77,7 @@ async function loadTimeline(): Promise<void> {
   timeline.value = null
 
   try {
-    timeline.value = await props.loader(props.scopeId, 0, 100)
+    timeline.value = await props.loader(props.scopeId, offset.value, pageSize)
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : 'Unable to load timeline.'
   } finally {
@@ -83,7 +85,15 @@ async function loadTimeline(): Promise<void> {
   }
 }
 
-watch(() => [props.scopeId, props.loader], loadTimeline, { immediate: true })
+function changePage(nextOffset: number): void {
+  offset.value = Math.max(0, nextOffset)
+  void loadTimeline()
+}
+
+watch(() => [props.scopeId, props.loader], () => {
+  offset.value = 0
+  void loadTimeline()
+}, { immediate: true })
 </script>
 
 <template>
@@ -117,9 +127,9 @@ watch(() => [props.scopeId, props.loader], loadTimeline, { immediate: true })
       <div class="timeline-heading">
         <div>
           <p class="page-eyebrow">Audit events</p>
-          <h2>{{ timeline.count }} event{{ timeline.count === 1 ? '' : 's' }}</h2>
+          <h2>{{ timeline.totalCount }} event{{ timeline.totalCount === 1 ? '' : 's' }}</h2>
         </div>
-        <span class="timeline-window">Latest window: {{ timeline.limit }}</span>
+        <span class="timeline-window">Showing {{ timeline.offset + 1 }}–{{ timeline.offset + timeline.count }}</span>
       </div>
 
       <p v-if="timeline.events.length === 0" class="timeline-state">
@@ -161,6 +171,17 @@ watch(() => [props.scopeId, props.loader], loadTimeline, { immediate: true })
           </article>
         </li>
       </ol>
+
+      <div v-if="timeline.totalCount > timeline.limit" class="timeline-pagination">
+        <button class="button button--secondary" type="button"
+          :disabled="timeline.offset === 0" @click="changePage(timeline.offset - timeline.limit)">
+          Previous
+        </button>
+        <button class="button button--secondary" type="button"
+          :disabled="!timeline.hasMore" @click="changePage(timeline.offset + timeline.limit)">
+          Next
+        </button>
+      </div>
     </BaseCard>
   </template>
 </template>
@@ -207,6 +228,13 @@ watch(() => [props.scopeId, props.loader], loadTimeline, { immediate: true })
   margin: 1.5rem 0 0;
   padding: 0;
   list-style: none;
+}
+
+.timeline-pagination {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1rem;
 }
 
 .timeline-event {
