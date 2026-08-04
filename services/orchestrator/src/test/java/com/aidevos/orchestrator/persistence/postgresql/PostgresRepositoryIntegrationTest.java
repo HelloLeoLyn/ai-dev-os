@@ -71,11 +71,11 @@ class PostgresRepositoryIntegrationTest {
 
 		Plan plan=new Plan("plan-1",1,"goal",PlanStatus.APPROVED,List.of(),List.of(),null,Instant.now());
 		PlanApprovalRequest planApproval=new PlanApprovalRequest("plan-approval-1","request-1",plan,"hash",Instant.now()); planApproval.approve("tester",Instant.now());
-		new PostgresPlanApprovalRepository(documents).save(planApproval);
-		assertEquals(ApprovalStatus.APPROVED,new PostgresPlanApprovalRepository(documents).get("plan-approval-1").getStatus());
+		new PostgresPlanApprovalRepository(documents,dataSource).save(planApproval);
+		assertEquals(ApprovalStatus.APPROVED,new PostgresPlanApprovalRepository(documents,dataSource).get("plan-approval-1").getStatus());
 		PlanRun run=new PlanRun("run-1","plan-approval-1",plan,List.of(),Instant.now()); run.markRunning(Instant.now());
-		PostgresPlanRunRepository runs=new PostgresPlanRunRepository(documents); runs.create("plan-approval-1",run);
-		assertEquals("run-1",new PostgresPlanRunRepository(documents).findRunIdByApproval("plan-approval-1"));
+		PostgresPlanRunRepository runs=new PostgresPlanRunRepository(documents,dataSource,new ObjectMapper()); runs.create("plan-approval-1",run);
+		assertEquals("run-1",new PostgresPlanRunRepository(documents,dataSource,new ObjectMapper()).findRunIdByApproval("plan-approval-1"));
 		assertThrows(IllegalStateException.class,()->runs.create("plan-approval-1",run));
 
 		ReplanRequest replan=new ReplanRequest("replan-1","plan-1",1,"run-1","step-1",FailureClassification.UNKNOWN,"test",List.of(),null,List.of(),plan,Instant.now());

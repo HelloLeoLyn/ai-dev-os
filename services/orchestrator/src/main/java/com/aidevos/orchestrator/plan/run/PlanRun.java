@@ -16,6 +16,10 @@ public class PlanRun {
 	private String error;
 	private Instant startedAt;
 	private Instant completedAt;
+	private int version;
+	private String coordinatorOwner;
+	private long coordinatorToken;
+	private Instant coordinatorExpiresAt;
 
 	public PlanRun(String id, String approvalId, Plan plan, List<StepRun> steps, Instant createdAt) {
 		this.id = id;
@@ -32,7 +36,6 @@ public class PlanRun {
 		value.completedAt=completedAt;
 		return value;
 	}
-
 	public synchronized void markRunning(Instant time) {
 		status = PlanRunStatus.RUNNING;
 		if (startedAt == null) {
@@ -55,6 +58,21 @@ public class PlanRun {
 		completedAt = time;
 	}
 
+	public synchronized int bumpVersion() { return ++version; }
+
+	public synchronized void setVersion(int version) { this.version = version; }
+
+	public synchronized void applyCoordinatorLease(String owner, long token, Instant expiresAt) {
+		this.coordinatorOwner = owner;
+		this.coordinatorToken = token;
+		this.coordinatorExpiresAt = expiresAt;
+	}
+
+	public synchronized void clearCoordinatorLease() {
+		this.coordinatorOwner = null;
+		this.coordinatorExpiresAt = null;
+	}
+
 	public String getId() { return id; }
 	public String getApprovalId() { return approvalId; }
 	public Plan getPlan() { return plan; }
@@ -66,4 +84,8 @@ public class PlanRun {
 	public synchronized String getError() { return error; }
 	public synchronized Instant getStartedAt() { return startedAt; }
 	public synchronized Instant getCompletedAt() { return completedAt; }
+	public synchronized int getVersion() { return version; }
+	public synchronized String getCoordinatorOwner() { return coordinatorOwner; }
+	public synchronized long getCoordinatorToken() { return coordinatorToken; }
+	public synchronized Instant getCoordinatorExpiresAt() { return coordinatorExpiresAt; }
 }

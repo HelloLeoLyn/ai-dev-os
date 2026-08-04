@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.aidevos.orchestrator.approval.ApprovalStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
@@ -47,6 +48,16 @@ public class PlanApprovalStore implements PlanApprovalRepository {
 			.filter(request -> request.getRequestId().equals(requestId))
 			.filter(request -> request.getPlanSnapshotHash().equals(hash))
 			.findFirst().orElse(null);
+	}
+
+	@Override
+	public synchronized boolean consumeIfApproved(String id) {
+		PlanApprovalRequest request = requests.get(id);
+		if (request == null || request.getStatus() != ApprovalStatus.APPROVED) {
+			return false;
+		}
+		request.consume();
+		return true;
 	}
 
 	private String versionKey(String planId, int version) {

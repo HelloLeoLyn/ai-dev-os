@@ -40,7 +40,7 @@ class PlanSchedulerAuditTest {
 		PlanApprovalRequest consumed = mock(PlanApprovalRequest.class);
 		when(consumed.getStatus()).thenReturn(ApprovalStatus.CONSUMED);
 		when(approvals.consume("approval-1")).thenReturn(consumed);
-		when(jobs.submit(any(TaskDefinition.class))).thenReturn(
+		when(jobs.submit(any(TaskDefinition.class), any(String.class))).thenReturn(
 			new JobSubmissionResponse("job-1", "task-1", JobStatus.QUEUED));
 		TaskDefinition task = new TaskDefinition(); task.setId("task-1");
 		ExecutionJob job = new ExecutionJob("job-1", task); job.markRunning();

@@ -64,38 +64,56 @@ public class PostgresLeaseableJobRepository implements LeaseableJobRepository {
 			+ "last_failure_code=EXCLUDED.last_failure_code,recovery_policy=EXCLUDED.recovery_policy";
 		try (Connection connection = dataSource.getConnection();
 				PreparedStatement statement = connection.prepareStatement(sql)) {
-			statement.setString(1, job.getId());
-			statement.setString(2, mapper.writeValueAsString(job.getTaskSnapshot()));
-			statement.setTimestamp(3, Timestamp.from(job.getCreatedAt()));
-			statement.setString(4, job.getStatus().name());
-			setTimestamp(statement, 5, job.getStartedAt());
-			setTimestamp(statement, 6, job.getCompletedAt());
-			setJson(statement, 7, job.getResult());
-			statement.setString(8, job.getExecutionRecordId());
-			statement.setString(9, job.getResultSummary());
-			statement.setString(10, job.getErrorMessage());
-			statement.setString(11, job.getApprovalId());
-			statement.setInt(12, job.getAttemptNo());
-			statement.setInt(13, job.getMaxAttempts());
-			setTimestamp(statement, 14, job.getAvailableAt());
-			statement.setInt(15, job.getPriority());
-			statement.setString(16, job.getLeaseOwner());
-			if (job.getLeaseToken() == null) {
-				statement.setNull(17, java.sql.Types.BIGINT);
-			} else {
-				statement.setLong(17, job.getLeaseToken());
-			}
-			setTimestamp(statement, 18, job.getLeaseExpiresAt());
-			setTimestamp(statement, 19, job.getHeartbeatAt());
-			statement.setInt(20, job.getVersion());
-			statement.setInt(21, job.getRecoveryCount());
-			statement.setString(22, job.getLastFailureCode());
-			statement.setString(23, job.getRecoveryPolicy().name());
+			bind(statement, job);
 			statement.executeUpdate();
 		}
 		catch (Exception exception) {
 			throw failure("save job", exception);
 		}
+	}
+
+	@Override
+	public ExecutionJob createIfAbsent(ExecutionJob job) {
+		String sql = "INSERT INTO jobs(" + JOB_COLUMNS + ") VALUES (?,?::jsonb,?,?,?,?,?::jsonb,"
+			+ "?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING";
+		try (Connection connection = dataSource.getConnection();
+				PreparedStatement statement = connection.prepareStatement(sql)) {
+			bind(statement, job);
+			return statement.executeUpdate() == 1 ? job : get(job.getId());
+		}
+		catch (Exception exception) {
+			throw failure("create job idempotently", exception);
+		}
+	}
+
+	private void bind(PreparedStatement statement, ExecutionJob job) throws Exception {
+		statement.setString(1, job.getId());
+		statement.setString(2, mapper.writeValueAsString(job.getTaskSnapshot()));
+		statement.setTimestamp(3, Timestamp.from(job.getCreatedAt()));
+		statement.setString(4, job.getStatus().name());
+		setTimestamp(statement, 5, job.getStartedAt());
+		setTimestamp(statement, 6, job.getCompletedAt());
+		setJson(statement, 7, job.getResult());
+		statement.setString(8, job.getExecutionRecordId());
+		statement.setString(9, job.getResultSummary());
+		statement.setString(10, job.getErrorMessage());
+		statement.setString(11, job.getApprovalId());
+		statement.setInt(12, job.getAttemptNo());
+		statement.setInt(13, job.getMaxAttempts());
+		setTimestamp(statement, 14, job.getAvailableAt());
+		statement.setInt(15, job.getPriority());
+		statement.setString(16, job.getLeaseOwner());
+		if (job.getLeaseToken() == null) {
+			statement.setNull(17, java.sql.Types.BIGINT);
+		} else {
+			statement.setLong(17, job.getLeaseToken());
+		}
+		setTimestamp(statement, 18, job.getLeaseExpiresAt());
+		setTimestamp(statement, 19, job.getHeartbeatAt());
+		statement.setInt(20, job.getVersion());
+		statement.setInt(21, job.getRecoveryCount());
+		statement.setString(22, job.getLastFailureCode());
+		statement.setString(23, job.getRecoveryPolicy().name());
 	}
 
 	@Override

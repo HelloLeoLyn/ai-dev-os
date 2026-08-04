@@ -24,11 +24,13 @@ import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PlanApprovalServiceTest {
 
@@ -149,6 +151,26 @@ class PlanApprovalServiceTest {
 		assertEquals("request-1", first.getRequestId());
 		assertEquals("request-2", second.getRequestId());
 		assertEquals(first.getPlanSnapshotHash(), second.getPlanSnapshotHash());
+	}
+
+	@Test
+	void consumeIsAtomicAndIdempotent() {
+		PlanApprovalRequest approval = service.create("request-1", draft(1, "Goal").toPlan());
+		service.approve(approval.getId(), "alice");
+
+		assertTrue(store.consumeIfApproved(approval.getId()));
+		assertFalse(store.consumeIfApproved(approval.getId()));
+		assertEquals(ApprovalStatus.CONSUMED, approval.getStatus());
+		assertEquals(ApprovalStatus.CONSUMED, service.consume(approval.getId()).getStatus());
+	}
+
+	@Test
+	void pendingOrMissingApprovalCannotBeConsumed() {
+		PlanApprovalRequest pending = service.create("request-1", draft(1, "Goal").toPlan());
+
+		assertFalse(store.consumeIfApproved(pending.getId()));
+		assertFalse(store.consumeIfApproved("missing-approval"));
+		assertThrows(IllegalStateException.class, () -> service.consume(pending.getId()));
 	}
 
 	private PlanDraft draft(int version, String goal) {

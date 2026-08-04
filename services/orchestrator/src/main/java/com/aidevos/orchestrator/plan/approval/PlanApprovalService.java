@@ -85,9 +85,16 @@ public class PlanApprovalService {
 	}
 
 	public PlanApprovalRequest consume(String id) {
-		PlanApprovalRequest request = requireRequest(id);
-		request.consume();
-		PlanApprovalRequest saved = store.save(request);
+		requireRequest(id);
+		if (!store.consumeIfApproved(id)) {
+			PlanApprovalRequest current = requireRequest(id);
+			if (current.getStatus() == ApprovalStatus.CONSUMED) {
+				return current;
+			}
+			throw new IllegalStateException("Plan approval cannot be consumed from state: "
+				+ current.getStatus());
+		}
+		PlanApprovalRequest saved = requireRequest(id);
 		auditService.planApprovalEvent(EventType.PLAN_APPROVAL_CONSUMED, saved,
 			ApprovalStatus.APPROVED.name(), ApprovalStatus.CONSUMED.name());
 		return saved;

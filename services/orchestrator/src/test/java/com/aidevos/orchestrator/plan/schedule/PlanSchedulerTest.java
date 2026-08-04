@@ -56,6 +56,7 @@ class PlanSchedulerTest {
 
 	private final Map<String, ExecutionJob> jobs = new LinkedHashMap<>();
 	private final List<TaskDefinition> submissions = new ArrayList<>();
+	private final List<String> submittedJobIds = new ArrayList<>();
 	private JobService jobService;
 	private PlanApprovalService approvalService;
 	private ReplanRequestService replanRequestService;
@@ -70,7 +71,8 @@ class PlanSchedulerTest {
 		replanRequestStore = new ReplanRequestStore();
 		replanRequestService = new ReplanRequestService(replanRequestStore,
 			new FailureClassifier(), Clock.fixed(NOW, ZoneOffset.UTC));
-		when(jobService.submit(any())).thenAnswer(invocation -> submit(invocation.getArgument(0)));
+		when(jobService.submit(any(), any())).thenAnswer(invocation ->
+			submit(invocation.getArgument(0), invocation.getArgument(1)));
 		when(jobService.get(any())).thenAnswer(invocation -> jobs.get(invocation.getArgument(0)));
 		when(approvalService.consume(any())).thenAnswer(invocation -> {
 			currentApproval.consume();
@@ -270,7 +272,8 @@ class PlanSchedulerTest {
 	@Test
 	void firstJobSubmissionFailureMustLeaveConsumedApprovalAndFailedRun() {
 		approve(plan(List.of(step("one", false)), List.of()));
-		doThrow(new IllegalStateException("queue unavailable")).when(jobService).submit(any());
+		doThrow(new IllegalStateException("queue unavailable")).when(jobService)
+			.submit(any(), any());
 
 		PlanRun run = scheduler.start("approval-1");
 
@@ -318,15 +321,15 @@ class PlanSchedulerTest {
 		return new PlanApprovalRequest("approval-1", "request-1", plan, "hash", NOW);
 	}
 
-	private JobSubmissionResponse submit(TaskDefinition task) {
+	private JobSubmissionResponse submit(TaskDefinition task, String jobId) {
 		submissions.add(task);
-		String jobId = "job-" + submissions.size();
+		submittedJobIds.add(jobId);
 		jobs.put(jobId, new ExecutionJob(jobId, task));
 		return new JobSubmissionResponse(jobId, task.getId(), JobStatus.QUEUED);
 	}
 
 	private ExecutionJob job(int index) {
-		return jobs.get("job-" + (index + 1));
+		return jobs.get(submittedJobIds.get(index));
 	}
 
 	private void succeed(ExecutionJob job, boolean withArtifact) {

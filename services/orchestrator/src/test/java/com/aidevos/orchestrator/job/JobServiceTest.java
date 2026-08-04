@@ -11,7 +11,10 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class JobServiceTest {
@@ -78,6 +81,31 @@ class JobServiceTest {
 
 		assertEquals(false, service.resumeAfterApproval("job-1"));
 		assertEquals(JobStatus.WAITING_APPROVAL, job.getStatus());
+	}
+
+	@Test
+	void shouldSubmitIdempotentlyWithDeterministicJobId() {
+		JobStore store = new JobStore();
+		JobWorker worker = mock(JobWorker.class);
+		when(worker.submit(any())).thenReturn(true);
+		JobService service = new JobService(store, worker);
+
+		JobSubmissionResponse first = service.submit(task("original"), "job-run-approval-1");
+		JobSubmissionResponse second = service.submit(task("original"), "job-run-approval-1");
+
+		assertEquals(first.jobId(), second.jobId());
+		assertEquals("job-run-approval-1", first.jobId());
+		assertEquals(1, store.getAll().size());
+		verify(worker, times(1)).submit(any());
+	}
+
+	@Test
+	void shouldRejectBlankIdempotencyKey() {
+		JobStore store = new JobStore();
+		JobWorker worker = mock(JobWorker.class);
+		JobService service = new JobService(store, worker);
+
+		assertThrows(IllegalArgumentException.class, () -> service.submit(task("original"), " "));
 	}
 
 	private TaskDefinition task(String description) {

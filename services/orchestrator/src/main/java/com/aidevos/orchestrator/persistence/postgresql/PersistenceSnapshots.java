@@ -54,8 +54,13 @@ final class PersistenceSnapshots {
 		StepRun value(){return StepRun.restore(id,stepId,attempts.stream().map(Attempt::value).toList(),status,error,startedAt,completedAt);}
 	}
 	record Run(String id,String approvalId,Plan plan,List<Step> steps,Instant createdAt,
-		PlanRunStatus status,String error,Instant startedAt,Instant completedAt){
-		static Run of(PlanRun v){return new Run(v.getId(),v.getApprovalId(),v.getPlan(),v.getSteps().stream().map(Step::of).toList(),v.getCreatedAt(),v.getStatus(),v.getError(),v.getStartedAt(),v.getCompletedAt());}
-		PlanRun value(){return PlanRun.restore(id,approvalId,plan,steps.stream().map(Step::value).toList(),createdAt,status,error,startedAt,completedAt);}
+		PlanRunStatus status,String error,Instant startedAt,Instant completedAt,
+		String coordinatorOwner,Long coordinatorToken,Instant coordinatorExpiresAt){
+		static Run of(PlanRun v){return new Run(v.getId(),v.getApprovalId(),v.getPlan(),v.getSteps().stream().map(Step::of).toList(),v.getCreatedAt(),v.getStatus(),v.getError(),v.getStartedAt(),v.getCompletedAt(),v.getCoordinatorOwner(),v.getCoordinatorToken()==0?null:v.getCoordinatorToken(),v.getCoordinatorExpiresAt());}
+		PlanRun value(){
+			PlanRun run=PlanRun.restore(id,approvalId,plan,steps.stream().map(Step::value).toList(),createdAt,status,error,startedAt,completedAt);
+			run.applyCoordinatorLease(coordinatorOwner,coordinatorToken==null?0:coordinatorToken,coordinatorExpiresAt);
+			return run;
+		}
 	}
 }

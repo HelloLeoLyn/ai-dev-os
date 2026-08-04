@@ -31,8 +31,25 @@ public class JobService {
 	}
 
 	public JobSubmissionResponse submit(TaskDefinition taskDefinition) {
-		ExecutionJob job = new ExecutionJob(UUID.randomUUID().toString(), snapshot(taskDefinition));
-		jobStore.save(job);
+		return submit(taskDefinition, UUID.randomUUID().toString());
+	}
+
+	/**
+	 * Idempotent submission: a caller-provided deterministic job id makes a
+	 * retried submission return the previously created job instead of creating
+	 * a duplicate. Used by the plan scheduler to keep attempt/job creation
+	 * safe across scheduler restarts.
+	 */
+	public JobSubmissionResponse submit(TaskDefinition taskDefinition, String jobId) {
+		if (jobId == null || jobId.isBlank()) {
+			throw new IllegalArgumentException("Job id is required");
+		}
+		ExecutionJob job = new ExecutionJob(jobId, snapshot(taskDefinition));
+		ExecutionJob stored = jobStore.createIfAbsent(job);
+		if (stored != job) {
+			return new JobSubmissionResponse(stored.getId(), stored.getTaskId(),
+				stored.getStatus());
+		}
 		if (!jobWorker.submit(job)) {
 			jobStore.remove(job.getId());
 			throw new JobQueueFullException();

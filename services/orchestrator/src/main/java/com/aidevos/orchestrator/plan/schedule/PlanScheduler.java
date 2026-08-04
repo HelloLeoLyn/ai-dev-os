@@ -1,10 +1,12 @@
 package com.aidevos.orchestrator.plan.schedule;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -45,6 +47,7 @@ import org.springframework.stereotype.Service;
 public class PlanScheduler {
 
 	private static final long POLL_MILLIS = 25;
+	private static final Duration COORDINATOR_LEASE = Duration.ofSeconds(30);
 
 	private final JobService jobService;
 	private final StepTaskFactory taskFactory;
@@ -53,6 +56,7 @@ public class PlanScheduler {
 	private final Clock clock;
 	private final PlanRunRepository runRepository;
 	private final AuditService auditService;
+	private final String coordinatorId = "scheduler-" + UUID.randomUUID();
 	private final ScheduledExecutorService monitor = Executors.newSingleThreadScheduledExecutor(
 		Thread.ofPlatform().daemon().name("plan-run-monitor").factory());
 
@@ -110,37 +114,56 @@ public class PlanScheduler {
 		if (runRepository.findRunIdByApproval(approvalId) != null) {
 			throw new IllegalStateException("Plan approval has already started a run");
 		}
+		if (approval.getStatus() == ApprovalStatus.CONSUMED) {
+			throw new IllegalStateException("Plan approval has already been consumed");
+		}
 		if (approval.getStatus() != ApprovalStatus.APPROVED) {
 			throw new IllegalStateException("Plan must be approved before execution");
 		}
 		Plan plan = approval.getPlan();
+		String runId = runId(approvalId);
 		List<StepRun> stepRuns = plan.steps().stream()
-			.map(step -> new StepRun(UUID.randomUUID().toString(), step.id()))
+			.map(step -> new StepRun(stepRunId(runId, step.id()), step.id()))
 			.toList();
-		PlanRun run = new PlanRun(UUID.randomUUID().toString(), approvalId, plan, stepRuns,
-			Instant.now(clock));
-		register(approvalId, run);
+		PlanRun run = new PlanRun(runId, approvalId, plan, stepRuns, Instant.now(clock));
+		PlanRun stored = runRepository.createIfAbsent(approvalId, run);
+		if (stored != run) {
+			throw new IllegalStateException("Plan approval has already started a run");
+		}
+		Instant now = Instant.now(clock);
+		Optional<PlanRun> claimed = runRepository.claimCoordinator(runId, coordinatorId, now,
+			COORDINATOR_LEASE);
+		if (claimed.isEmpty()) {
+			unregister(approvalId, runId);
+			throw new IllegalStateException("Plan run coordinator is held by another instance");
+		}
+		PlanRun current = claimed.get();
+		long token = current.getCoordinatorToken();
+		int claimedVersion = current.getVersion();
+		boolean consumedApproval = false;
 		try {
-			PlanApprovalRequest consumed = approvalService.consume(approvalId);
-			if (consumed.getStatus() != ApprovalStatus.CONSUMED) {
+			PlanApprovalRequest consumedRequest = approvalService.consume(approvalId);
+			if (consumedRequest.getStatus() != ApprovalStatus.CONSUMED) {
 				throw new IllegalStateException("Plan approval was not consumed");
 			}
+			consumedApproval = true;
+			auditService.planRunCreated(current);
+			PlanRunStatus before = current.getStatus();
+			current.markRunning(now);
+			advance(current);
+			runRepository.saveIfUnchanged(current, claimedVersion);
+			auditService.planRunTransition(current, before.name(), current.getStatus().name());
 		}
 		catch (RuntimeException exception) {
-			unregister(approvalId, run.getId());
+			if (!consumedApproval) {
+				unregister(approvalId, runId);
+			}
 			throw exception;
 		}
-		auditService.planRunCreated(run);
-		PlanRunStatus before = run.getStatus();
-		run.markRunning(Instant.now(clock));
-		advance(run);
-		runRepository.save(run);
-		auditService.planRunTransition(run, before.name(), run.getStatus().name());
-		return run;
-	}
-
-	private void register(String approvalId, PlanRun run) {
-		runRepository.create(approvalId, run);
+		finally {
+			runRepository.releaseCoordinator(runId, coordinatorId, token);
+		}
+		return current;
 	}
 
 	private void unregister(String approvalId, String runId) {
@@ -171,66 +194,85 @@ public class PlanScheduler {
 	}
 
 	private void reconcile(PlanRun run) {
-		synchronized (run) {
-			PlanRunStatus beforeStatus = run.getStatus();
+		if (terminal(run.getStatus())) {
+			return;
+		}
+		Instant now = Instant.now(clock);
+		Optional<PlanRun> claimed = runRepository.claimCoordinator(run.getId(), coordinatorId,
+			now, COORDINATOR_LEASE);
+		if (claimed.isEmpty()) {
+			return;
+		}
+		PlanRun current = claimed.get();
+		long token = current.getCoordinatorToken();
+		int claimedVersion = current.getVersion();
+		try {
+			consumeApprovalIfPending(current);
+			PlanRunStatus beforeStatus = current.getStatus();
 			try {
-			if (terminal(run.getStatus())) {
-				return;
-			}
-			StepRun active = activeStep(run);
-			if (active == null) {
-				advance(run);
-				return;
-			}
-			StepAttempt attempt = active.getCurrentAttempt();
-			ExecutionJob job = attempt == null ? null : jobService.get(attempt.getJobId());
-			if (job == null) {
-				fail(run, active, attempt, "Submitted job not found", null, null, false);
-				return;
-			}
-			if (job.getStatus() == JobStatus.WAITING_APPROVAL) {
-				String from = active.getStatus().name();
-				attempt.markWaitingApproval();
-				active.markWaitingApproval();
-				run.markWaitingApproval();
-				if (!from.equals(active.getStatus().name())) {
-					auditService.stepEvent(EventType.STEP_WAITING_APPROVAL, run, active, attempt,
-						from, active.getStatus().name());
+				StepRun active = activeStep(current);
+				if (active == null) {
+					advance(current);
+					return;
 				}
-				return;
-			}
-			if (job.getStatus() == JobStatus.QUEUED || job.getStatus() == JobStatus.RUNNING) {
-				String from = active.getStatus().name();
-				attempt.markRunning();
-				active.markRunning();
-				run.markRunning(Instant.now(clock));
-				if (StepRunStatus.WAITING_APPROVAL.name().equals(from)) {
-					auditService.stepEvent(EventType.STEP_RESUMED, run, active, attempt, from,
-						active.getStatus().name());
+				StepAttempt attempt = active.getCurrentAttempt();
+				ExecutionJob job = attempt == null || attempt.getJobId() == null
+					? null : jobService.get(attempt.getJobId());
+				if (job == null) {
+					if (attempt != null) {
+						repairMissingJob(current, active, attempt);
+						return;
+					}
+					fail(current, active, attempt, "Submitted job not found", null, null, false);
+					return;
 				}
-				return;
-			}
-			if (job.getStatus() == JobStatus.FAILED) {
-				fail(run, active, attempt, job.getErrorMessage(), job.getExecutionRecordId(), job,
-					false);
-				return;
-			}
-			if (!resultSatisfies(run, active, job.getResult())) {
-				fail(run, active, attempt, "Expected artifact requirements were not satisfied",
-					job.getExecutionRecordId(), job, true);
-				return;
-			}
-			Instant now = Instant.now(clock);
-			attempt.markSuccess(job.getExecutionRecordId(), now);
-			active.markSuccess(now);
-			auditService.stepEvent(EventType.STEP_SUCCEEDED, run, active, attempt, "RUNNING",
-				active.getStatus().name());
-			advance(run);
+				if (job.getStatus() == JobStatus.WAITING_APPROVAL) {
+					String from = active.getStatus().name();
+					attempt.markWaitingApproval();
+					active.markWaitingApproval();
+					current.markWaitingApproval();
+					if (!from.equals(active.getStatus().name())) {
+						auditService.stepEvent(EventType.STEP_WAITING_APPROVAL, current, active,
+							attempt, from, active.getStatus().name());
+					}
+					return;
+				}
+				if (job.getStatus() == JobStatus.QUEUED || job.getStatus() == JobStatus.RUNNING) {
+					String from = active.getStatus().name();
+					attempt.markRunning();
+					active.markRunning();
+					current.markRunning(Instant.now(clock));
+					if (StepRunStatus.WAITING_APPROVAL.name().equals(from)) {
+						auditService.stepEvent(EventType.STEP_RESUMED, current, active, attempt,
+							from, active.getStatus().name());
+					}
+					return;
+				}
+				if (job.getStatus() == JobStatus.FAILED) {
+					fail(current, active, attempt, job.getErrorMessage(),
+						job.getExecutionRecordId(), job, false);
+					return;
+				}
+				if (!resultSatisfies(current, active, job.getResult())) {
+					fail(current, active, attempt, "Expected artifact requirements were not satisfied",
+						job.getExecutionRecordId(), job, true);
+					return;
+				}
+				attempt.markSuccess(job.getExecutionRecordId(), now);
+				active.markSuccess(now);
+				auditService.stepEvent(EventType.STEP_SUCCEEDED, current, active, attempt, "RUNNING",
+					active.getStatus().name());
+				advance(current);
 			}
 			finally {
-				runRepository.save(run);
-				auditService.planRunTransition(run, beforeStatus.name(), run.getStatus().name());
+				if (runRepository.saveIfUnchanged(current, claimedVersion)) {
+					auditService.planRunTransition(current, beforeStatus.name(),
+						current.getStatus().name());
+				}
 			}
+		}
+		finally {
+			runRepository.releaseCoordinator(current.getId(), coordinatorId, token);
 		}
 	}
 
@@ -248,13 +290,15 @@ public class PlanScheduler {
 			return;
 		}
 		PlanStep definition = step(run.getPlan(), next.getStepId());
-		StepAttempt attempt = next.startAttempt(UUID.randomUUID().toString(), Instant.now(clock));
+		int attemptNumber = next.getAttempts().size() + 1;
+		StepAttempt attempt = next.startAttempt(
+			attemptId(run.getId(), next.getStepId(), attemptNumber), Instant.now(clock));
 		auditService.stepEvent(EventType.STEP_ATTEMPT_STARTED, run, next, attempt, "PENDING",
 			next.getStatus().name());
 		try {
 			TaskDefinition task = taskFactory.create(run, definition, next, attempt,
 				resolveInputs(run, definition));
-			JobSubmissionResponse submission = jobService.submit(task);
+			JobSubmissionResponse submission = jobService.submit(task, jobId(attempt.getId()));
 			attempt.bindJob(submission.jobId());
 			auditService.stepEvent(EventType.STEP_JOB_BOUND, run, next, attempt,
 				attempt.getStatus().name(), attempt.getStatus().name());
@@ -262,6 +306,55 @@ public class PlanScheduler {
 		catch (RuntimeException exception) {
 			fail(run, next, attempt, errorMessage(exception), null, null, false);
 		}
+	}
+
+	/**
+	 * Recreates the job binding for an attempt that was started but whose job
+	 * submission never completed (crash window) or whose job row is missing.
+	 * The deterministic job id makes the submission idempotent: a job created
+	 * before the crash is reused instead of duplicated.
+	 */
+	private void repairMissingJob(PlanRun run, StepRun step, StepAttempt attempt) {
+		PlanStep definition = step(run.getPlan(), step.getStepId());
+		try {
+			TaskDefinition task = taskFactory.create(run, definition, step, attempt,
+				resolveInputs(run, definition));
+			JobSubmissionResponse submission = jobService.submit(task, jobId(attempt.getId()));
+			attempt.bindJob(submission.jobId());
+			auditService.stepEvent(EventType.STEP_JOB_BOUND, run, step, attempt,
+				attempt.getStatus().name(), attempt.getStatus().name());
+		}
+		catch (RuntimeException exception) {
+			fail(run, step, attempt, errorMessage(exception), null, null, false);
+		}
+	}
+
+	/**
+	 * Closes the create-run / consume-approval crash window: when a run exists
+	 * for an approval that is still APPROVED, the approval is consumed
+	 * atomically by the recovery reconcile.
+	 */
+	private void consumeApprovalIfPending(PlanRun run) {
+		PlanApprovalRequest approval = approvalService.get(run.getApprovalId());
+		if (approval != null && approval.getStatus() == ApprovalStatus.APPROVED) {
+			approvalService.consume(run.getApprovalId());
+		}
+	}
+
+	private static String runId(String approvalId) {
+		return "run-" + approvalId;
+	}
+
+	private static String stepRunId(String runId, String stepId) {
+		return runId + ":step:" + stepId;
+	}
+
+	private static String attemptId(String runId, String stepId, int attemptNumber) {
+		return runId + ":step:" + stepId + ":attempt:" + attemptNumber;
+	}
+
+	private static String jobId(String attemptId) {
+		return "job-" + attemptId;
 	}
 
 	private Map<String, Object> resolveInputs(PlanRun run, PlanStep step) {

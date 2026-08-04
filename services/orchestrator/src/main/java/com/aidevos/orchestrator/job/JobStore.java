@@ -23,6 +23,12 @@ public class JobStore implements LeaseableJobRepository {
 		jobs.put(job.getId(), job);
 	}
 
+	@Override
+	public synchronized ExecutionJob createIfAbsent(ExecutionJob job) {
+		ExecutionJob existing = jobs.putIfAbsent(job.getId(), job);
+		return existing == null ? job : existing;
+	}
+
 	public ExecutionJob get(String id) {
 		return jobs.get(id);
 	}
