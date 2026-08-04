@@ -125,7 +125,7 @@ class JobStateMachineTest {
 
 		job.clearLease();
 		assertNull(job.getLeaseOwner());
-		assertNull(job.getLeaseToken());
+		assertEquals(Long.valueOf(7), job.getLeaseToken());
 		assertNull(job.getLeaseExpiresAt());
 		assertNull(job.getHeartbeatAt());
 	}

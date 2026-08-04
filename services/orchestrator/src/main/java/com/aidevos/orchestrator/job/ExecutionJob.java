@@ -79,9 +79,21 @@ public class ExecutionJob {
 
 	public synchronized void clearLease() {
 		this.leaseOwner = null;
-		this.leaseToken = null;
 		this.leaseExpiresAt = null;
 		this.heartbeatAt = null;
+	}
+
+	/**
+	 * Moves a running job back to the queue after its lease has been released.
+	 * The fencing token is retained by clearLease so the next claim continues
+	 * the monotonic sequence.
+	 */
+	public synchronized boolean requeue() {
+		if (status != JobStatus.RUNNING) {
+			return false;
+		}
+		status = JobStatus.QUEUED;
+		return true;
 	}
 
 	public synchronized int nextAttemptNo() {
