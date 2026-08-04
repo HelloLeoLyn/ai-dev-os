@@ -14,8 +14,11 @@ import com.aidevos.orchestrator.plan.*;
 import com.aidevos.orchestrator.plan.approval.*;
 import com.aidevos.orchestrator.plan.run.*;
 import com.aidevos.orchestrator.planner.replan.*;
+import com.aidevos.orchestrator.execution.*;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -30,9 +33,24 @@ class PostgresRepositoryIntegrationTest {
 	@Test void persistsAndReloadsRepositoriesAcrossInstances() {
 		PGSimpleDataSource dataSource=new PGSimpleDataSource(); dataSource.setUrl(POSTGRES.getJdbcUrl()); dataSource.setUser(POSTGRES.getUsername()); dataSource.setPassword(POSTGRES.getPassword());
 		PostgresDocumentStore documents=new PostgresDocumentStore(dataSource,new ObjectMapper());
-		PostgresJobRepository jobs=new PostgresJobRepository(documents);
+		PostgresLeaseableJobRepository jobs=new PostgresLeaseableJobRepository(dataSource,new ObjectMapper());
 		TaskDefinition task=new TaskDefinition(); task.setId("task-1"); ExecutionJob job=new ExecutionJob("job-1",task); job.markRunning(); jobs.save(job);
-		assertEquals(JobStatus.RUNNING,new PostgresJobRepository(new PostgresDocumentStore(dataSource,new ObjectMapper())).get("job-1").getStatus());
+		assertEquals(JobStatus.RUNNING,new PostgresLeaseableJobRepository(dataSource,new ObjectMapper()).get("job-1").getStatus());
+
+		ExecutionJob queued=new ExecutionJob("job-2",task); queued.setMaxAttempts(3); jobs.save(queued);
+		Instant now=Instant.parse("2026-08-04T00:00:00Z");
+		Optional<JobLease> lease=jobs.claimNext(now,"worker-1",Duration.ofSeconds(60));
+		assertTrue(lease.isPresent()); assertEquals(1,lease.get().token());
+		ExecutionJob claimed=new PostgresLeaseableJobRepository(dataSource,new ObjectMapper()).get("job-2");
+		assertEquals(JobStatus.RUNNING,claimed.getStatus()); assertEquals(1,claimed.getAttemptNo());
+		assertEquals("worker-1",claimed.getLeaseOwner()); assertEquals(Long.valueOf(1),claimed.getLeaseToken());
+		assertEquals(1,claimed.getVersion()); assertEquals(3,claimed.getMaxAttempts());
+
+		PostgresExecutionAttemptRepository attempts=new PostgresExecutionAttemptRepository(dataSource);
+		ExecutionAttempt attempt=new ExecutionAttempt("attempt-1","job-2",1); attempt.markRunning(now); attempt.setExecutionId("exec-1"); attempt.applyLease(new JobLease("worker-1",1,now.minusSeconds(30))); attempts.save(attempt);
+		ExecutionAttempt storedAttempt=new PostgresExecutionAttemptRepository(dataSource).get("attempt-1");
+		assertEquals(ExecutionAttemptStatus.RUNNING,storedAttempt.getStatus()); assertEquals("exec-1",storedAttempt.getExecutionId());
+		assertEquals("attempt-1",attempts.findAbandoned(now).getFirst().getId());
 
 		PostgresCodingApprovalRepository approvals=new PostgresCodingApprovalRepository(documents);
 		CodingApprovalRequest approval=new CodingApprovalRequest("approval-1","task-1","job-1","/work","workspace-write","test"); approval.approve(); approvals.save(approval);

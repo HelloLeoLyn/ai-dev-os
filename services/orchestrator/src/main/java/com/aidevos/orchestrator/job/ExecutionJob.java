@@ -47,6 +47,33 @@ public class ExecutionJob {
 			result, executionRecordId, resultSummary, errorMessage, approvalId);
 	}
 
+	/**
+	 * Restores a job including the control fields persisted for lease, attempt
+	 * and recovery bookkeeping.
+	 */
+	public static ExecutionJob restore(String id, TaskDefinition taskSnapshot, Instant createdAt,
+			JobStatus status, Instant startedAt, Instant completedAt, ExecutionResult result,
+			String executionRecordId, String resultSummary, String errorMessage, String approvalId,
+			int attemptNo, int maxAttempts, Instant availableAt, int priority, String leaseOwner,
+			Long leaseToken, Instant leaseExpiresAt, Instant heartbeatAt, int version,
+			int recoveryCount, String lastFailureCode, RecoveryPolicy recoveryPolicy) {
+		ExecutionJob job = restore(id, taskSnapshot, createdAt, status, startedAt, completedAt,
+			result, executionRecordId, resultSummary, errorMessage, approvalId);
+		job.attemptNo = attemptNo;
+		job.maxAttempts = maxAttempts;
+		job.availableAt = availableAt;
+		job.priority = priority;
+		job.leaseOwner = leaseOwner;
+		job.leaseToken = leaseToken;
+		job.leaseExpiresAt = leaseExpiresAt;
+		job.heartbeatAt = heartbeatAt;
+		job.version = version;
+		job.recoveryCount = recoveryCount;
+		job.lastFailureCode = lastFailureCode;
+		job.recoveryPolicy = recoveryPolicy == null ? RecoveryPolicy.MANUAL : recoveryPolicy;
+		return job;
+	}
+
 	private ExecutionJob(String id, TaskDefinition taskSnapshot, Instant createdAt, JobStatus status,
 			Instant startedAt, Instant completedAt, ExecutionResult result, String executionRecordId,
 			String resultSummary, String errorMessage, String approvalId) {

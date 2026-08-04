@@ -1,26 +1,13 @@
 package com.aidevos.orchestrator.persistence.postgresql;
 
-import java.util.Comparator;
 import java.util.List;
 import com.aidevos.orchestrator.approval.*;
-import com.aidevos.orchestrator.job.*;
 import com.aidevos.orchestrator.plan.approval.*;
 import com.aidevos.orchestrator.plan.run.*;
 import com.aidevos.orchestrator.planner.replan.*;
 import com.aidevos.orchestrator.tool.approval.*;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Repository;
-
-@Repository @ConditionalOnProperty(prefix="aidevos.persistence",name="type",havingValue="postgresql")
-class PostgresJobRepository implements JobRepository {
-	private static final String TYPE="job"; private final PostgresDocumentStore store;
-	PostgresJobRepository(PostgresDocumentStore store){this.store=store;}
-	public void save(ExecutionJob v){store.put(TYPE,v.getId(),PersistenceSnapshots.Job.of(v),v.getStatus().name());}
-	public ExecutionJob get(String id){var v=store.get(TYPE,id,PersistenceSnapshots.Job.class);return v==null?null:v.value();}
-	public List<ExecutionJob> getAll(){return store.all(TYPE,PersistenceSnapshots.Job.class).stream().map(PersistenceSnapshots.Job::value).sorted(Comparator.comparing(ExecutionJob::getCreatedAt).thenComparing(ExecutionJob::getId)).toList();}
-	public List<ExecutionJob> getByStatus(JobStatus status){return store.allBySecondary(TYPE,status.name(),PersistenceSnapshots.Job.class).stream().map(PersistenceSnapshots.Job::value).sorted(Comparator.comparing(ExecutionJob::getCreatedAt).thenComparing(ExecutionJob::getId)).toList();}
-	public void remove(String id){store.delete(TYPE,id);}
-}
 
 @Repository @ConditionalOnProperty(prefix="aidevos.persistence",name="type",havingValue="postgresql")
 class PostgresCodingApprovalRepository implements CodingApprovalRepository {

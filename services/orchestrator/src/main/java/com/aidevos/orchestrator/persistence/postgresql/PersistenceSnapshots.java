@@ -16,9 +16,16 @@ final class PersistenceSnapshots {
 
 	record Job(String id, TaskDefinition taskSnapshot, Instant createdAt, JobStatus status,
 		Instant startedAt, Instant completedAt, ExecutionResult result, String executionRecordId,
-		String resultSummary, String errorMessage, String approvalId) {
-		static Job of(ExecutionJob value) { return new Job(value.getId(),value.getTaskSnapshot(),value.getCreatedAt(),value.getStatus(),value.getStartedAt(),value.getCompletedAt(),value.getResult(),value.getExecutionRecordId(),value.getResultSummary(),value.getErrorMessage(),value.getApprovalId()); }
-		ExecutionJob value() { return ExecutionJob.restore(id,taskSnapshot,createdAt,status,startedAt,completedAt,result,executionRecordId,resultSummary,errorMessage,approvalId); }
+		String resultSummary, String errorMessage, String approvalId, int attemptNo, int maxAttempts,
+		Instant availableAt, int priority, String leaseOwner, Long leaseToken,
+		Instant leaseExpiresAt, Instant heartbeatAt, int version, int recoveryCount,
+		String lastFailureCode, ExecutionJob.RecoveryPolicy recoveryPolicy) {
+		static Job of(ExecutionJob value) {
+			return new Job(value.getId(),value.getTaskSnapshot(),value.getCreatedAt(),value.getStatus(),value.getStartedAt(),value.getCompletedAt(),value.getResult(),value.getExecutionRecordId(),value.getResultSummary(),value.getErrorMessage(),value.getApprovalId(),value.getAttemptNo(),value.getMaxAttempts(),value.getAvailableAt(),value.getPriority(),value.getLeaseOwner(),value.getLeaseToken(),value.getLeaseExpiresAt(),value.getHeartbeatAt(),value.getVersion(),value.getRecoveryCount(),value.getLastFailureCode(),value.getRecoveryPolicy());
+		}
+		ExecutionJob value() {
+			return ExecutionJob.restore(id,taskSnapshot,createdAt,status,startedAt,completedAt,result,executionRecordId,resultSummary,errorMessage,approvalId,attemptNo,maxAttempts,availableAt,priority,leaseOwner,leaseToken,leaseExpiresAt,heartbeatAt,version,recoveryCount,lastFailureCode,recoveryPolicy);
+		}
 	}
 	record CodingApproval(String id,String taskId,String jobId,String workspace,String sandbox,
 		String reason,Instant createdAt,ApprovalStatus status,Instant decidedAt) {
