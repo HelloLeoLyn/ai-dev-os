@@ -1,7 +1,9 @@
 package com.aidevos.orchestrator.job;
 
 import java.time.Duration;
+import java.time.Instant;
 
+import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.execution.ExecutionEngine;
 import com.aidevos.orchestrator.execution.ExecutionRecordManager;
 import com.aidevos.orchestrator.execution.ExecutionResult;
@@ -13,9 +15,12 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class JobWorkerTest {
@@ -90,6 +95,73 @@ class JobWorkerTest {
 
 		assertEquals("approval-1", job.getApprovalId());
 		assertEquals(result, job.getResult());
+	}
+
+	@Test
+	void shouldClaimAndCompleteJobThroughLeaseableRepository() throws Exception {
+		ExecutionEngine engine = mock(ExecutionEngine.class);
+		ExecutionResult result = result(true, "claimed and done");
+		when(engine.execute(any(TaskDefinition.class), anyString())).thenReturn(result);
+		JobStore jobs = new JobStore();
+		worker = new JobWorker(engine, new ExecutionRecordManager(), jobs, AuditService.noop(), 2);
+		TaskDefinition task = new TaskDefinition();
+		task.setId("task-1");
+		ExecutionJob job = new ExecutionJob("job-1", task);
+		jobs.save(job);
+		worker.submit(job);
+		worker.start();
+
+		awaitStatus(job, JobStatus.SUCCESS);
+
+		ExecutionJob stored = jobs.get("job-1");
+		assertEquals(JobStatus.SUCCESS, stored.getStatus());
+		assertEquals(result, stored.getResult());
+		assertEquals("claimed and done", stored.getResultSummary());
+		assertEquals(1, stored.getAttemptNo());
+		assertNull(stored.getLeaseOwner());
+		assertNull(stored.getLeaseExpiresAt());
+	}
+
+	@Test
+	void shouldClaimDueRetryWaitJobThroughLeaseableRepository() throws Exception {
+		ExecutionEngine engine = mock(ExecutionEngine.class);
+		when(engine.execute(any(TaskDefinition.class), anyString())).thenReturn(result(true, "retried"));
+		JobStore jobs = new JobStore();
+		worker = new JobWorker(engine, new ExecutionRecordManager(), jobs, AuditService.noop(), 2);
+		TaskDefinition task = new TaskDefinition();
+		task.setId("task-1");
+		ExecutionJob job = new ExecutionJob("job-1", task);
+		job.markRunning();
+		job.markRetryWait("EXECUTOR_FAILURE", Instant.now().minusSeconds(1));
+		jobs.save(job);
+		worker.submit(job);
+		worker.start();
+
+		awaitStatus(job, JobStatus.SUCCESS);
+
+		ExecutionJob stored = jobs.get("job-1");
+		assertEquals(JobStatus.SUCCESS, stored.getStatus());
+		assertEquals(1, stored.getAttemptNo());
+	}
+
+	@Test
+	void shouldNotExecuteFutureRetryWaitJob() throws Exception {
+		ExecutionEngine engine = mock(ExecutionEngine.class);
+		JobStore jobs = new JobStore();
+		worker = new JobWorker(engine, new ExecutionRecordManager(), jobs, AuditService.noop(), 2);
+		TaskDefinition task = new TaskDefinition();
+		task.setId("task-1");
+		ExecutionJob job = new ExecutionJob("job-1", task);
+		job.markRunning();
+		job.markRetryWait("BACKOFF", Instant.now().plusSeconds(30));
+		jobs.save(job);
+		worker.submit(job);
+		worker.start();
+
+		Thread.sleep(150);
+
+		assertEquals(JobStatus.RETRY_WAIT, job.getStatus());
+		verify(engine, never()).execute(any(TaskDefinition.class), anyString());
 	}
 
 	private ExecutionJob execute(ExecutionEngine engine) {

@@ -1,5 +1,9 @@
 package com.aidevos.orchestrator.job;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
@@ -12,6 +16,7 @@ import com.aidevos.orchestrator.execution.ExecutionEngine;
 import com.aidevos.orchestrator.execution.ExecutionRecordManager;
 import com.aidevos.orchestrator.execution.ExecutionResult;
 import com.aidevos.orchestrator.model.ExecutionRecord;
+import com.aidevos.orchestrator.persistence.LeaseableJobRepository;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,27 +28,40 @@ public class JobWorker {
 
 	private final ExecutionEngine executionEngine;
 	private final ExecutionRecordManager executionRecordManager;
-	private final JobRepository jobRepository;
+	private final LeaseableJobRepository jobRepository;
 	private final AuditService auditService;
 	private final BlockingQueue<ExecutionJob> queue;
 	private final ExecutorService workerExecutor;
+	private final String workerId;
+	private final Duration leaseDuration;
 	private volatile boolean running;
 
 	public JobWorker(ExecutionEngine executionEngine,
 			@Value("${execution.jobs.capacity:100}") int capacity) {
-		this(executionEngine, new ExecutionRecordManager(), null, AuditService.noop(), capacity);
+		this(executionEngine, new ExecutionRecordManager(), null, AuditService.noop(), capacity,
+			defaultWorkerId(), defaultLeaseDuration());
 	}
 
 	public JobWorker(ExecutionEngine executionEngine, ExecutionRecordManager executionRecordManager,
 			@Value("${execution.jobs.capacity:100}") int capacity) {
-		this(executionEngine, executionRecordManager, null, AuditService.noop(), capacity);
+		this(executionEngine, executionRecordManager, null, AuditService.noop(), capacity,
+			defaultWorkerId(), defaultLeaseDuration());
+	}
+
+	public JobWorker(ExecutionEngine executionEngine, ExecutionRecordManager executionRecordManager,
+			LeaseableJobRepository jobRepository, AuditService auditService,
+			@Value("${execution.jobs.capacity:100}") int capacity) {
+		this(executionEngine, executionRecordManager, jobRepository, auditService, capacity,
+			defaultWorkerId(), defaultLeaseDuration());
 	}
 
 	@Autowired
 	public JobWorker(ExecutionEngine executionEngine, ExecutionRecordManager executionRecordManager,
-			JobRepository jobRepository,
+			LeaseableJobRepository jobRepository,
 			AuditService auditService,
-			@Value("${execution.jobs.capacity:100}") int capacity) {
+			@Value("${execution.jobs.capacity:100}") int capacity,
+			@Value("${execution.jobs.worker-id:}") String workerId,
+			@Value("${execution.jobs.lease-duration:30m}") Duration leaseDuration) {
 		this.executionEngine = executionEngine;
 		this.executionRecordManager = executionRecordManager;
 		this.jobRepository = jobRepository;
@@ -51,6 +69,8 @@ public class JobWorker {
 		this.queue = new ArrayBlockingQueue<>(capacity);
 		this.workerExecutor = Executors.newSingleThreadExecutor(
 			Thread.ofPlatform().name("execution-job-worker").factory());
+		this.workerId = workerId == null || workerId.isBlank() ? defaultWorkerId() : workerId;
+		this.leaseDuration = leaseDuration == null ? defaultLeaseDuration() : leaseDuration;
 	}
 
 	public boolean submit(ExecutionJob job) {
@@ -70,7 +90,19 @@ public class JobWorker {
 		while (running) {
 			try {
 				ExecutionJob job = queue.take();
-				execute(job);
+				if (jobRepository == null) {
+					execute(job, null);
+					continue;
+				}
+				JobStatus before = job.getStatus();
+				Optional<JobLease> lease = jobRepository.claimNext(Instant.now(), workerId,
+					leaseDuration);
+				if (lease.isEmpty()) {
+					queue.offer(job);
+					Thread.sleep(50);
+					continue;
+				}
+				execute(job, new LeaseContext(before, lease.get()));
 			}
 			catch (InterruptedException ex) {
 				Thread.currentThread().interrupt();
@@ -79,10 +111,12 @@ public class JobWorker {
 		}
 	}
 
-	private void execute(ExecutionJob job) {
-		JobStatus before = job.getStatus();
+	private void execute(ExecutionJob job, LeaseContext leaseContext) {
+		JobStatus before = leaseContext == null ? job.getStatus() : leaseContext.before;
 		job.markRunning();
-		save(job);
+		if (leaseContext == null) {
+			save(job);
+		}
 		if (before != job.getStatus()) {
 			auditService.jobEvent(EventType.JOB_STARTED, job, before.name(), job.getStatus().name());
 		}
@@ -106,7 +140,13 @@ public class JobWorker {
 			job.markFailed(null, errorMessage(ex));
 		}
 		finally {
-			save(job);
+			if (leaseContext != null) {
+				jobRepository.complete(job.getId(), leaseContext.lease.owner(),
+					leaseContext.lease.token(), job);
+			}
+			else {
+				save(job);
+			}
 			EventType type = switch (job.getStatus()) {
 				case SUCCESS -> EventType.JOB_SUCCEEDED;
 				case FAILED -> EventType.JOB_FAILED;
@@ -116,6 +156,14 @@ public class JobWorker {
 			if (type != null) auditService.jobEvent(type, job, JobStatus.RUNNING.name(),
 				job.getStatus().name());
 		}
+	}
+
+	private static String defaultWorkerId() {
+		return "worker-" + UUID.randomUUID();
+	}
+
+	private static Duration defaultLeaseDuration() {
+		return Duration.ofMinutes(30);
 	}
 
 	private void save(ExecutionJob job) {
@@ -132,5 +180,8 @@ public class JobWorker {
 	public synchronized void stop() {
 		running = false;
 		workerExecutor.shutdownNow();
+	}
+
+	private record LeaseContext(JobStatus before, JobLease lease) {
 	}
 }
