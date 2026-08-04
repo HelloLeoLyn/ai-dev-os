@@ -2,6 +2,10 @@ package com.aidevos.orchestrator.job;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.execution.ExecutionEngine;
@@ -16,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -164,6 +169,78 @@ class JobWorkerTest {
 		verify(engine, never()).execute(any(TaskDefinition.class), anyString());
 	}
 
+	@Test
+	void shouldRenewLeaseWhileExecuting() throws Exception {
+		ExecutionEngine engine = mock(ExecutionEngine.class);
+		CountDownLatch started = new CountDownLatch(1);
+		CountDownLatch release = new CountDownLatch(1);
+		when(engine.execute(any(TaskDefinition.class), anyString())).thenAnswer(invocation -> {
+			started.countDown();
+			release.await(2, TimeUnit.SECONDS);
+			return result(true, "heartbeated");
+		});
+		JobStore jobs = new JobStore();
+		worker = new JobWorker(engine, new ExecutionRecordManager(), jobs, AuditService.noop(), 1,
+			"worker-heartbeat", Duration.ofMillis(300), Duration.ofMillis(100));
+		ExecutionJob job = job("job-1");
+		jobs.save(job);
+		worker.submit(job);
+		worker.start();
+
+		assertTrue(started.await(2, TimeUnit.SECONDS));
+		Instant originalExpiry = jobs.get("job-1").getLeaseExpiresAt();
+		assertNotNull(originalExpiry);
+
+		awaitCondition(() -> {
+			ExecutionJob stored = jobs.get("job-1");
+			return stored.getHeartbeatAt() != null
+				&& stored.getLeaseExpiresAt() != null
+				&& stored.getLeaseExpiresAt().isAfter(originalExpiry);
+		});
+
+		release.countDown();
+		awaitStatus(job, JobStatus.SUCCESS);
+
+		ExecutionJob stored = jobs.get("job-1");
+		assertEquals(JobStatus.SUCCESS, stored.getStatus());
+		assertNull(stored.getLeaseOwner());
+		assertNull(stored.getLeaseExpiresAt());
+	}
+
+	@Test
+	void shouldStopHeartbeatWhenLeaseIsSuperseded() throws Exception {
+		ExecutionEngine engine = mock(ExecutionEngine.class);
+		CountDownLatch started = new CountDownLatch(1);
+		CountDownLatch release = new CountDownLatch(1);
+		when(engine.execute(any(TaskDefinition.class), anyString())).thenAnswer(invocation -> {
+			started.countDown();
+			release.await(2, TimeUnit.SECONDS);
+			return result(true, "stale result");
+		});
+		JobStore jobs = new JobStore();
+		worker = new JobWorker(engine, new ExecutionRecordManager(), jobs, AuditService.noop(), 1,
+			"worker-a", Duration.ofSeconds(30), Duration.ofMillis(100));
+		ExecutionJob job = job("job-1");
+		jobs.save(job);
+		worker.submit(job);
+		worker.start();
+
+		assertTrue(started.await(2, TimeUnit.SECONDS));
+		assertTrue(jobs.releaseLease("job-1", "worker-a", 1, JobStatus.QUEUED));
+		Optional<JobLease> superseding = jobs.claimNext(Instant.now(), "worker-b",
+			Duration.ofSeconds(30));
+		assertTrue(superseding.isPresent());
+
+		Thread.sleep(300);
+		release.countDown();
+		awaitStatus(job, JobStatus.SUCCESS);
+
+		ExecutionJob stored = jobs.get("job-1");
+		assertEquals("worker-b", stored.getLeaseOwner());
+		assertEquals(Long.valueOf(2), stored.getLeaseToken());
+		assertFalse(jobs.renewLease("job-1", "worker-a", 1, Instant.now().plusSeconds(30)));
+	}
+
 	private ExecutionJob execute(ExecutionEngine engine) {
 		return execute(engine, new ExecutionRecordManager());
 	}
@@ -178,12 +255,26 @@ class JobWorkerTest {
 		return job;
 	}
 
+	private ExecutionJob job(String id) {
+		TaskDefinition task = new TaskDefinition();
+		task.setId("task-" + id);
+		return new ExecutionJob(id, task);
+	}
+
 	private void awaitStatus(ExecutionJob job, JobStatus expected) throws Exception {
 		long deadline = System.nanoTime() + Duration.ofSeconds(2).toNanos();
 		while (job.getStatus() != expected && System.nanoTime() < deadline) {
 			Thread.sleep(10);
 		}
 		assertEquals(expected, job.getStatus());
+	}
+
+	private void awaitCondition(BooleanSupplier condition) throws Exception {
+		long deadline = System.nanoTime() + Duration.ofSeconds(2).toNanos();
+		while (!condition.getAsBoolean() && System.nanoTime() < deadline) {
+			Thread.sleep(10);
+		}
+		assertTrue(condition.getAsBoolean());
 	}
 
 	private ExecutionResult result(boolean success, String message) {

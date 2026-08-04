@@ -8,6 +8,8 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
@@ -32,27 +34,30 @@ public class JobWorker {
 	private final AuditService auditService;
 	private final BlockingQueue<ExecutionJob> queue;
 	private final ExecutorService workerExecutor;
+	private final ScheduledExecutorService heartbeatExecutor;
 	private final String workerId;
 	private final Duration leaseDuration;
+	private final Duration heartbeatInterval;
+	private volatile ActiveLease activeLease;
 	private volatile boolean running;
 
 	public JobWorker(ExecutionEngine executionEngine,
 			@Value("${execution.jobs.capacity:100}") int capacity) {
 		this(executionEngine, new ExecutionRecordManager(), null, AuditService.noop(), capacity,
-			defaultWorkerId(), defaultLeaseDuration());
+			defaultWorkerId(), defaultLeaseDuration(), (Duration) null);
 	}
 
 	public JobWorker(ExecutionEngine executionEngine, ExecutionRecordManager executionRecordManager,
 			@Value("${execution.jobs.capacity:100}") int capacity) {
 		this(executionEngine, executionRecordManager, null, AuditService.noop(), capacity,
-			defaultWorkerId(), defaultLeaseDuration());
+			defaultWorkerId(), defaultLeaseDuration(), (Duration) null);
 	}
 
 	public JobWorker(ExecutionEngine executionEngine, ExecutionRecordManager executionRecordManager,
 			LeaseableJobRepository jobRepository, AuditService auditService,
 			@Value("${execution.jobs.capacity:100}") int capacity) {
 		this(executionEngine, executionRecordManager, jobRepository, auditService, capacity,
-			defaultWorkerId(), defaultLeaseDuration());
+			defaultWorkerId(), defaultLeaseDuration(), (Duration) null);
 	}
 
 	@Autowired
@@ -61,7 +66,19 @@ public class JobWorker {
 			AuditService auditService,
 			@Value("${execution.jobs.capacity:100}") int capacity,
 			@Value("${execution.jobs.worker-id:}") String workerId,
-			@Value("${execution.jobs.lease-duration:30m}") Duration leaseDuration) {
+			@Value("${execution.jobs.lease-duration:30m}") Duration leaseDuration,
+			@Value("${execution.jobs.heartbeat-interval:}") String heartbeatInterval) {
+		this(executionEngine, executionRecordManager, jobRepository, auditService, capacity,
+			workerId, leaseDuration, parseHeartbeatInterval(heartbeatInterval, leaseDuration));
+	}
+
+	/**
+	 * Core constructor used by Spring and tests. A null heartbeat interval is
+	 * derived from the lease duration (one third, per the lease design).
+	 */
+	JobWorker(ExecutionEngine executionEngine, ExecutionRecordManager executionRecordManager,
+			LeaseableJobRepository jobRepository, AuditService auditService, int capacity,
+			String workerId, Duration leaseDuration, Duration heartbeatInterval) {
 		this.executionEngine = executionEngine;
 		this.executionRecordManager = executionRecordManager;
 		this.jobRepository = jobRepository;
@@ -69,8 +86,13 @@ public class JobWorker {
 		this.queue = new ArrayBlockingQueue<>(capacity);
 		this.workerExecutor = Executors.newSingleThreadExecutor(
 			Thread.ofPlatform().name("execution-job-worker").factory());
+		this.heartbeatExecutor = Executors.newSingleThreadScheduledExecutor(
+			Thread.ofPlatform().daemon().name("execution-job-heartbeat").factory());
 		this.workerId = workerId == null || workerId.isBlank() ? defaultWorkerId() : workerId;
 		this.leaseDuration = leaseDuration == null ? defaultLeaseDuration() : leaseDuration;
+		this.heartbeatInterval = heartbeatInterval == null
+			? defaultHeartbeatInterval(this.leaseDuration)
+			: heartbeatInterval;
 	}
 
 	public boolean submit(ExecutionJob job) {
@@ -84,6 +106,9 @@ public class JobWorker {
 		}
 		running = true;
 		workerExecutor.submit(this::run);
+		heartbeatExecutor.scheduleWithFixedDelay(this::heartbeat,
+			Math.max(1, heartbeatInterval.toMillis()), Math.max(1, heartbeatInterval.toMillis()),
+			TimeUnit.MILLISECONDS);
 	}
 
 	private void run() {
@@ -102,13 +127,53 @@ public class JobWorker {
 					Thread.sleep(50);
 					continue;
 				}
-				execute(job, new LeaseContext(before, lease.get()));
+				beginHeartbeat(job.getId(), lease.get());
+				try {
+					execute(job, new LeaseContext(before, lease.get()));
+				}
+				finally {
+					endHeartbeat();
+				}
 			}
 			catch (InterruptedException ex) {
 				Thread.currentThread().interrupt();
 				return;
 			}
 		}
+	}
+
+	/**
+	 * Renews the lease of the job currently being executed. Runs on a separate
+	 * scheduler so a blocking executor cannot stop the heartbeat. If the renewal
+	 * fails the lease has been superseded (fenced); heartbeating stops and the
+	 * eventual complete() is rejected by the repository.
+	 */
+	private void heartbeat() {
+		ActiveLease lease = activeLease;
+		if (!running || jobRepository == null || lease == null) {
+			return;
+		}
+		Instant now = Instant.now();
+		if (!lease.expiresAt().isAfter(now)) {
+			return;
+		}
+		Instant renewedExpiry = now.plus(leaseDuration);
+		if (jobRepository.renewLease(lease.jobId(), lease.owner(), lease.token(),
+			renewedExpiry)) {
+			activeLease = new ActiveLease(lease.jobId(), lease.owner(), lease.token(),
+				renewedExpiry);
+		}
+		else {
+			activeLease = null;
+		}
+	}
+
+	private void beginHeartbeat(String jobId, JobLease lease) {
+		activeLease = new ActiveLease(jobId, lease.owner(), lease.token(), lease.expiresAt());
+	}
+
+	private void endHeartbeat() {
+		activeLease = null;
 	}
 
 	private void execute(ExecutionJob job, LeaseContext leaseContext) {
@@ -166,6 +231,23 @@ public class JobWorker {
 		return Duration.ofMinutes(30);
 	}
 
+	private static Duration defaultHeartbeatInterval(Duration leaseDuration) {
+		Duration interval = leaseDuration.dividedBy(3);
+		return interval.isZero() || interval.isNegative()
+			? Duration.ofSeconds(1)
+			: interval;
+	}
+
+	private static Duration parseHeartbeatInterval(String value, Duration leaseDuration) {
+		if (value == null || value.isBlank()) {
+			return defaultHeartbeatInterval(leaseDuration);
+		}
+		if (value.startsWith("P") || value.startsWith("-P") || value.startsWith("+P")) {
+			return Duration.parse(value);
+		}
+		return Duration.parse("PT" + value);
+	}
+
 	private void save(ExecutionJob job) {
 		if (jobRepository != null) jobRepository.save(job);
 	}
@@ -180,8 +262,12 @@ public class JobWorker {
 	public synchronized void stop() {
 		running = false;
 		workerExecutor.shutdownNow();
+		heartbeatExecutor.shutdownNow();
 	}
 
 	private record LeaseContext(JobStatus before, JobLease lease) {
+	}
+
+	private record ActiveLease(String jobId, String owner, long token, Instant expiresAt) {
 	}
 }
