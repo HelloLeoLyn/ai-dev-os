@@ -15,6 +15,7 @@ import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.model.TaskDefinition;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -23,6 +24,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -45,7 +48,7 @@ class JobWorkerTest {
 		ExecutionEngine engine = mock(ExecutionEngine.class);
 		ExecutionRecordManager recordManager = new ExecutionRecordManager();
 		ExecutionResult result = result(true, "completed");
-		when(engine.execute(any(TaskDefinition.class), anyString())).thenAnswer(invocation -> {
+		when(engine.execute(any(TaskDefinition.class), anyString(), nullable(JobLease.class))).thenAnswer(invocation -> {
 			ExecutionRecord record = new ExecutionRecord();
 			record.setId("record-1");
 			recordManager.save(record);
@@ -68,7 +71,7 @@ class JobWorkerTest {
 	@Test
 	void shouldCompleteFailedExecution() throws Exception {
 		ExecutionEngine engine = mock(ExecutionEngine.class);
-		when(engine.execute(any(TaskDefinition.class), anyString())).thenReturn(result(false, "agent failed"));
+		when(engine.execute(any(TaskDefinition.class), anyString(), nullable(JobLease.class))).thenReturn(result(false, "agent failed"));
 		ExecutionJob job = execute(engine);
 
 		awaitStatus(job, JobStatus.FAILED);
@@ -80,7 +83,7 @@ class JobWorkerTest {
 	@Test
 	void shouldFailJobWhenEngineThrows() throws Exception {
 		ExecutionEngine engine = mock(ExecutionEngine.class);
-		when(engine.execute(any(TaskDefinition.class), anyString())).thenThrow(new AssertionError("engine crashed"));
+		when(engine.execute(any(TaskDefinition.class), anyString(), nullable(JobLease.class))).thenThrow(new AssertionError("engine crashed"));
 		ExecutionJob job = execute(engine);
 
 		awaitStatus(job, JobStatus.FAILED);
@@ -94,7 +97,7 @@ class JobWorkerTest {
 		ExecutionResult result = result(false, "APPROVAL_REQUIRED");
 		result.setApprovalRequired(true);
 		result.setApprovalId("approval-1");
-		when(engine.execute(any(TaskDefinition.class), anyString())).thenReturn(result);
+		when(engine.execute(any(TaskDefinition.class), anyString(), nullable(JobLease.class))).thenReturn(result);
 		ExecutionJob job = execute(engine);
 
 		awaitStatus(job, JobStatus.WAITING_APPROVAL);
@@ -107,7 +110,7 @@ class JobWorkerTest {
 	void shouldClaimAndCompleteJobThroughLeaseableRepository() throws Exception {
 		ExecutionEngine engine = mock(ExecutionEngine.class);
 		ExecutionResult result = result(true, "claimed and done");
-		when(engine.execute(any(TaskDefinition.class), anyString())).thenReturn(result);
+		when(engine.execute(any(TaskDefinition.class), anyString(), nullable(JobLease.class))).thenReturn(result);
 		JobStore jobs = new JobStore();
 		worker = new JobWorker(engine, new ExecutionRecordManager(), jobs, AuditService.noop(), 2);
 		TaskDefinition task = new TaskDefinition();
@@ -129,9 +132,36 @@ class JobWorkerTest {
 	}
 
 	@Test
+	void shouldPassClaimedLeaseToExecutionEngine() throws Exception {
+		ExecutionEngine engine = mock(ExecutionEngine.class);
+		ExecutionResult result = result(true, "leased");
+		when(engine.execute(any(TaskDefinition.class), anyString(), nullable(JobLease.class)))
+			.thenReturn(result);
+		JobStore jobs = new JobStore();
+		worker = new JobWorker(engine, new ExecutionRecordManager(), jobs, AuditService.noop(), 2,
+			"worker-lease", Duration.ofSeconds(30), Duration.ofMillis(100));
+		TaskDefinition task = new TaskDefinition();
+		task.setId("task-1");
+		ExecutionJob job = new ExecutionJob("job-1", task);
+		jobs.save(job);
+		worker.submit(job);
+		worker.start();
+
+		awaitStatus(job, JobStatus.SUCCESS);
+
+		ArgumentCaptor<JobLease> leaseCaptor = ArgumentCaptor.forClass(JobLease.class);
+		verify(engine).execute(any(TaskDefinition.class), eq("job-1"), leaseCaptor.capture());
+		JobLease lease = leaseCaptor.getValue();
+		assertNotNull(lease);
+		assertEquals("worker-lease", lease.owner());
+		assertEquals(1L, lease.token());
+		assertNotNull(lease.expiresAt());
+	}
+
+	@Test
 	void shouldClaimDueRetryWaitJobThroughLeaseableRepository() throws Exception {
 		ExecutionEngine engine = mock(ExecutionEngine.class);
-		when(engine.execute(any(TaskDefinition.class), anyString())).thenReturn(result(true, "retried"));
+		when(engine.execute(any(TaskDefinition.class), anyString(), nullable(JobLease.class))).thenReturn(result(true, "retried"));
 		JobStore jobs = new JobStore();
 		worker = new JobWorker(engine, new ExecutionRecordManager(), jobs, AuditService.noop(), 2);
 		TaskDefinition task = new TaskDefinition();
@@ -167,7 +197,7 @@ class JobWorkerTest {
 		Thread.sleep(150);
 
 		assertEquals(JobStatus.RETRY_WAIT, job.getStatus());
-		verify(engine, never()).execute(any(TaskDefinition.class), anyString());
+		verify(engine, never()).execute(any(TaskDefinition.class), anyString(), nullable(JobLease.class));
 	}
 
 	@Test
@@ -175,7 +205,7 @@ class JobWorkerTest {
 		ExecutionEngine engine = mock(ExecutionEngine.class);
 		CountDownLatch started = new CountDownLatch(1);
 		CountDownLatch release = new CountDownLatch(1);
-		when(engine.execute(any(TaskDefinition.class), anyString())).thenAnswer(invocation -> {
+		when(engine.execute(any(TaskDefinition.class), anyString(), nullable(JobLease.class))).thenAnswer(invocation -> {
 			started.countDown();
 			release.await(2, TimeUnit.SECONDS);
 			return result(true, "heartbeated");
@@ -213,7 +243,7 @@ class JobWorkerTest {
 		ExecutionEngine engine = mock(ExecutionEngine.class);
 		CountDownLatch started = new CountDownLatch(1);
 		CountDownLatch release = new CountDownLatch(1);
-		when(engine.execute(any(TaskDefinition.class), anyString())).thenAnswer(invocation -> {
+		when(engine.execute(any(TaskDefinition.class), anyString(), nullable(JobLease.class))).thenAnswer(invocation -> {
 			started.countDown();
 			release.await(2, TimeUnit.SECONDS);
 			return result(true, "stale result");
@@ -247,7 +277,7 @@ class JobWorkerTest {
 		ExecutionEngine engine = mock(ExecutionEngine.class);
 		CountDownLatch started = new CountDownLatch(1);
 		CountDownLatch release = new CountDownLatch(1);
-		when(engine.execute(any(TaskDefinition.class), anyString())).thenAnswer(invocation -> {
+		when(engine.execute(any(TaskDefinition.class), anyString(), nullable(JobLease.class))).thenAnswer(invocation -> {
 			started.countDown();
 			release.await(2, TimeUnit.SECONDS);
 			return result(true, "drained");
@@ -277,7 +307,7 @@ class JobWorkerTest {
 		assertEquals(1, stored.getAttemptNo());
 		assertNull(stored.getLeaseOwner());
 		assertNull(stored.getLeaseExpiresAt());
-		verify(engine, times(1)).execute(any(TaskDefinition.class), anyString());
+		verify(engine, times(1)).execute(any(TaskDefinition.class), anyString(), nullable(JobLease.class));
 	}
 
 	@Test
@@ -300,7 +330,7 @@ class JobWorkerTest {
 	@Test
 	void shouldBeIdempotentStartAndStop() throws Exception {
 		ExecutionEngine engine = mock(ExecutionEngine.class);
-		when(engine.execute(any(TaskDefinition.class), anyString())).thenReturn(result(true, "once"));
+		when(engine.execute(any(TaskDefinition.class), anyString(), nullable(JobLease.class))).thenReturn(result(true, "once"));
 		JobStore jobs = new JobStore();
 		worker = new JobWorker(engine, new ExecutionRecordManager(), jobs, AuditService.noop(), 2);
 		ExecutionJob job = job("job-1");
@@ -314,7 +344,7 @@ class JobWorkerTest {
 		worker.stop();
 		worker.stop();
 
-		verify(engine, times(1)).execute(any(TaskDefinition.class), anyString());
+		verify(engine, times(1)).execute(any(TaskDefinition.class), anyString(), nullable(JobLease.class));
 	}
 
 	@Test
@@ -331,13 +361,13 @@ class JobWorkerTest {
 		Thread.sleep(150);
 
 		assertEquals(JobStatus.QUEUED, job.getStatus());
-		verify(engine, never()).execute(any(TaskDefinition.class), anyString());
+		verify(engine, never()).execute(any(TaskDefinition.class), anyString(), nullable(JobLease.class));
 	}
 
 	@Test
 	void shouldExecuteJobExactlyOnceWhenTwoWorkersContend() throws Exception {
 		ExecutionEngine engine = mock(ExecutionEngine.class);
-		when(engine.execute(any(TaskDefinition.class), anyString()))
+		when(engine.execute(any(TaskDefinition.class), anyString(), nullable(JobLease.class)))
 			.thenReturn(result(true, "single execution"));
 		JobStore jobs = new JobStore();
 		JobWorker workerA = new JobWorker(engine, new ExecutionRecordManager(), jobs,
@@ -358,7 +388,7 @@ class JobWorkerTest {
 		assertEquals(1, stored.getAttemptNo());
 		assertNull(stored.getLeaseOwner());
 		assertNull(stored.getLeaseExpiresAt());
-		verify(engine, times(1)).execute(any(TaskDefinition.class), anyString());
+		verify(engine, times(1)).execute(any(TaskDefinition.class), anyString(), nullable(JobLease.class));
 
 		workerA.stop();
 		workerB.stop();
@@ -381,7 +411,7 @@ class JobWorkerTest {
 
 		assertEquals(JobStatus.RUNNING, job.getStatus());
 		assertEquals("worker-a", jobs.get("job-1").getLeaseOwner());
-		verify(engine, never()).execute(any(TaskDefinition.class), anyString());
+		verify(engine, never()).execute(any(TaskDefinition.class), anyString(), nullable(JobLease.class));
 	}
 
 	private ExecutionJob execute(ExecutionEngine engine) {

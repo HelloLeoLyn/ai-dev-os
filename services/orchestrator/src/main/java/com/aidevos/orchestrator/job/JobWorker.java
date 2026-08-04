@@ -205,7 +205,8 @@ public class JobWorker {
 		}
 		try {
 			ExecutionCapture<ExecutionResult> capture = executionRecordManager.capture(
-				() -> executionEngine.execute(job.getTaskSnapshot(), job.getId()));
+				() -> executionEngine.execute(job.getTaskSnapshot(), job.getId(),
+					leaseContext == null ? null : leaseContext.lease()));
 			ExecutionResult result = capture.result();
 			ExecutionRecord record = capture.executionRecord();
 			String executionRecordId = record == null ? null : record.getId();

@@ -6,6 +6,7 @@ import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.agent.AgentResolver;
 import com.aidevos.orchestrator.agent.ResolvedAgent;
 import com.aidevos.orchestrator.executor.AgentExecutor;
+import com.aidevos.orchestrator.job.JobLease;
 import com.aidevos.orchestrator.model.AgentDefinition;
 import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.model.TaskDefinition;
@@ -20,31 +21,52 @@ import java.time.Instant;
 @Component
 public class ExecutionEngine {
 
+	private static final String EXECUTOR_FAILURE = "EXECUTOR_FAILURE";
+	private static final String AGENT_RESOLUTION_FAILURE = "AGENT_RESOLUTION_FAILURE";
+
 	private final AgentResolver agentResolver;
 	private final ExecutionRecordManager executionRecordManager;
 	private final AuditService auditService;
+	private final ExecutionAttemptRepository attemptRepository;
 
 	public ExecutionEngine(AgentResolver agentResolver, ExecutionRecordManager executionRecordManager) {
 		this(agentResolver, executionRecordManager, AuditService.noop());
 	}
 
-	@Autowired
 	public ExecutionEngine(AgentResolver agentResolver, ExecutionRecordManager executionRecordManager,
 			AuditService auditService) {
+		this(agentResolver, executionRecordManager, auditService,
+			new InMemoryExecutionAttemptRepository());
+	}
+
+	public ExecutionEngine(AgentResolver agentResolver, ExecutionRecordManager executionRecordManager,
+			ExecutionAttemptRepository attemptRepository) {
+		this(agentResolver, executionRecordManager, AuditService.noop(), attemptRepository);
+	}
+
+	@Autowired
+	public ExecutionEngine(AgentResolver agentResolver, ExecutionRecordManager executionRecordManager,
+			AuditService auditService, ExecutionAttemptRepository attemptRepository) {
 		this.agentResolver = agentResolver;
 		this.executionRecordManager = executionRecordManager;
 		this.auditService = auditService;
+		this.attemptRepository = attemptRepository;
 	}
 
 	public ExecutionResult execute(TaskDefinition taskDefinition) {
-		return execute(taskDefinition, null);
+		return execute(taskDefinition, null, null);
 	}
 
 	public ExecutionResult execute(TaskDefinition taskDefinition, String jobId) {
+		return execute(taskDefinition, jobId, null);
+	}
+
+	public ExecutionResult execute(TaskDefinition taskDefinition, String jobId, JobLease lease) {
 		Instant startedAt = Instant.now();
 		String executionId = UUID.randomUUID().toString();
 		String agentName = taskDefinition.getAgentName();
 		ExecutionContext context = null;
+		ExecutionAttempt attempt = startAttempt(taskDefinition, jobId, executionId, startedAt, lease);
 		ExecutionResult result;
 		try {
 			ResolvedAgent resolvedAgent = agentResolver.resolve(taskDefinition);
@@ -59,29 +81,63 @@ public class ExecutionEngine {
 				context.getExecutionId(), jobId, null, "RUNNING", agentName);
 			try {
 				result = executor.execute(context);
+				finishAttempt(attempt, result);
 				auditService.agentEvent(result.isSuccess() ? EventType.AGENT_EXECUTION_COMPLETED
 					: EventType.AGENT_EXECUTION_FAILED, taskDefinition, context.getExecutionId(),
 					jobId, agentName, result.isSuccess() ? "COMPLETED" : "FAILED");
 			}
 			catch (Exception exception) {
 				result = failedResult(executorFailureMessage(executor, exception));
+				failAttempt(attempt, EXECUTOR_FAILURE);
 				auditService.agentEvent(EventType.AGENT_EXECUTION_FAILED, taskDefinition,
 					context.getExecutionId(), jobId, agentName, "FAILED");
 			}
 		}
 		catch (AgentResolutionException exception) {
 			result = failedResult(exception.getMessage());
+			failAttempt(attempt, AGENT_RESOLUTION_FAILURE);
 		}
 
 		ExecutionReport report = createReport(taskDefinition, agentName, result);
 		ExecutionRecord record = createRecord(taskDefinition, agentName, result, report,
-			context, startedAt);
+			context, startedAt, attempt);
 		executionRecordManager.save(record);
 		EventType completedType = result.isApprovalRequired() ? EventType.EXECUTION_WAITING_APPROVAL
 			: result.isSuccess() ? EventType.EXECUTION_COMPLETED : EventType.EXECUTION_FAILED;
 		auditService.executionEvent(completedType, taskDefinition, record.getExecutionId(), jobId,
 			record.getId(), record.getStatus(), agentName);
 		return result;
+	}
+
+	private ExecutionAttempt startAttempt(TaskDefinition taskDefinition, String jobId,
+			String executionId, Instant startedAt, JobLease lease) {
+		String attemptJobId = jobId != null ? jobId : executionId;
+		int attemptNo = attemptRepository.getByJob(attemptJobId).size() + 1;
+		ExecutionAttempt attempt = new ExecutionAttempt(UUID.randomUUID().toString(),
+			attemptJobId, attemptNo);
+		attempt.setExecutionId(executionId);
+		if (lease != null) {
+			attempt.applyLease(lease);
+		}
+		attemptRepository.save(attempt);
+		attempt.markRunning(startedAt);
+		attemptRepository.save(attempt);
+		return attempt;
+	}
+
+	private void finishAttempt(ExecutionAttempt attempt, ExecutionResult result) {
+		if (result.isApprovalRequired() || result.isSuccess()) {
+			attempt.markSucceeded(Instant.now());
+		}
+		else {
+			attempt.markFailed(EXECUTOR_FAILURE, Instant.now());
+		}
+		attemptRepository.save(attempt);
+	}
+
+	private void failAttempt(ExecutionAttempt attempt, String failureCode) {
+		attempt.markFailed(failureCode, Instant.now());
+		attemptRepository.save(attempt);
 	}
 
 	private ExecutionContext createContext(TaskDefinition taskDefinition, AgentDefinition agent, String jobId,
@@ -134,7 +190,7 @@ public class ExecutionEngine {
 
 	private ExecutionRecord createRecord(TaskDefinition taskDefinition, String agentName,
 			ExecutionResult result, ExecutionReport report, ExecutionContext context,
-			Instant startedAt) {
+			Instant startedAt, ExecutionAttempt attempt) {
 		ExecutionRecord record = new ExecutionRecord();
 		record.setId(UUID.randomUUID().toString());
 		record.setTaskId(taskDefinition.getId());
@@ -148,7 +204,8 @@ public class ExecutionEngine {
 		record.setJobId(context == null ? null : context.getJobId());
 		record.setPlanRunId(taskMetadataString(taskDefinition, "planRunId"));
 		record.setStepRunId(taskMetadataString(taskDefinition, "stepRunId"));
-		record.setAttemptId(taskMetadataString(taskDefinition, "attemptId"));
+		String metadataAttemptId = taskMetadataString(taskDefinition, "attemptId");
+		record.setAttemptId(metadataAttemptId != null ? metadataAttemptId : attempt.getId());
 		record.setWorkspace(metadataString(result, "workspace"));
 		record.setSandbox(metadataString(result, "sandbox"));
 		record.setApprovalId(result.getApprovalId() != null ? result.getApprovalId()

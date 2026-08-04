@@ -21,7 +21,7 @@ class JobAuditTest {
 		AuditService audit = new AuditService(events);
 		ExecutionEngine engine = mock(ExecutionEngine.class);
 		ExecutionResult result = new ExecutionResult(); result.setSuccess(true);
-		when(engine.execute(any(TaskDefinition.class), anyString())).thenReturn(result);
+		when(engine.execute(any(TaskDefinition.class), anyString(), nullable(JobLease.class))).thenReturn(result);
 		JobStore jobs = new JobStore();
 		worker = new JobWorker(engine, new ExecutionRecordManager(), jobs, audit, 2);
 		JobService service = new JobService(jobs, worker, audit);
@@ -47,7 +47,7 @@ class JobAuditTest {
 		AuditService audit = new AuditService(broken);
 		ExecutionEngine engine = mock(ExecutionEngine.class);
 		ExecutionResult result = new ExecutionResult(); result.setSuccess(true);
-		when(engine.execute(any(TaskDefinition.class), anyString())).thenReturn(result);
+		when(engine.execute(any(TaskDefinition.class), anyString(), nullable(JobLease.class))).thenReturn(result);
 		worker = new JobWorker(engine, new ExecutionRecordManager(), jobs, audit, 2);
 		JobService service = new JobService(jobs, worker, audit);
 		worker.start();

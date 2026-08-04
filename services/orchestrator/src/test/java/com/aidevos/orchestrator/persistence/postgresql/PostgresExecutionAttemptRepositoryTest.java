@@ -2,6 +2,7 @@ package com.aidevos.orchestrator.persistence.postgresql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -10,6 +11,7 @@ import java.time.Instant;
 import java.util.List;
 
 import com.aidevos.orchestrator.execution.ExecutionAttempt;
+import com.aidevos.orchestrator.execution.ExecutionAttemptRecovery;
 import com.aidevos.orchestrator.execution.ExecutionAttemptStatus;
 import com.aidevos.orchestrator.job.JobLease;
 import org.junit.jupiter.api.BeforeEach;
@@ -124,5 +126,24 @@ class PostgresExecutionAttemptRepositoryTest {
 
 		assertEquals(List.of("attempt-1"),
 			repository.findAbandoned(NOW).stream().map(ExecutionAttempt::getId).toList());
+	}
+
+	@Test
+	void recoveryMarksStaleAttemptRecoveryRequired() {
+		ExecutionAttempt stale = new ExecutionAttempt("attempt-1", "job-1", 1);
+		stale.markRunning(NOW);
+		stale.applyLease(new JobLease("worker-1", 1, NOW.minusSeconds(30)));
+		repository.save(stale);
+
+		ExecutionAttemptRecovery recovery = new ExecutionAttemptRecovery(repository);
+		int recovered = recovery.recoverStale(NOW);
+
+		assertEquals(1, recovered);
+		ExecutionAttempt stored = repository.get("attempt-1");
+		assertEquals(ExecutionAttemptStatus.RECOVERY_REQUIRED, stored.getStatus());
+		assertEquals(ExecutionAttemptRecovery.STALE_EXECUTION, stored.getFailureCode());
+		assertEquals(NOW, stored.getCompletedAt());
+		assertNull(stored.getLeaseOwner());
+		assertTrue(repository.findAbandoned(NOW).isEmpty());
 	}
 }
