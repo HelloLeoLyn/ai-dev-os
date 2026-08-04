@@ -9,5 +9,9 @@ public enum JobStatus {
 
 	SUCCESS,
 
-	FAILED
+	FAILED,
+
+	RETRY_WAIT,
+	CANCELLED,
+	RECOVERY_REQUIRED
 }

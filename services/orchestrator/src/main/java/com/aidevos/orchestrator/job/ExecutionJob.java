@@ -19,6 +19,18 @@ public class ExecutionJob {
 	private volatile String resultSummary;
 	private volatile String errorMessage;
 	private volatile String approvalId;
+	private volatile int attemptNo;
+	private volatile int maxAttempts = 1;
+	private volatile Instant availableAt;
+	private volatile int priority;
+	private volatile String leaseOwner;
+	private volatile Long leaseToken;
+	private volatile Instant leaseExpiresAt;
+	private volatile Instant heartbeatAt;
+	private volatile int version;
+	private volatile int recoveryCount;
+	private volatile String lastFailureCode;
+	private volatile RecoveryPolicy recoveryPolicy = RecoveryPolicy.MANUAL;
 
 	public ExecutionJob(String id, TaskDefinition taskSnapshot) {
 		this.id = id;
@@ -45,11 +57,83 @@ public class ExecutionJob {
 	}
 
 	public synchronized void markRunning() {
-		if (status != JobStatus.QUEUED) {
+		if (status != JobStatus.QUEUED && status != JobStatus.RETRY_WAIT) {
 			return;
 		}
 		status = JobStatus.RUNNING;
 		startedAt = Instant.now();
+	}
+
+	/**
+	 * Applies a lease granted by a worker. Does not change the job status.
+	 */
+	public synchronized void applyLease(JobLease lease) {
+		this.leaseOwner = lease.owner();
+		this.leaseToken = lease.token();
+		this.leaseExpiresAt = lease.expiresAt();
+	}
+
+	public synchronized void touchHeartbeat(Instant time) {
+		this.heartbeatAt = time;
+	}
+
+	public synchronized void clearLease() {
+		this.leaseOwner = null;
+		this.leaseToken = null;
+		this.leaseExpiresAt = null;
+		this.heartbeatAt = null;
+	}
+
+	public synchronized int nextAttemptNo() {
+		return ++attemptNo;
+	}
+
+	public synchronized int bumpVersion() {
+		return ++version;
+	}
+
+	public synchronized int incrementRecoveryCount() {
+		return ++recoveryCount;
+	}
+
+	public synchronized boolean markRetryWait(String failureCode, Instant availableAt) {
+		if (status != JobStatus.RUNNING) {
+			return false;
+		}
+		this.lastFailureCode = failureCode;
+		this.availableAt = availableAt;
+		status = JobStatus.RETRY_WAIT;
+		return true;
+	}
+
+	public synchronized boolean markRecoveryRequired(String failureCode) {
+		if (status != JobStatus.RUNNING) {
+			return false;
+		}
+		this.lastFailureCode = failureCode;
+		status = JobStatus.RECOVERY_REQUIRED;
+		return true;
+	}
+
+	public synchronized boolean markCancelled() {
+		if (status == JobStatus.SUCCESS || status == JobStatus.FAILED) {
+			return false;
+		}
+		status = JobStatus.CANCELLED;
+		completedAt = Instant.now();
+		return true;
+	}
+
+	public synchronized void setMaxAttempts(int maxAttempts) {
+		this.maxAttempts = maxAttempts;
+	}
+
+	public synchronized void setPriority(int priority) {
+		this.priority = priority;
+	}
+
+	public synchronized void setRecoveryPolicy(RecoveryPolicy recoveryPolicy) {
+		this.recoveryPolicy = recoveryPolicy == null ? RecoveryPolicy.MANUAL : recoveryPolicy;
 	}
 
 	public synchronized void markSucceeded(ExecutionResult result) {
@@ -167,4 +251,23 @@ public class ExecutionJob {
 	}
 
 	public String getApprovalId() { return approvalId; }
+
+	public int getAttemptNo() { return attemptNo; }
+	public int getMaxAttempts() { return maxAttempts; }
+	public Instant getAvailableAt() { return availableAt; }
+	public int getPriority() { return priority; }
+	public String getLeaseOwner() { return leaseOwner; }
+	public Long getLeaseToken() { return leaseToken; }
+	public Instant getLeaseExpiresAt() { return leaseExpiresAt; }
+	public Instant getHeartbeatAt() { return heartbeatAt; }
+	public int getVersion() { return version; }
+	public int getRecoveryCount() { return recoveryCount; }
+	public String getLastFailureCode() { return lastFailureCode; }
+	public RecoveryPolicy getRecoveryPolicy() { return recoveryPolicy; }
+
+	public enum RecoveryPolicy {
+		REQUEUE,
+		RECONCILE,
+		MANUAL
+	}
 }
