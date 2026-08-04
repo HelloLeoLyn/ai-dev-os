@@ -25,6 +25,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -239,6 +240,148 @@ class JobWorkerTest {
 		assertEquals("worker-b", stored.getLeaseOwner());
 		assertEquals(Long.valueOf(2), stored.getLeaseToken());
 		assertFalse(jobs.renewLease("job-1", "worker-a", 1, Instant.now().plusSeconds(30)));
+	}
+
+	@Test
+	void shouldCompleteInFlightJobOnGracefulStop() throws Exception {
+		ExecutionEngine engine = mock(ExecutionEngine.class);
+		CountDownLatch started = new CountDownLatch(1);
+		CountDownLatch release = new CountDownLatch(1);
+		when(engine.execute(any(TaskDefinition.class), anyString())).thenAnswer(invocation -> {
+			started.countDown();
+			release.await(2, TimeUnit.SECONDS);
+			return result(true, "drained");
+		});
+		JobStore jobs = new JobStore();
+		worker = new JobWorker(engine, new ExecutionRecordManager(), jobs, AuditService.noop(), 1,
+			"worker-graceful", Duration.ofSeconds(30), Duration.ofMillis(100),
+			Duration.ofSeconds(30));
+		ExecutionJob job = job("job-1");
+		jobs.save(job);
+		worker.submit(job);
+		worker.start();
+
+		assertTrue(started.await(2, TimeUnit.SECONDS));
+
+		Thread stopper = new Thread(worker::stop);
+		stopper.start();
+		assertEquals(JobStatus.RUNNING, jobs.get("job-1").getStatus());
+
+		release.countDown();
+		stopper.join(2000);
+		assertFalse(stopper.isAlive(), "graceful stop should return once the in-flight job completes");
+
+		awaitStatus(job, JobStatus.SUCCESS);
+		ExecutionJob stored = jobs.get("job-1");
+		assertEquals(JobStatus.SUCCESS, stored.getStatus());
+		assertEquals(1, stored.getAttemptNo());
+		assertNull(stored.getLeaseOwner());
+		assertNull(stored.getLeaseExpiresAt());
+		verify(engine, times(1)).execute(any(TaskDefinition.class), anyString());
+	}
+
+	@Test
+	void shouldStopPromptlyWhenIdle() throws Exception {
+		ExecutionEngine engine = mock(ExecutionEngine.class);
+		JobStore jobs = new JobStore();
+		worker = new JobWorker(engine, new ExecutionRecordManager(), jobs, AuditService.noop(), 2,
+			"worker-idle", Duration.ofSeconds(30), Duration.ofMillis(100), Duration.ofSeconds(30));
+		worker.start();
+		Thread.sleep(150);
+
+		long start = System.nanoTime();
+		worker.stop();
+		long elapsedMillis = (System.nanoTime() - start) / 1_000_000;
+
+		assertTrue(elapsedMillis < 2000,
+			"idle stop must not wait for the shutdown timeout, took " + elapsedMillis + "ms");
+	}
+
+	@Test
+	void shouldBeIdempotentStartAndStop() throws Exception {
+		ExecutionEngine engine = mock(ExecutionEngine.class);
+		when(engine.execute(any(TaskDefinition.class), anyString())).thenReturn(result(true, "once"));
+		JobStore jobs = new JobStore();
+		worker = new JobWorker(engine, new ExecutionRecordManager(), jobs, AuditService.noop(), 2);
+		ExecutionJob job = job("job-1");
+		jobs.save(job);
+		worker.submit(job);
+		worker.start();
+		worker.start();
+
+		awaitStatus(job, JobStatus.SUCCESS);
+
+		worker.stop();
+		worker.stop();
+
+		verify(engine, times(1)).execute(any(TaskDefinition.class), anyString());
+	}
+
+	@Test
+	void shouldNotExecuteJobSubmittedAfterStop() throws Exception {
+		ExecutionEngine engine = mock(ExecutionEngine.class);
+		JobStore jobs = new JobStore();
+		worker = new JobWorker(engine, new ExecutionRecordManager(), jobs, AuditService.noop(), 2);
+		worker.start();
+		worker.stop();
+
+		ExecutionJob job = job("job-1");
+		jobs.save(job);
+		worker.submit(job);
+		Thread.sleep(150);
+
+		assertEquals(JobStatus.QUEUED, job.getStatus());
+		verify(engine, never()).execute(any(TaskDefinition.class), anyString());
+	}
+
+	@Test
+	void shouldExecuteJobExactlyOnceWhenTwoWorkersContend() throws Exception {
+		ExecutionEngine engine = mock(ExecutionEngine.class);
+		when(engine.execute(any(TaskDefinition.class), anyString()))
+			.thenReturn(result(true, "single execution"));
+		JobStore jobs = new JobStore();
+		JobWorker workerA = new JobWorker(engine, new ExecutionRecordManager(), jobs,
+			AuditService.noop(), 2, "worker-a", Duration.ofSeconds(30), Duration.ofMillis(100));
+		JobWorker workerB = new JobWorker(engine, new ExecutionRecordManager(), jobs,
+			AuditService.noop(), 2, "worker-b", Duration.ofSeconds(30), Duration.ofMillis(100));
+		ExecutionJob job = job("job-1");
+		jobs.save(job);
+		workerA.submit(job);
+		workerB.submit(job);
+		workerA.start();
+		workerB.start();
+
+		awaitStatus(job, JobStatus.SUCCESS);
+
+		ExecutionJob stored = jobs.get("job-1");
+		assertEquals(JobStatus.SUCCESS, stored.getStatus());
+		assertEquals(1, stored.getAttemptNo());
+		assertNull(stored.getLeaseOwner());
+		assertNull(stored.getLeaseExpiresAt());
+		verify(engine, times(1)).execute(any(TaskDefinition.class), anyString());
+
+		workerA.stop();
+		workerB.stop();
+	}
+
+	@Test
+	void shouldNotClaimJobAlreadyClaimedByAnotherWorker() throws Exception {
+		ExecutionEngine engine = mock(ExecutionEngine.class);
+		JobStore jobs = new JobStore();
+		ExecutionJob job = job("job-1");
+		jobs.save(job);
+		assertTrue(jobs.claimNext(Instant.now(), "worker-a", Duration.ofSeconds(30)).isPresent());
+
+		worker = new JobWorker(engine, new ExecutionRecordManager(), jobs, AuditService.noop(), 2,
+			"worker-b", Duration.ofSeconds(30), Duration.ofMillis(100));
+		worker.submit(job);
+		worker.start();
+
+		Thread.sleep(200);
+
+		assertEquals(JobStatus.RUNNING, job.getStatus());
+		assertEquals("worker-a", jobs.get("job-1").getLeaseOwner());
+		verify(engine, never()).execute(any(TaskDefinition.class), anyString());
 	}
 
 	private ExecutionJob execute(ExecutionEngine engine) {

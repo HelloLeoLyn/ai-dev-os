@@ -38,8 +38,12 @@ public class JobWorker {
 	private final String workerId;
 	private final Duration leaseDuration;
 	private final Duration heartbeatInterval;
+	private final Duration shutdownTimeout;
 	private volatile ActiveLease activeLease;
 	private volatile boolean running;
+
+	private static final Duration DEFAULT_SHUTDOWN_TIMEOUT = Duration.ofSeconds(30);
+	private static final long QUEUE_POLL_MILLIS = 100;
 
 	public JobWorker(ExecutionEngine executionEngine,
 			@Value("${execution.jobs.capacity:100}") int capacity) {
@@ -67,9 +71,11 @@ public class JobWorker {
 			@Value("${execution.jobs.capacity:100}") int capacity,
 			@Value("${execution.jobs.worker-id:}") String workerId,
 			@Value("${execution.jobs.lease-duration:30m}") Duration leaseDuration,
-			@Value("${execution.jobs.heartbeat-interval:}") String heartbeatInterval) {
+			@Value("${execution.jobs.heartbeat-interval:}") String heartbeatInterval,
+			@Value("${execution.jobs.shutdown-timeout:30s}") Duration shutdownTimeout) {
 		this(executionEngine, executionRecordManager, jobRepository, auditService, capacity,
-			workerId, leaseDuration, parseHeartbeatInterval(heartbeatInterval, leaseDuration));
+			workerId, leaseDuration, parseHeartbeatInterval(heartbeatInterval, leaseDuration),
+			shutdownTimeout);
 	}
 
 	/**
@@ -79,6 +85,14 @@ public class JobWorker {
 	JobWorker(ExecutionEngine executionEngine, ExecutionRecordManager executionRecordManager,
 			LeaseableJobRepository jobRepository, AuditService auditService, int capacity,
 			String workerId, Duration leaseDuration, Duration heartbeatInterval) {
+		this(executionEngine, executionRecordManager, jobRepository, auditService, capacity,
+			workerId, leaseDuration, heartbeatInterval, DEFAULT_SHUTDOWN_TIMEOUT);
+	}
+
+	JobWorker(ExecutionEngine executionEngine, ExecutionRecordManager executionRecordManager,
+			LeaseableJobRepository jobRepository, AuditService auditService, int capacity,
+			String workerId, Duration leaseDuration, Duration heartbeatInterval,
+			Duration shutdownTimeout) {
 		this.executionEngine = executionEngine;
 		this.executionRecordManager = executionRecordManager;
 		this.jobRepository = jobRepository;
@@ -93,6 +107,7 @@ public class JobWorker {
 		this.heartbeatInterval = heartbeatInterval == null
 			? defaultHeartbeatInterval(this.leaseDuration)
 			: heartbeatInterval;
+		this.shutdownTimeout = shutdownTimeout == null ? DEFAULT_SHUTDOWN_TIMEOUT : shutdownTimeout;
 	}
 
 	public boolean submit(ExecutionJob job) {
@@ -114,7 +129,10 @@ public class JobWorker {
 	private void run() {
 		while (running) {
 			try {
-				ExecutionJob job = queue.take();
+				ExecutionJob job = queue.poll(QUEUE_POLL_MILLIS, TimeUnit.MILLISECONDS);
+				if (job == null) {
+					continue;
+				}
 				if (jobRepository == null) {
 					execute(job, null);
 					continue;
@@ -260,8 +278,22 @@ public class JobWorker {
 
 	@PreDestroy
 	public synchronized void stop() {
+		boolean wasRunning = running;
 		running = false;
-		workerExecutor.shutdownNow();
+		workerExecutor.shutdown();
+		if (wasRunning) {
+			try {
+				if (!workerExecutor.awaitTermination(shutdownTimeout.toMillis(),
+					TimeUnit.MILLISECONDS)) {
+					workerExecutor.shutdownNow();
+					workerExecutor.awaitTermination(5, TimeUnit.SECONDS);
+				}
+			}
+			catch (InterruptedException ex) {
+				workerExecutor.shutdownNow();
+				Thread.currentThread().interrupt();
+			}
+		}
 		heartbeatExecutor.shutdownNow();
 	}
 
