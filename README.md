@@ -1,5 +1,24 @@
 # AI Dev OS
 
+## 0. 2026-08-05 Phase 8 生产可靠性完成
+
+Phase 8（Production Reliability）已完整交付，含 8-F 生产验证与运维门禁。
+
+- 可靠性持久化：V1～V7 版本化迁移、`jobs`/`execution_attempts` 结构化控制列、
+  PlanRun version CAS、audit outbox relay 控制列与索引。
+- Worker Lease：数据库原子 claim（`FOR UPDATE SKIP LOCKED`）、heartbeat、
+  fencing token、lease reaper；kill -9 后过期 lease 进入 `RECOVERY_REQUIRED`。
+- 可靠调度：PlanRun coordinator lease、确定性 Job ID 幂等提交，多 scheduler
+  实例不会重复推进。
+- Transactional Outbox：业务状态与 outbox 入队同 JDBC 事务，后台 relay 退避
+  重试与死信，发布失败不回滚已提交业务。
+- 运维门禁：`GET /api/health` 存活探针与 `GET /api/health/readiness` 就绪探针
+  （迁移未完成前保持 503）；双实例并发、迁移新库/旧库升级、Worker/Scheduler/
+  Outbox 故障恢复均通过 Testcontainers PostgreSQL 验证。
+- 新增 `docs/operation/runbook.md` 运维手册（启动、健康检查、故障恢复、升级
+  回滚、告警 SQL）。
+- 全量回归：413 项测试，0 failure、0 error、1 skipped。
+
 ## 0. 2026-08-03 Phase 7 完整基线
 
 Phase 7 Review、修复与全量验证已完成，暂不进入 Phase 8。

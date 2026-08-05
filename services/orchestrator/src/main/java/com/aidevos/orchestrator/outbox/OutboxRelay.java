@@ -13,6 +13,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -42,6 +43,7 @@ public class OutboxRelay {
 	private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(
 		Thread.ofPlatform().daemon().name("outbox-relay").factory());
 
+	@Autowired
 	public OutboxRelay(OutboxRepository outboxRepository, OutboxTransactions transactions,
 			List<OutboxConsumer> consumers,
 			@Value("${outbox.relay.interval:1s}") Duration interval,

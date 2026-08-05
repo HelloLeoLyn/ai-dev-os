@@ -1,21 +1,53 @@
 # 当前开发状态
 
-更新日期：2026-08-03
+更新日期：2026-08-05
 
-## 0. 本次会话结论：Phase 7 基线完成
+## 0. 本次会话结论：Phase 8-F 生产验证与运维门禁完成
 
-本次会话严格停留在 Review、修复与验证范围，没有进入 Phase 8。
+Phase 8-A～8-E 已先后完成：可靠性持久化基础、Worker lease 生命周期、
+Execution/restart recovery、PlanRun 可靠调度、Transactional Outbox。
+本次会话完成 Phase 8-F 生产级验证与运维门禁，未新增大型功能、未重构核心
+架构、未修改 Agent/Executor 行为、未引入新基础设施，未 commit、未 push。
 
-- Review 覆盖 PostgreSQL Persistence、Audit Core、Timeline API 和 Audit Console，重点检查既有执行链、状态一致性、重复事件、审计遗漏及性能风险。
-- 补齐生产 Planning / PlanRun API，以及 Plan、Replan、Step、Agent selection、Tool/MCP、ExecutionRecord 和 Artifact 审计事件。
-- PostgreSQL 查询改为数据库侧过滤、分页与 count；状态 Repository 使用二级条件查询；PlanVersion freeze 落入数据库约束。
-- 新增 audit outbox migration 与发布重试；Timeline API/Console 增加总数、是否还有下一页及翻页交互。
-- Hermes 多 Agent 步骤支持显式 `toolArguments`，保留原 `sourcePath` 兼容行为。
-- 新增 Phase 7 端到端验收测试，完整验证 User Request 到 Timeline 的执行与审计关联。
+### 新增 health/readiness 运维门禁
 
-最终验证：`mvn test` 264 项，0 failure、0 error、1 skipped，Testcontainers PostgreSQL 实际运行通过；`Phase7EndToEndTest` 1/1 通过；InMemory 与 PostgreSQL 模式均真实启动并返回 Audit API 200；前端 TypeScript 检查和 production build 通过。
+- 新增 `GET /api/health` 存活探针与 `GET /api/health/readiness` 就绪探针。
+- readiness 在启动完成（`ApplicationReadyEvent`）且 PostgreSQL 迁移 V1～V7
+  全部应用前保持 `503 NOT_READY`；就绪后返回 `200 READY`。
+- `PostgresDocumentStore` 新增只读 `migrationsComplete()`，不改变写入路径。
+- 修复既有装配缺陷：`OutboxRelay` 多构造函数缺少 `@Autowired`，PostgreSQL
+  模式下 Spring 上下文此前无法实例化 relay；该缺陷由本次“完整启动关闭”
+  验证发现并修复。
 
-已知边界：PostgreSQL audit outbox 当前提供持久入队、发布与失败重试，但尚未与各业务 Repository 状态更新组成同一个 JDBC 事务。前端保留 575.62 kB chunk warning。后续处理必须重新分析、制定计划并等待确认。
+### PostgreSQL 全链路验证
+
+- 新库初始化：V1～V7 全部应用，`schema_migrations` 记录 1～7，关键表、列
+  （`jobs` lease/attempt/version/recovery 列、`audit_outbox` relay 控制列、
+  `repository_documents.version`）与索引（`idx_audit_outbox_claim` 等）齐全。
+- 旧库升级：仅 V1～V4 的 Phase 7-era 数据库带真实数据升级到 V1～V7，数据
+  保留、V5～V7 补齐、V7 默认值回填、重复迁移幂等。
+- 双实例并发：两个实例并发 `claimNext` 同一 Job 恰好一个成功；并发
+  `claimCoordinator` 同一 PlanRun 恰好一个 owner；两个 `PlanScheduler` 并发
+  reconcile 只创建确定 ID 的 step Job 一次。
+- Worker kill -9：lease 过期后 `LeaseReaper` 将 Job 标记 `RECOVERY_REQUIRED`
+  （`LEASE_EXPIRED`、`recovery_count+1`、lease 清除）；旧实例 renew/complete
+  被 fencing 拒绝；`RECOVERY_REQUIRED` 不会被自动重新 claim。
+- Outbox relay 停止后恢复：relay 停止期间行保持 pending；重启后全部发布且
+  恰好一次；consumer 失败崩溃后新 relay 按退避恢复，无重复。
+- Postgres 模式完整启动关闭：`@SpringBootTest` + Testcontainers PostgreSQL
+  完整上下文启动（迁移应用、readiness 就绪、健康端点 200），并验证独立
+  启动的应用上下文优雅关闭。
+
+### 文档
+
+- 新增 `docs/operation/runbook.md`：启动顺序与配置、健康检查、双实例部署、
+  kill -9 / outbox / scheduler 故障恢复流程、升级与回滚、告警查询 SQL。
+- 更新 `docs/development/run-guide.md`：PostgreSQL 模式启动与健康端点说明。
+
+### 验证结果
+
+- 全量回归：`mvn test` 413 项（基线 396 + 新增 17），0 failure、0 error、
+  1 skipped（依赖外部 filesystem MCP 的既有可选项）。
 
 本文记录 AI Dev OS Orchestrator 当前仓库实现状态，以及本次会话实际验证的本机运行环境。仓库能力与外部 OpenClaw Browser Runtime 状态分开描述。
 

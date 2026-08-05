@@ -9,7 +9,9 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import javax.sql.DataSource;
 
 import com.aidevos.orchestrator.outbox.JdbcConnectionContext;
@@ -156,6 +158,39 @@ public class PostgresDocumentStore {
 			throw new IllegalStateException("Invalid persistence migration name: " + name);
 		}
 		return Integer.parseInt(name.substring(1, name.indexOf("__")));
+	}
+
+	/**
+	 * Read-only readiness probe: every migration bundled with the application
+	 * must have an entry in schema_migrations. Returns false while the schema
+	 * is being initialized or whenever the check cannot run.
+	 */
+	public boolean migrationsComplete() {
+		try {
+			Resource[] migrations = new PathMatchingResourcePatternResolver()
+				.getResources("classpath*:/db/migration/V*.sql");
+			if (migrations.length == 0) {
+				return false;
+			}
+			try (Connection connection = dataSource.getConnection();
+					PreparedStatement statement = connection.prepareStatement(
+						"SELECT version FROM schema_migrations");
+					ResultSet result = statement.executeQuery()) {
+				Set<Integer> applied = new HashSet<>();
+				while (result.next()) {
+					applied.add(result.getInt(1));
+				}
+				for (Resource migration : migrations) {
+					if (!applied.contains(migrationVersion(migration))) {
+						return false;
+					}
+				}
+				return true;
+			}
+		}
+		catch (IOException | SQLException exception) {
+			return false;
+		}
 	}
 
 	private IllegalStateException failure(String operation,String type,Exception cause) {

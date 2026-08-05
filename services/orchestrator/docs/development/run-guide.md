@@ -85,6 +85,39 @@ For production deployments, do not use the local properties file. Continue to
 provide the token through `OPENCLAW_GATEWAY_TOKEN`; an unset token defaults to
 an empty value.
 
+## PostgreSQL persistence mode
+
+The default persistence mode is in-memory. To run against PostgreSQL, start a
+database and set the persistence environment variables:
+
+```bash
+export AI_DEV_OS_PERSISTENCE_TYPE=postgresql
+export AI_DEV_OS_POSTGRES_URL=jdbc:postgresql://localhost:5432/ai_dev_os
+export AI_DEV_OS_POSTGRES_USER=ai_dev_os
+export AI_DEV_OS_POSTGRES_PASSWORD=your-password
+SPRING_PROFILES_ACTIVE=local ./scripts/start-backend.sh
+```
+
+On startup the application applies the versioned schema migrations
+(`src/main/resources/db/migration/V1__..V7__`) automatically. Applied versions
+are recorded in `schema_migrations`; repeated starts are idempotent. Wait for
+readiness before sending traffic:
+
+```bash
+curl -s http://127.0.0.1:18080/api/health/readiness
+# {"status":"READY","details":{"startupComplete":true,"migrations":"complete"}}
+```
+
+`GET /api/health` is the liveness probe and always returns `UP` once the
+process is running. `GET /api/health/readiness` returns `200` only after
+startup completes and (in PostgreSQL mode) all migrations are applied;
+otherwise it returns `503` with a `details` explanation.
+
+In a dual-instance deployment both instances share the same PostgreSQL. Job
+claims, plan-run coordinator claims and outbox claims are guarded by database
+locking and fencing tokens, so a job is executed by exactly one instance. See
+`docs/operation/runbook.md` for the operational procedures.
+
 ## Stopping the environment
 
 Press `Ctrl+C` in the terminal running `start-all.sh`; it forwards shutdown to
