@@ -2,6 +2,7 @@ package com.aidevos.orchestrator.execution;
 
 import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.audit.AuditService;
+import com.aidevos.orchestrator.outbox.OutboxTransactions;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -14,27 +15,39 @@ public class ExecutionRecordManager {
 
 	private final ExecutionRecordRepository repository;
 	private final AuditService auditService;
+	private final OutboxTransactions outboxTransactions;
 	private final ThreadLocal<AtomicReference<ExecutionRecord>> capture = new ThreadLocal<>();
 
-	public ExecutionRecordManager() { this(new InMemoryExecutionRecordRepository(), AuditService.noop()); }
+	public ExecutionRecordManager() {
+		this(new InMemoryExecutionRecordRepository(), AuditService.noop());
+	}
 
 	public ExecutionRecordManager(ExecutionRecordRepository repository) {
 		this(repository, AuditService.noop());
 	}
 
-	@Autowired
 	public ExecutionRecordManager(ExecutionRecordRepository repository, AuditService auditService) {
+		this(repository, auditService, OutboxTransactions.passThrough());
+	}
+
+	@Autowired
+	public ExecutionRecordManager(ExecutionRecordRepository repository, AuditService auditService,
+			OutboxTransactions outboxTransactions) {
 		this.repository = repository;
 		this.auditService = auditService;
+		this.outboxTransactions = outboxTransactions;
 	}
 
 	public synchronized void save(ExecutionRecord executionRecord) {
-		repository.save(executionRecord);
-		auditService.executionRecordSaved(executionRecord);
-		AtomicReference<ExecutionRecord> capturedRecord = capture.get();
-		if (capturedRecord != null) {
-			capturedRecord.set(executionRecord);
-		}
+		outboxTransactions.execute(() -> {
+			repository.save(executionRecord);
+			auditService.executionRecordSaved(executionRecord);
+			AtomicReference<ExecutionRecord> capturedRecord = capture.get();
+			if (capturedRecord != null) {
+				capturedRecord.set(executionRecord);
+			}
+			return null;
+		});
 	}
 
 	public synchronized ExecutionRecord get(String id) {

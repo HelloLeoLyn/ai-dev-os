@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.audit;
 
+import com.aidevos.orchestrator.outbox.AuditOutboxConsumer;
+import com.aidevos.orchestrator.outbox.PostgresOutboxRepository;
 import com.aidevos.orchestrator.persistence.postgresql.PostgresDocumentStore;
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -31,7 +33,9 @@ class PostgresAuditRepositoryIntegrationTest extends AuditRepositoryContract {
 		try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
 			statement.execute("TRUNCATE audit_outbox, audit_events RESTART IDENTITY");
 		}
-		repository = new PostgresAuditRepository(dataSource, new ObjectMapper());
+		repository = new PostgresAuditRepository(dataSource, new ObjectMapper(),
+			new PostgresOutboxRepository(dataSource), new AuditOutboxConsumer(dataSource,
+			new ObjectMapper()));
 	}
 
 	@Override

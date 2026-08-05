@@ -9,11 +9,23 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import javax.sql.DataSource;
+
+import com.aidevos.orchestrator.outbox.AuditOutboxConsumer;
+import com.aidevos.orchestrator.outbox.JdbcConnectionContext;
+import com.aidevos.orchestrator.outbox.OutboxMessage;
+import com.aidevos.orchestrator.outbox.OutboxRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Repository;
 import tools.jackson.databind.ObjectMapper;
 
+/**
+ * PostgreSQL audit repository. Appends become durable outbox entries; inside
+ * an active business transaction the entry joins that transaction and the
+ * background relay publishes it after commit. Standalone appends publish
+ * inline so the existing immediate-visibility contract is preserved. Queries
+ * are read-only and never trigger publishing.
+ */
 @Repository
 @DependsOn("postgresDocumentStore")
 @ConditionalOnProperty(prefix = "aidevos.persistence", name = "type", havingValue = "postgresql")
@@ -21,96 +33,108 @@ public class PostgresAuditRepository implements AuditRepository {
 	private static final String COLUMNS = "sequence_id,payload::text";
 	private final DataSource dataSource;
 	private final ObjectMapper mapper;
+	private final OutboxRepository outboxRepository;
+	private final AuditOutboxConsumer auditConsumer;
 
-	public PostgresAuditRepository(DataSource dataSource, ObjectMapper mapper) {
+	public PostgresAuditRepository(DataSource dataSource, ObjectMapper mapper,
+			OutboxRepository outboxRepository, AuditOutboxConsumer auditConsumer) {
 		this.dataSource = dataSource;
 		this.mapper = mapper;
+		this.outboxRepository = outboxRepository;
+		this.auditConsumer = auditConsumer;
 	}
 
 	@Override
 	public EventRecord append(EventRecord event) {
-		persistOutbox(event);
-		drainOutbox();
-		try (Connection connection = dataSource.getConnection()) {
-			return getByIdempotencyKey(connection, event.idempotencyKey());
+		checkIdNotReused(event);
+		if (JdbcConnectionContext.active()) {
+			outboxRepository.enqueue(AuditOutboxConsumer.TOPIC, event.idempotencyKey(),
+				payload(event));
+			return event;
 		}
-		catch (Exception exception) { throw failure("read published event", exception); }
+		outboxRepository.enqueue(AuditOutboxConsumer.TOPIC, event.idempotencyKey(),
+			payload(event));
+		publishInline(event.idempotencyKey());
+		return getByIdempotencyKey(event.idempotencyKey());
 	}
 
-	private void persistOutbox(EventRecord event) {
-		String sql = "INSERT INTO audit_outbox(idempotency_key,event_payload) VALUES (?,?::jsonb) "
-			+ "ON CONFLICT(idempotency_key) DO NOTHING";
-		try (Connection connection = dataSource.getConnection();
-				PreparedStatement statement = connection.prepareStatement(sql)) {
-			try (PreparedStatement existing = connection.prepareStatement(
-					"SELECT idempotency_key FROM audit_events WHERE id=?")) {
-				existing.setString(1, event.id());
-				try (ResultSet result = existing.executeQuery()) {
-					if (result.next() && !event.idempotencyKey().equals(result.getString(1))) {
-						throw new IllegalStateException("Audit event id already exists: " + event.id());
-					}
-				}
-			}
-			statement.setString(1, event.idempotencyKey());
-			statement.setString(2, mapper.writeValueAsString(event));
-			statement.executeUpdate();
-		}
-		catch (Exception exception) { throw failure("enqueue outbox", exception); }
-	}
-
-	private void drainOutbox() {
-		String select = "SELECT idempotency_key,event_payload::text FROM audit_outbox "
-			+ "WHERE published_at IS NULL ORDER BY created_at LIMIT 100 FOR UPDATE SKIP LOCKED";
+	/**
+	 * Enqueue is durable before inline publishing; a publication failure leaves
+	 * the pending row for the relay instead of losing the event.
+	 */
+	private void publishInline(String idempotencyKey) {
 		try (Connection connection = dataSource.getConnection()) {
 			connection.setAutoCommit(false);
-			try (PreparedStatement pending = connection.prepareStatement(select);
-					ResultSet rows = pending.executeQuery()) {
-				while (rows.next()) {
-					EventRecord event = mapper.readValue(rows.getString(2), EventRecord.class);
-					insertEvent(connection, event);
-					try (PreparedStatement published = connection.prepareStatement(
-							"UPDATE audit_outbox SET published_at=CURRENT_TIMESTAMP,attempts=attempts+1,last_error=NULL WHERE idempotency_key=?")) {
-						published.setString(1, rows.getString(1));
-						published.executeUpdate();
-					}
+			JdbcConnectionContext.bind(connection);
+			try {
+				OutboxMessage message = outboxRepository.find(idempotencyKey);
+				if (message != null) {
+					auditConsumer.consume(message);
+					outboxRepository.markPublished(idempotencyKey);
 				}
+				connection.commit();
 			}
-			connection.commit();
+			catch (Exception exception) {
+				JdbcConnectionContext.rollbackQuietly(connection);
+				throw failure("publish outbox", exception);
+			}
+			finally {
+				JdbcConnectionContext.unbind();
+			}
 		}
-		catch (Exception exception) {
-			recordOutboxFailure(exception);
+		catch (SQLException exception) {
 			throw failure("publish outbox", exception);
 		}
 	}
 
-	private void recordOutboxFailure(Exception failure) {
-		try (Connection connection = dataSource.getConnection(); PreparedStatement statement =
-				connection.prepareStatement("UPDATE audit_outbox SET attempts=attempts+1,last_error=? WHERE published_at IS NULL")) {
-			statement.setString(1, failure.getMessage());
-			statement.executeUpdate();
+	private void checkIdNotReused(EventRecord event) {
+		Connection connection = JdbcConnectionContext.current(dataSource);
+		try (PreparedStatement statement = connection.prepareStatement(
+				"SELECT idempotency_key FROM audit_events WHERE id=? "
+					+ "UNION ALL SELECT idempotency_key FROM audit_outbox "
+					+ "WHERE event_payload->>'id'=?")) {
+			statement.setString(1, event.id());
+			statement.setString(2, event.id());
+			try (ResultSet result = statement.executeQuery()) {
+				if (result.next() && !event.idempotencyKey().equals(result.getString(1))) {
+					throw new IllegalStateException("Audit event id already exists: " + event.id());
+				}
+			}
 		}
-		catch (SQLException ignored) {
-			// The original publication failure remains the actionable error.
+		catch (SQLException exception) {
+			throw failure("check event id", exception);
+		}
+		finally {
+			JdbcConnectionContext.release(connection, dataSource);
 		}
 	}
 
-	private void insertEvent(Connection connection, EventRecord event) throws Exception {
-		String sql = "INSERT INTO audit_events(id,event_type,occurred_at,aggregate_type,aggregate_id,"
-			+ "plan_run_id,step_run_id,attempt_id,job_id,execution_id,execution_record_id,"
-			+ "invocation_id,approval_id,idempotency_key,payload) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb) "
-			+ "ON CONFLICT(idempotency_key) DO NOTHING RETURNING sequence_id";
-		try (PreparedStatement statement = connection.prepareStatement(sql)) {
-			bind(statement, event);
-			try (ResultSet result = statement.executeQuery()) {
-				if (result.next()) return;
-			}
-			getByIdempotencyKey(connection, event.idempotencyKey());
+	private String payload(EventRecord event) {
+		try {
+			return mapper.writeValueAsString(event);
 		}
+		catch (Exception exception) {
+			throw new IllegalStateException("Failed to serialize audit event", exception);
+		}
+	}
+
+	private EventRecord getByIdempotencyKey(String key) {
+		try (Connection connection = dataSource.getConnection(); PreparedStatement statement =
+				connection.prepareStatement("SELECT " + COLUMNS
+					+ " FROM audit_events WHERE idempotency_key=?")) {
+			statement.setString(1, key);
+			try (ResultSet result = statement.executeQuery()) {
+				if (result.next()) {
+					return read(result);
+				}
+				throw new IllegalStateException("Idempotent audit event was not found");
+			}
+		}
+		catch (Exception exception) { throw failure("read published event", exception); }
 	}
 
 	@Override
 	public EventRecord get(String id) {
-		drainOutbox();
 		try (Connection connection = dataSource.getConnection(); PreparedStatement statement =
 				connection.prepareStatement("SELECT " + COLUMNS + " FROM audit_events WHERE id=?")) {
 			statement.setString(1, id);
@@ -123,7 +147,6 @@ public class PostgresAuditRepository implements AuditRepository {
 
 	@Override
 	public List<EventRecord> query(EventQuery query) {
-		drainOutbox();
 		EventQuery effective = query == null ? EventQuery.all() : query;
 		SqlFilter filter = filter(effective);
 		List<EventRecord> matches = new ArrayList<>();
@@ -135,9 +158,9 @@ public class PostgresAuditRepository implements AuditRepository {
 			statement.setInt(index++, effective.offset());
 			statement.setInt(index, effective.limit());
 			try (ResultSet result = statement.executeQuery()) {
-			while (result.next()) {
-				matches.add(read(result));
-			}
+				while (result.next()) {
+					matches.add(read(result));
+				}
 			}
 			return List.copyOf(matches);
 		}
@@ -146,7 +169,6 @@ public class PostgresAuditRepository implements AuditRepository {
 
 	@Override
 	public long count(EventQuery query) {
-		drainOutbox();
 		EventQuery effective = query == null ? EventQuery.all() : query;
 		SqlFilter filter = filter(effective);
 		try (Connection connection = dataSource.getConnection(); PreparedStatement statement =
@@ -199,29 +221,6 @@ public class PostgresAuditRepository implements AuditRepository {
 	}
 
 	private record SqlFilter(String where, List<Object> values) { }
-
-	private void bind(PreparedStatement statement, EventRecord event) throws Exception {
-		statement.setString(1, event.id()); statement.setString(2, event.type().name());
-		statement.setTimestamp(3, Timestamp.from(event.occurredAt()));
-		statement.setString(4, event.aggregateType()); statement.setString(5, event.aggregateId());
-		statement.setString(6, event.planRunId()); statement.setString(7, event.stepRunId());
-		statement.setString(8, event.attemptId()); statement.setString(9, event.jobId());
-		statement.setString(10, event.executionId()); statement.setString(11, event.executionRecordId());
-		statement.setString(12, event.invocationId()); statement.setString(13, event.approvalId());
-		statement.setString(14, event.idempotencyKey());
-		statement.setString(15, mapper.writeValueAsString(event));
-	}
-
-	private EventRecord getByIdempotencyKey(Connection connection, String key) throws Exception {
-		try (PreparedStatement statement = connection.prepareStatement(
-				"SELECT " + COLUMNS + " FROM audit_events WHERE idempotency_key=?")) {
-			statement.setString(1, key);
-			try (ResultSet result = statement.executeQuery()) {
-				if (result.next()) return read(result);
-				throw new IllegalStateException("Idempotent audit event was not found");
-			}
-		}
-	}
 
 	private EventRecord read(ResultSet result) throws Exception {
 		return mapper.readValue(result.getString(2), EventRecord.class).withSequence(result.getLong(1));

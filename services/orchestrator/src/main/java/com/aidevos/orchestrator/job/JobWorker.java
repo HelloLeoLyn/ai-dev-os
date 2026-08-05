@@ -18,6 +18,7 @@ import com.aidevos.orchestrator.execution.ExecutionEngine;
 import com.aidevos.orchestrator.execution.ExecutionRecordManager;
 import com.aidevos.orchestrator.execution.ExecutionResult;
 import com.aidevos.orchestrator.model.ExecutionRecord;
+import com.aidevos.orchestrator.outbox.OutboxTransactions;
 import com.aidevos.orchestrator.persistence.LeaseableJobRepository;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -32,6 +33,7 @@ public class JobWorker {
 	private final ExecutionRecordManager executionRecordManager;
 	private final LeaseableJobRepository jobRepository;
 	private final AuditService auditService;
+	private final OutboxTransactions outboxTransactions;
 	private final BlockingQueue<ExecutionJob> queue;
 	private final ExecutorService workerExecutor;
 	private final ScheduledExecutorService heartbeatExecutor;
@@ -72,10 +74,11 @@ public class JobWorker {
 			@Value("${execution.jobs.worker-id:}") String workerId,
 			@Value("${execution.jobs.lease-duration:30m}") Duration leaseDuration,
 			@Value("${execution.jobs.heartbeat-interval:}") String heartbeatInterval,
-			@Value("${execution.jobs.shutdown-timeout:30s}") Duration shutdownTimeout) {
+			@Value("${execution.jobs.shutdown-timeout:30s}") Duration shutdownTimeout,
+			OutboxTransactions outboxTransactions) {
 		this(executionEngine, executionRecordManager, jobRepository, auditService, capacity,
 			workerId, leaseDuration, parseHeartbeatInterval(heartbeatInterval, leaseDuration),
-			shutdownTimeout);
+			shutdownTimeout, outboxTransactions);
 	}
 
 	/**
@@ -86,17 +89,28 @@ public class JobWorker {
 			LeaseableJobRepository jobRepository, AuditService auditService, int capacity,
 			String workerId, Duration leaseDuration, Duration heartbeatInterval) {
 		this(executionEngine, executionRecordManager, jobRepository, auditService, capacity,
-			workerId, leaseDuration, heartbeatInterval, DEFAULT_SHUTDOWN_TIMEOUT);
+			workerId, leaseDuration, heartbeatInterval, DEFAULT_SHUTDOWN_TIMEOUT,
+			OutboxTransactions.passThrough());
 	}
 
 	JobWorker(ExecutionEngine executionEngine, ExecutionRecordManager executionRecordManager,
 			LeaseableJobRepository jobRepository, AuditService auditService, int capacity,
 			String workerId, Duration leaseDuration, Duration heartbeatInterval,
 			Duration shutdownTimeout) {
+		this(executionEngine, executionRecordManager, jobRepository, auditService, capacity,
+			workerId, leaseDuration, heartbeatInterval, shutdownTimeout,
+			OutboxTransactions.passThrough());
+	}
+
+	JobWorker(ExecutionEngine executionEngine, ExecutionRecordManager executionRecordManager,
+			LeaseableJobRepository jobRepository, AuditService auditService, int capacity,
+			String workerId, Duration leaseDuration, Duration heartbeatInterval,
+			Duration shutdownTimeout, OutboxTransactions outboxTransactions) {
 		this.executionEngine = executionEngine;
 		this.executionRecordManager = executionRecordManager;
 		this.jobRepository = jobRepository;
 		this.auditService = auditService;
+		this.outboxTransactions = outboxTransactions;
 		this.queue = new ArrayBlockingQueue<>(capacity);
 		this.workerExecutor = Executors.newSingleThreadExecutor(
 			Thread.ofPlatform().name("execution-job-worker").factory());
@@ -197,12 +211,16 @@ public class JobWorker {
 	private void execute(ExecutionJob job, LeaseContext leaseContext) {
 		JobStatus before = leaseContext == null ? job.getStatus() : leaseContext.before;
 		job.markRunning();
-		if (leaseContext == null) {
-			save(job);
-		}
-		if (before != job.getStatus()) {
-			auditService.jobEvent(EventType.JOB_STARTED, job, before.name(), job.getStatus().name());
-		}
+		outboxTransactions.execute(() -> {
+			if (leaseContext == null) {
+				save(job);
+			}
+			if (before != job.getStatus()) {
+				auditService.jobEvent(EventType.JOB_STARTED, job, before.name(),
+					job.getStatus().name());
+			}
+			return null;
+		});
 		try {
 			ExecutionCapture<ExecutionResult> capture = executionRecordManager.capture(
 				() -> executionEngine.execute(job.getTaskSnapshot(), job.getId(),
@@ -224,21 +242,24 @@ public class JobWorker {
 			job.markFailed(null, errorMessage(ex));
 		}
 		finally {
-			if (leaseContext != null) {
-				jobRepository.complete(job.getId(), leaseContext.lease.owner(),
-					leaseContext.lease.token(), job);
-			}
-			else {
-				save(job);
-			}
-			EventType type = switch (job.getStatus()) {
-				case SUCCESS -> EventType.JOB_SUCCEEDED;
-				case FAILED -> EventType.JOB_FAILED;
-				case WAITING_APPROVAL -> EventType.JOB_WAITING_APPROVAL;
-				default -> null;
-			};
-			if (type != null) auditService.jobEvent(type, job, JobStatus.RUNNING.name(),
-				job.getStatus().name());
+			outboxTransactions.execute(() -> {
+				if (leaseContext != null) {
+					jobRepository.complete(job.getId(), leaseContext.lease.owner(),
+						leaseContext.lease.token(), job);
+				}
+				else {
+					save(job);
+				}
+				EventType type = switch (job.getStatus()) {
+					case SUCCESS -> EventType.JOB_SUCCEEDED;
+					case FAILED -> EventType.JOB_FAILED;
+					case WAITING_APPROVAL -> EventType.JOB_WAITING_APPROVAL;
+					default -> null;
+				};
+				if (type != null) auditService.jobEvent(type, job, JobStatus.RUNNING.name(),
+					job.getStatus().name());
+				return null;
+			});
 		}
 	}
 

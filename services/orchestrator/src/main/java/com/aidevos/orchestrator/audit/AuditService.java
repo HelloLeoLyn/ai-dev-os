@@ -1,6 +1,7 @@
 package com.aidevos.orchestrator.audit;
 
 import com.aidevos.orchestrator.job.ExecutionJob;
+import com.aidevos.orchestrator.outbox.JdbcConnectionContext;
 import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.model.TaskDefinition;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalRequest;
@@ -52,6 +53,12 @@ public class AuditService {
 			return Optional.of(repository.append(event));
 		}
 		catch (RuntimeException exception) {
+			// Inside a business transaction the audit enqueue is part of the
+			// commit: a failure must roll back the business state instead of
+			// silently committing without its outbox entry.
+			if (JdbcConnectionContext.active()) {
+				throw exception;
+			}
 			logger.error("Failed to append audit event type={} aggregate={}/{}",
 				event.type(), event.aggregateType(), event.aggregateId(), exception);
 			return Optional.empty();

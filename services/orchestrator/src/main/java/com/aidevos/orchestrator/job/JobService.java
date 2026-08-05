@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
+import com.aidevos.orchestrator.outbox.OutboxTransactions;
 import com.aidevos.orchestrator.model.TaskDefinition;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -18,16 +19,23 @@ public class JobService {
 	private final JobRepository jobStore;
 	private final JobWorker jobWorker;
 	private final AuditService auditService;
+	private final OutboxTransactions outboxTransactions;
 
 	public JobService(JobRepository jobStore, JobWorker jobWorker) {
 		this(jobStore, jobWorker, AuditService.noop());
 	}
 
-	@Autowired
 	public JobService(JobRepository jobStore, JobWorker jobWorker, AuditService auditService) {
+		this(jobStore, jobWorker, auditService, OutboxTransactions.passThrough());
+	}
+
+	@Autowired
+	public JobService(JobRepository jobStore, JobWorker jobWorker, AuditService auditService,
+			OutboxTransactions outboxTransactions) {
 		this.jobStore = jobStore;
 		this.jobWorker = jobWorker;
 		this.auditService = auditService;
+		this.outboxTransactions = outboxTransactions;
 	}
 
 	public JobSubmissionResponse submit(TaskDefinition taskDefinition) {
@@ -45,17 +53,19 @@ public class JobService {
 			throw new IllegalArgumentException("Job id is required");
 		}
 		ExecutionJob job = new ExecutionJob(jobId, snapshot(taskDefinition));
-		ExecutionJob stored = jobStore.createIfAbsent(job);
-		if (stored != job) {
-			return new JobSubmissionResponse(stored.getId(), stored.getTaskId(),
-				stored.getStatus());
-		}
-		if (!jobWorker.submit(job)) {
-			jobStore.remove(job.getId());
-			throw new JobQueueFullException();
-		}
-		auditService.jobEvent(EventType.JOB_SUBMITTED, job, null, JobStatus.QUEUED.name());
-		return new JobSubmissionResponse(job.getId(), job.getTaskId(), JobStatus.QUEUED);
+		return outboxTransactions.execute(() -> {
+			ExecutionJob stored = jobStore.createIfAbsent(job);
+			if (stored != job) {
+				return new JobSubmissionResponse(stored.getId(), stored.getTaskId(),
+					stored.getStatus());
+			}
+			if (!jobWorker.submit(job)) {
+				jobStore.remove(job.getId());
+				throw new JobQueueFullException();
+			}
+			auditService.jobEvent(EventType.JOB_SUBMITTED, job, null, JobStatus.QUEUED.name());
+			return new JobSubmissionResponse(job.getId(), job.getTaskId(), JobStatus.QUEUED);
+		});
 	}
 
 	public ExecutionJob get(String id) {
@@ -71,24 +81,28 @@ public class JobService {
 		if (job == null || !job.resumeAfterApproval()) {
 			return false;
 		}
-		if (jobWorker.submit(job)) {
+		return outboxTransactions.execute(() -> {
+			if (jobWorker.submit(job)) {
+				jobStore.save(job);
+				auditService.jobEvent(EventType.JOB_RESUBMITTED, job,
+					JobStatus.WAITING_APPROVAL.name(), JobStatus.QUEUED.name());
+				return true;
+			}
+			job.restoreWaitingApproval();
 			jobStore.save(job);
-			auditService.jobEvent(EventType.JOB_RESUBMITTED, job,
-				JobStatus.WAITING_APPROVAL.name(), JobStatus.QUEUED.name());
-			return true;
-		}
-		job.restoreWaitingApproval();
-		jobStore.save(job);
-		return false;
+			return false;
+		});
 	}
 
 	public boolean rejectApproval(String jobId) {
 		ExecutionJob job = jobStore.get(jobId);
 		if (job == null || !job.rejectApproval()) return false;
-		jobStore.save(job);
-		auditService.jobEvent(EventType.JOB_APPROVAL_REJECTED, job,
-			JobStatus.WAITING_APPROVAL.name(), JobStatus.FAILED.name());
-		return true;
+		return outboxTransactions.execute(() -> {
+			jobStore.save(job);
+			auditService.jobEvent(EventType.JOB_APPROVAL_REJECTED, job,
+				JobStatus.WAITING_APPROVAL.name(), JobStatus.FAILED.name());
+			return true;
+		});
 	}
 
 	private TaskDefinition snapshot(TaskDefinition source) {

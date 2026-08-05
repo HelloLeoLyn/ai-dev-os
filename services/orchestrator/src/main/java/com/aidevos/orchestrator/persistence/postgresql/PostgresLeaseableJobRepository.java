@@ -14,6 +14,7 @@ import java.util.Optional;
 import javax.sql.DataSource;
 
 import com.aidevos.orchestrator.execution.ExecutionResult;
+import com.aidevos.orchestrator.outbox.JdbcConnectionContext;
 import com.aidevos.orchestrator.job.ExecutionJob;
 import com.aidevos.orchestrator.job.JobLease;
 import com.aidevos.orchestrator.job.JobStatus;
@@ -62,13 +63,16 @@ public class PostgresLeaseableJobRepository implements LeaseableJobRepository {
 			+ "heartbeat_at=EXCLUDED.heartbeat_at,version=EXCLUDED.version,"
 			+ "recovery_count=EXCLUDED.recovery_count,"
 			+ "last_failure_code=EXCLUDED.last_failure_code,recovery_policy=EXCLUDED.recovery_policy";
-		try (Connection connection = dataSource.getConnection();
-				PreparedStatement statement = connection.prepareStatement(sql)) {
+		Connection connection = JdbcConnectionContext.current(dataSource);
+		try (PreparedStatement statement = connection.prepareStatement(sql)) {
 			bind(statement, job);
 			statement.executeUpdate();
 		}
 		catch (Exception exception) {
 			throw failure("save job", exception);
+		}
+		finally {
+			JdbcConnectionContext.release(connection, dataSource);
 		}
 	}
 
@@ -76,13 +80,16 @@ public class PostgresLeaseableJobRepository implements LeaseableJobRepository {
 	public ExecutionJob createIfAbsent(ExecutionJob job) {
 		String sql = "INSERT INTO jobs(" + JOB_COLUMNS + ") VALUES (?,?::jsonb,?,?,?,?,?::jsonb,"
 			+ "?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING";
-		try (Connection connection = dataSource.getConnection();
-				PreparedStatement statement = connection.prepareStatement(sql)) {
+		Connection connection = JdbcConnectionContext.current(dataSource);
+		try (PreparedStatement statement = connection.prepareStatement(sql)) {
 			bind(statement, job);
 			return statement.executeUpdate() == 1 ? job : get(job.getId());
 		}
 		catch (Exception exception) {
 			throw failure("create job idempotently", exception);
+		}
+		finally {
+			JdbcConnectionContext.release(connection, dataSource);
 		}
 	}
 
@@ -119,8 +126,8 @@ public class PostgresLeaseableJobRepository implements LeaseableJobRepository {
 	@Override
 	public ExecutionJob get(String id) {
 		String sql = "SELECT " + JOB_COLUMNS + " FROM jobs WHERE id=?";
-		try (Connection connection = dataSource.getConnection();
-				PreparedStatement statement = connection.prepareStatement(sql)) {
+		Connection connection = JdbcConnectionContext.current(dataSource);
+		try (PreparedStatement statement = connection.prepareStatement(sql)) {
 			statement.setString(1, id);
 			try (ResultSet result = statement.executeQuery()) {
 				return result.next() ? read(result) : null;
@@ -128,6 +135,9 @@ public class PostgresLeaseableJobRepository implements LeaseableJobRepository {
 		}
 		catch (Exception exception) {
 			throw failure("read job", exception);
+		}
+		finally {
+			JdbcConnectionContext.release(connection, dataSource);
 		}
 	}
 
@@ -144,14 +154,17 @@ public class PostgresLeaseableJobRepository implements LeaseableJobRepository {
 
 	@Override
 	public void remove(String id) {
-		try (Connection connection = dataSource.getConnection();
-				PreparedStatement statement = connection.prepareStatement(
+		Connection connection = JdbcConnectionContext.current(dataSource);
+		try (PreparedStatement statement = connection.prepareStatement(
 					"DELETE FROM jobs WHERE id=?")) {
 			statement.setString(1, id);
 			statement.executeUpdate();
 		}
 		catch (SQLException exception) {
 			throw failure("remove job", exception);
+		}
+		finally {
+			JdbcConnectionContext.release(connection, dataSource);
 		}
 	}
 
@@ -178,8 +191,8 @@ public class PostgresLeaseableJobRepository implements LeaseableJobRepository {
 			WHERE id IN (SELECT id FROM candidate)
 			RETURNING lease_token, lease_expires_at
 			""";
-		try (Connection connection = dataSource.getConnection();
-				PreparedStatement statement = connection.prepareStatement(sql)) {
+		Connection connection = JdbcConnectionContext.current(dataSource);
+		try (PreparedStatement statement = connection.prepareStatement(sql)) {
 			statement.setTimestamp(1, Timestamp.from(now));
 			statement.setTimestamp(2, Timestamp.from(now));
 			statement.setString(3, owner);
@@ -197,14 +210,17 @@ public class PostgresLeaseableJobRepository implements LeaseableJobRepository {
 		catch (SQLException exception) {
 			throw failure("claim job", exception);
 		}
+		finally {
+			JdbcConnectionContext.release(connection, dataSource);
+		}
 	}
 
 	@Override
 	public boolean renewLease(String jobId, String owner, long token, Instant newExpiry) {
 		String sql = "UPDATE jobs SET lease_expires_at=?,heartbeat_at=?,version=version+1 "
 			+ "WHERE id=? AND status='RUNNING' AND lease_owner=? AND lease_token=?";
-		try (Connection connection = dataSource.getConnection();
-				PreparedStatement statement = connection.prepareStatement(sql)) {
+		Connection connection = JdbcConnectionContext.current(dataSource);
+		try (PreparedStatement statement = connection.prepareStatement(sql)) {
 			statement.setTimestamp(1, Timestamp.from(newExpiry));
 			statement.setTimestamp(2, Timestamp.from(Instant.now()));
 			statement.setString(3, jobId);
@@ -214,6 +230,9 @@ public class PostgresLeaseableJobRepository implements LeaseableJobRepository {
 		}
 		catch (SQLException exception) {
 			throw failure("renew lease", exception);
+		}
+		finally {
+			JdbcConnectionContext.release(connection, dataSource);
 		}
 	}
 
@@ -231,8 +250,8 @@ public class PostgresLeaseableJobRepository implements LeaseableJobRepository {
 		} else {
 			return false;
 		}
-		try (Connection connection = dataSource.getConnection();
-				PreparedStatement statement = connection.prepareStatement(sql)) {
+		Connection connection = JdbcConnectionContext.current(dataSource);
+		try (PreparedStatement statement = connection.prepareStatement(sql)) {
 			int index = 1;
 			if (nextStatus == JobStatus.CANCELLED) {
 				statement.setTimestamp(index++, Timestamp.from(Instant.now()));
@@ -244,6 +263,9 @@ public class PostgresLeaseableJobRepository implements LeaseableJobRepository {
 		}
 		catch (SQLException exception) {
 			throw failure("release lease", exception);
+		}
+		finally {
+			JdbcConnectionContext.release(connection, dataSource);
 		}
 	}
 
@@ -264,8 +286,8 @@ public class PostgresLeaseableJobRepository implements LeaseableJobRepository {
 				version=version+1
 			WHERE id=? AND lease_owner=? AND lease_token=?
 			""";
-		try (Connection connection = dataSource.getConnection();
-				PreparedStatement statement = connection.prepareStatement(sql)) {
+		Connection connection = JdbcConnectionContext.current(dataSource);
+		try (PreparedStatement statement = connection.prepareStatement(sql)) {
 			statement.setString(1, finalStatus.name());
 			setTimestamp(statement, 2, finalSnapshot.getStartedAt());
 			setTimestamp(statement, 3, finalSnapshot.getCompletedAt());
@@ -287,6 +309,9 @@ public class PostgresLeaseableJobRepository implements LeaseableJobRepository {
 		}
 		catch (Exception exception) {
 			throw failure("complete job", exception);
+		}
+		finally {
+			JdbcConnectionContext.release(connection, dataSource);
 		}
 	}
 
@@ -310,8 +335,8 @@ public class PostgresLeaseableJobRepository implements LeaseableJobRepository {
 		String sql = "UPDATE jobs SET status='RETRY_WAIT',last_failure_code=?,available_at=?,"
 			+ "lease_owner=NULL,lease_expires_at=NULL,heartbeat_at=NULL,version=version+1 "
 			+ "WHERE id=? AND status='RUNNING'";
-		try (Connection connection = dataSource.getConnection();
-				PreparedStatement statement = connection.prepareStatement(sql)) {
+		Connection connection = JdbcConnectionContext.current(dataSource);
+		try (PreparedStatement statement = connection.prepareStatement(sql)) {
 			statement.setString(1, failureCode);
 			statement.setTimestamp(2, Timestamp.from(availableAt));
 			statement.setString(3, jobId);
@@ -320,6 +345,9 @@ public class PostgresLeaseableJobRepository implements LeaseableJobRepository {
 		catch (SQLException exception) {
 			throw failure("retry wait", exception);
 		}
+		finally {
+			JdbcConnectionContext.release(connection, dataSource);
+		}
 	}
 
 	@Override
@@ -327,8 +355,8 @@ public class PostgresLeaseableJobRepository implements LeaseableJobRepository {
 		String sql = "UPDATE jobs SET status='CANCELLED',completed_at=?,lease_owner=NULL,"
 			+ "lease_expires_at=NULL,heartbeat_at=NULL,version=version+1 "
 			+ "WHERE id=? AND status NOT IN ('SUCCESS','FAILED')";
-		try (Connection connection = dataSource.getConnection();
-				PreparedStatement statement = connection.prepareStatement(sql)) {
+		Connection connection = JdbcConnectionContext.current(dataSource);
+		try (PreparedStatement statement = connection.prepareStatement(sql)) {
 			statement.setTimestamp(1, Timestamp.from(Instant.now()));
 			statement.setString(2, jobId);
 			return statement.executeUpdate() > 0;
@@ -336,11 +364,14 @@ public class PostgresLeaseableJobRepository implements LeaseableJobRepository {
 		catch (SQLException exception) {
 			throw failure("cancel job", exception);
 		}
+		finally {
+			JdbcConnectionContext.release(connection, dataSource);
+		}
 	}
 
 	private boolean update(String sql, Object... parameters) {
-		try (Connection connection = dataSource.getConnection();
-				PreparedStatement statement = connection.prepareStatement(sql)) {
+		Connection connection = JdbcConnectionContext.current(dataSource);
+		try (PreparedStatement statement = connection.prepareStatement(sql)) {
 			for (int i = 0; i < parameters.length; i++) {
 				statement.setObject(i + 1, parameters[i]);
 			}
@@ -349,11 +380,14 @@ public class PostgresLeaseableJobRepository implements LeaseableJobRepository {
 		catch (SQLException exception) {
 			throw failure("update job", exception);
 		}
+		finally {
+			JdbcConnectionContext.release(connection, dataSource);
+		}
 	}
 
 	private List<ExecutionJob> select(String sql, Object... parameters) {
-		try (Connection connection = dataSource.getConnection();
-				PreparedStatement statement = connection.prepareStatement(sql)) {
+		Connection connection = JdbcConnectionContext.current(dataSource);
+		try (PreparedStatement statement = connection.prepareStatement(sql)) {
 			for (int i = 0; i < parameters.length; i++) {
 				if (parameters[i] instanceof Instant instant) {
 					statement.setTimestamp(i + 1, Timestamp.from(instant));
@@ -371,6 +405,9 @@ public class PostgresLeaseableJobRepository implements LeaseableJobRepository {
 		}
 		catch (Exception exception) {
 			throw failure("list jobs", exception);
+		}
+		finally {
+			JdbcConnectionContext.release(connection, dataSource);
 		}
 	}
 
