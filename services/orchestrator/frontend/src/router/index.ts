@@ -1,6 +1,7 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 
 import AgentDetailView from '../views/AgentDetailView.vue'
+import AgentMarketView from '../views/AgentMarketView.vue'
 import AgentFlowView from '../views/AgentFlowView.vue'
 import AgentsView from '../views/AgentsView.vue'
 import AuditConsoleView from '../views/AuditConsoleView.vue'
@@ -69,6 +70,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/schedules', component: SchedulesView, meta: { title: 'Schedules' } },
   { path: '/skills', component: SkillsView, meta: { title: 'Skills' } },
   { path: '/agents', component: AgentsView, meta: { title: 'Agents' } },
+  { path: '/agent-market', component: AgentMarketView, meta: { title: 'Agent Market' } },
   { path: '/agent-flow', component: AgentFlowView, meta: { title: 'Agent Flow' } },
   {
     path: '/agents/:id',

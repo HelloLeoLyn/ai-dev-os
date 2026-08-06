@@ -12,6 +12,7 @@ const navigation = [
   { to: '/schedules', label: 'Schedules' },
   { to: '/skills', label: 'Skills' },
   { to: '/agents', label: 'Agents' },
+  { to: '/agent-market', label: 'Agent Market' },
   { to: '/agent-flow', label: 'Agent Flow' },
   { to: '/models', label: 'Models' },
   { to: '/memory', label: 'Memory' },

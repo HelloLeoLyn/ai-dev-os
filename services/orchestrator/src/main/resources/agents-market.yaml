@@ -1,0 +1,63 @@
+agents:
+  - agentId: coder-agent
+    name: Coder Agent
+    version: 1.0.0
+    description: 代码生成与修改 Agent，绑定 Coding Skill，使用 filesystem/git 插件
+    author: AI Dev OS Team
+    executor: codex
+    executorConfig:
+      sandbox: workspace-write
+    capabilities:
+      - coding
+      - git
+    skills:
+      - coding-skill
+    plugins:
+      - filesystem
+      - git
+    enabled: true
+
+  - agentId: tester-agent
+    name: Tester Agent
+    version: 1.0.0
+    description: 自动化测试 Agent，绑定 Testing Skill，使用 browser 插件
+    author: AI Dev OS Team
+    executor: openclaw
+    executorConfig:
+      agentId: main
+    capabilities:
+      - testing
+      - browser
+    skills:
+      - testing-skill
+    plugins:
+      - browser
+    enabled: true
+
+  - agentId: browser-agent
+    name: Browser Agent
+    version: 1.1.0
+    description: 浏览器自动化 Agent，绑定 Browser Skill，使用 browser 插件
+    author: AI Dev OS Team
+    executor: openclaw
+    executorConfig:
+      agentId: main
+    capabilities:
+      - browser
+    skills:
+      - browser-skill
+    plugins:
+      - browser
+    enabled: true
+
+  - agentId: analyst-agent
+    name: Analyst Agent
+    version: 1.0.0
+    description: 分析与规划 Agent，面向任务拆解与方案设计
+    author: AI Dev OS Team
+    executor: mock
+    capabilities:
+      - analysis
+    skills: []
+    plugins: []
+    enabled: true
