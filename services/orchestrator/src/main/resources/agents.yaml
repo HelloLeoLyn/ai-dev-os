@@ -23,6 +23,8 @@ agents:
     capabilities:
       - coding
       - git
+    skillIds:
+      - coding-skill
 
   - name: tester
     executor: openclaw
@@ -31,6 +33,9 @@ agents:
     capabilities:
       - testing
       - browser
+    skillIds:
+      - testing-skill
+      - browser-skill
 
   - name: browser-agent
     executor: openclaw
@@ -38,6 +43,8 @@ agents:
       agentId: main
     capabilities:
       - browser
+    skillIds:
+      - browser-skill
 
   - name: mcp-reader
     description: Executes explicitly declared read-only tool calls

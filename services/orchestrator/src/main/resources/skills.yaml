@@ -1,0 +1,62 @@
+skills:
+  - skillId: coding-skill
+    name: Coding Skill
+    description: 代码生成与修改技能：阅读代码、编辑文件、运行构建
+    type: CODING
+    version: 1.0.0
+    enabled: true
+    tools:
+      - read_code
+      - edit_file
+      - run_build
+      - review_diff
+    instructions: |
+      Analyze the repository context before editing. Make minimal, surgical
+      changes and keep them consistent with the existing code style. Run
+      relevant tests after each change and report results.
+
+  - skillId: testing-skill
+    name: Testing Skill
+    description: 自动化测试技能：编写与运行单元/集成测试
+    type: TESTING
+    version: 1.0.0
+    enabled: true
+    tools:
+      - write_test
+      - run_test
+      - analyze_coverage
+    instructions: |
+      Write focused tests that verify behavior rather than implementation.
+      Run the relevant test suite, fix regressions and report pass/fail
+      counts together with any error messages.
+
+  - skillId: browser-skill
+    name: Browser Skill
+    description: 浏览器自动化测试技能：导航、快照、截图与交互
+    type: BROWSER
+    version: 1.0.0
+    enabled: true
+    tools:
+      - navigate
+      - snapshot
+      - screenshot
+      - click
+      - input
+    instructions: |
+      Drive the browser through Playwright-style automation. Capture
+      screenshots for visual verification, assert on page state and collect
+      error details when a test fails.
+
+  - skillId: deployment-skill
+    name: Deployment Skill
+    description: 部署与发布技能：构建产物、检查部署状态
+    type: DEPLOYMENT
+    version: 1.0.0
+    enabled: true
+    tools:
+      - build_artifact
+      - check_deployment
+      - verify_health
+    instructions: |
+      Build and verify deployment artifacts. Check service health and roll
+      back on failure. Never deploy without a confirmed plan.

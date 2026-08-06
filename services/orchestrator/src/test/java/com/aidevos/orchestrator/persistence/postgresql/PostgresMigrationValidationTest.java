@@ -41,10 +41,10 @@ class PostgresMigrationValidationTest {
 		PGSimpleDataSource dataSource = dataSource(POSTGRES.getDatabaseName());
 		new PostgresDocumentStore(dataSource, new ObjectMapper());
 
-		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8), appliedVersions(dataSource));
+		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8, 9), appliedVersions(dataSource));
 		for (String table : List.of("repository_documents", "audit_events",
 				"plan_version_freezes", "audit_outbox", "jobs", "execution_attempts",
-				"memory_records", "schema_migrations")) {
+				"memory_records", "projects", "schema_migrations")) {
 			assertTrue(tableExists(dataSource, table), "missing table: " + table);
 		}
 		assertTrue(columnExists(dataSource, "repository_documents", "version"),
@@ -94,7 +94,7 @@ class PostgresMigrationValidationTest {
 		// The full migration set upgrades V5..V8 in place.
 		new PostgresDocumentStore(dataSource, new ObjectMapper());
 
-		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8), appliedVersions(dataSource));
+		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8, 9), appliedVersions(dataSource));
 		assertEquals(1, count(dataSource,
 			"SELECT COUNT(*) FROM repository_documents WHERE entity_id='run-old'"));
 		assertEquals(1, count(dataSource,

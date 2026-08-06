@@ -9,6 +9,7 @@ public class ExecutionContext {
 	private String jobId;
 	private String taskId;
 	private String taskName;
+	private String projectId;
 	private String description;
 	private String agentName;
 	private String externalAgentId;
@@ -50,6 +51,14 @@ public class ExecutionContext {
 
 	public void setTaskName(String taskName) {
 		this.taskName = taskName;
+	}
+
+	public String getProjectId() {
+		return projectId;
+	}
+
+	public void setProjectId(String projectId) {
+		this.projectId = projectId;
 	}
 
 	public String getDescription() {

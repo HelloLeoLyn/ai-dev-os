@@ -8,11 +8,14 @@ const navigation = [
   { to: '/timeline', label: 'Timeline' },
   { to: '/audit', label: 'Audit' },
   { to: '/tasks', label: 'Tasks' },
+  { to: '/projects', label: 'Projects' },
   { to: '/schedules', label: 'Schedules' },
+  { to: '/skills', label: 'Skills' },
   { to: '/agents', label: 'Agents' },
   { to: '/agent-flow', label: 'Agent Flow' },
   { to: '/models', label: 'Models' },
   { to: '/memory', label: 'Memory' },
+  { to: '/mcp/plugins', label: 'MCP Plugins' },
   { to: '/tests', label: 'Tests' },
 ]
 </script>

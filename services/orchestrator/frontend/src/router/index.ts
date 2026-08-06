@@ -13,8 +13,11 @@ import JobDetailView from '../views/JobDetailView.vue'
 import JobTimelineView from '../views/JobTimelineView.vue'
 import JobsView from '../views/JobsView.vue'
 import MemoryView from '../views/MemoryView.vue'
+import McpPluginsView from '../views/McpPluginsView.vue'
 import ModelsView from '../views/ModelsView.vue'
+import ProjectsView from '../views/ProjectsView.vue'
 import SchedulesView from '../views/SchedulesView.vue'
+import SkillsView from '../views/SkillsView.vue'
 import TasksView from '../views/TasksView.vue'
 import PlanRunTimelineView from '../views/PlanRunTimelineView.vue'
 import TimelineConsoleView from '../views/TimelineConsoleView.vue'
@@ -62,7 +65,9 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'Execution Record Details' },
   },
   { path: '/tasks', component: TasksView, meta: { title: 'Tasks' } },
+  { path: '/projects', component: ProjectsView, meta: { title: 'Projects' } },
   { path: '/schedules', component: SchedulesView, meta: { title: 'Schedules' } },
+  { path: '/skills', component: SkillsView, meta: { title: 'Skills' } },
   { path: '/agents', component: AgentsView, meta: { title: 'Agents' } },
   { path: '/agent-flow', component: AgentFlowView, meta: { title: 'Agent Flow' } },
   {
@@ -72,6 +77,7 @@ const routes: RouteRecordRaw[] = [
   },
   { path: '/models', component: ModelsView, meta: { title: 'Models' } },
   { path: '/memory', component: MemoryView, meta: { title: 'Memory' } },
+  { path: '/mcp/plugins', component: McpPluginsView, meta: { title: 'MCP Plugins' } },
   { path: '/tests', component: TestsView, meta: { title: 'Tests' } },
 ]
 

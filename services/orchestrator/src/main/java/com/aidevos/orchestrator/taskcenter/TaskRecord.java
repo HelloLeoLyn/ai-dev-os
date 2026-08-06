@@ -11,6 +11,7 @@ public class TaskRecord {
 	private final String taskId;
 	private final String name;
 	private final String description;
+	private final String projectId;
 	private final Instant createdAt;
 	private volatile TaskStatus status = TaskStatus.CREATED;
 	private volatile Instant updatedAt;
@@ -19,9 +20,14 @@ public class TaskRecord {
 	private volatile String errorMessage;
 
 	public TaskRecord(String taskId, String name, String description) {
+		this(taskId, name, description, null);
+	}
+
+	public TaskRecord(String taskId, String name, String description, String projectId) {
 		this.taskId = taskId;
 		this.name = name;
 		this.description = description;
+		this.projectId = projectId == null || projectId.isBlank() ? "default" : projectId.trim();
 		this.createdAt = Instant.now();
 		this.updatedAt = this.createdAt;
 	}
@@ -74,6 +80,10 @@ public class TaskRecord {
 
 	public String getDescription() {
 		return description;
+	}
+
+	public String getProjectId() {
+		return projectId;
 	}
 
 	public TaskStatus getStatus() {

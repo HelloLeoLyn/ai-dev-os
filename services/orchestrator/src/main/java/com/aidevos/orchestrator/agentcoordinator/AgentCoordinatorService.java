@@ -194,6 +194,7 @@ public class AgentCoordinatorService {
 		ExecutionContext context = new ExecutionContext();
 		context.setTaskId(task.getTaskId());
 		context.setTaskName(task.getName());
+		context.setProjectId(task.getProjectId());
 		context.setDescription(task.getDescription());
 		context.setInput(task.getDescription() == null || task.getDescription().isBlank()
 			? task.getName() : task.getDescription());

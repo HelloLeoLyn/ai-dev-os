@@ -10,6 +10,7 @@ public class AgentDefinition {
 	private String executor;
 	private Map<String, Object> executorConfig = new LinkedHashMap<>();
 	private List<String> capabilities;
+	private List<String> skillIds;
 	private String type;
 	private String description;
 	private String permissionLevel;
@@ -62,6 +63,14 @@ public class AgentDefinition {
 
 	public void setCapabilities(List<String> capabilities) {
 		this.capabilities = capabilities;
+	}
+
+	public List<String> getSkillIds() {
+		return skillIds;
+	}
+
+	public void setSkillIds(List<String> skillIds) {
+		this.skillIds = skillIds;
 	}
 
 	public String getType() {

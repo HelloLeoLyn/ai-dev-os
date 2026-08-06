@@ -1,0 +1,98 @@
+plugins:
+  - pluginId: filesystem
+    name: Filesystem
+    type: fs
+    description: 文件系统读写工具；读取默认放行，写入/删除需确认
+    enabled: true
+    permissionLevel: read-only
+    tools:
+      - name: read_file
+        description: 读取文件内容
+        access: READ_ONLY
+      - name: read_directory
+        description: 列出目录内容
+        access: READ_ONLY
+      - name: write_file
+        description: 写入文件内容
+        access: WORKSPACE_WRITE
+        dangerous: true
+      - name: delete_file
+        description: 删除文件
+        access: WORKSPACE_WRITE
+        dangerous: true
+
+  - pluginId: git
+    name: Git
+    type: vcs
+    description: Git 仓库操作；查询默认放行，提交/推送需确认
+    enabled: true
+    permissionLevel: read-only
+    tools:
+      - name: status
+        description: 查看工作区状态
+        access: READ_ONLY
+      - name: log
+        description: 查看提交历史
+        access: READ_ONLY
+      - name: diff
+        description: 查看变更差异
+        access: READ_ONLY
+      - name: commit
+        description: 创建提交
+        access: WORKSPACE_WRITE
+        dangerous: true
+      - name: push
+        description: 推送到远程仓库
+        access: WORKSPACE_WRITE
+        dangerous: true
+
+  - pluginId: docker
+    name: Docker
+    type: container
+    description: 容器操作；查询默认放行，运行/停止/删除需确认
+    enabled: true
+    permissionLevel: workspace-write
+    tools:
+      - name: ps
+        description: 列出运行中的容器
+        access: READ_ONLY
+      - name: images
+        description: 列出本地镜像
+        access: READ_ONLY
+      - name: run
+        description: 运行容器
+        access: WORKSPACE_WRITE
+        dangerous: true
+      - name: stop
+        description: 停止容器
+        access: WORKSPACE_WRITE
+        dangerous: true
+      - name: rm
+        description: 删除容器
+        access: WORKSPACE_WRITE
+        dangerous: true
+
+  - pluginId: browser
+    name: Browser
+    type: ui
+    description: 浏览器自动化；浏览/截图默认放行，点击/输入需确认
+    enabled: true
+    permissionLevel: read-only
+    tools:
+      - name: navigate
+        description: 打开页面
+        access: READ_ONLY
+      - name: snapshot
+        description: 获取页面快照
+        access: READ_ONLY
+      - name: screenshot
+        description: 页面截图
+        access: READ_ONLY
+      - name: click
+        description: 点击元素
+        access: WORKSPACE_WRITE
+        dangerous: true
+      - name: input
+        description: 输入文本
+        access: WORKSPACE_WRITE
+        dangerous: true

@@ -43,7 +43,8 @@ public class TaskCenterService {
 
 	public TaskRecord createTask(CreateTaskRequest request) {
 		String taskId = "task-" + UUID.randomUUID();
-		TaskRecord task = new TaskRecord(taskId, request.name(), request.description());
+		TaskRecord task = new TaskRecord(taskId, request.name(), request.description(),
+			request.projectId());
 		tasks.put(taskId, task);
 		try {
 			PlanningResult result = plannerService.createPlan(new PlanningRequest(taskId,

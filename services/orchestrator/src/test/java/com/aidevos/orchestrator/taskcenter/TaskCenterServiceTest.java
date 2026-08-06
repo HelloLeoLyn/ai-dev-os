@@ -49,7 +49,7 @@ class TaskCenterServiceTest {
 				Instant.parse("2026-08-01T00:00:00Z")));
 
 		TaskRecord task = service.createTask(new CreateTaskRequest(
-			"Implement login", "Login flow", "Implement a login flow", "hermes"));
+			"Implement login", "Login flow", "Implement a login flow", "hermes", "default"));
 
 		assertEquals(TaskStatus.PLANNING, task.getStatus());
 		assertEquals("approval-1", task.getApprovalId());
@@ -62,7 +62,7 @@ class TaskCenterServiceTest {
 			.thenReturn(PlanningResult.failure("hermes", null, List.of("PLANNER_FAILED")));
 
 		TaskRecord task = service.createTask(new CreateTaskRequest(
-			"Broken", null, "Goal", null));
+			"Broken", null, "Goal", null, "default"));
 
 		assertEquals(TaskStatus.FAILED, task.getStatus());
 		assertEquals("PLANNER_FAILED", task.getErrorMessage());
@@ -80,7 +80,7 @@ class TaskCenterServiceTest {
 		when(planRunRepository.findRunIdByApproval("approval-1")).thenReturn(null);
 
 		TaskRecord task = service.createTask(new CreateTaskRequest(
-			"Implement login", null, "Goal", null));
+			"Implement login", null, "Goal", null, "default"));
 		Optional<TaskRecord> refreshed = service.getTask(task.getTaskId());
 
 		assertTrue(refreshed.isPresent());
@@ -103,7 +103,7 @@ class TaskCenterServiceTest {
 		when(planRunRepository.get("run-1")).thenReturn(run);
 
 		TaskRecord task = service.createTask(new CreateTaskRequest(
-			"Implement login", null, "Goal", null));
+			"Implement login", null, "Goal", null, "default"));
 		Optional<TaskRecord> refreshed = service.getTask(task.getTaskId());
 
 		assertTrue(refreshed.isPresent());
@@ -127,7 +127,7 @@ class TaskCenterServiceTest {
 		when(planRunRepository.get("run-1")).thenReturn(run);
 
 		TaskRecord task = service.createTask(new CreateTaskRequest(
-			"Implement login", null, "Goal", null));
+			"Implement login", null, "Goal", null, "default"));
 		Optional<TaskRecord> refreshed = service.getTask(task.getTaskId());
 
 		assertTrue(refreshed.isPresent());
