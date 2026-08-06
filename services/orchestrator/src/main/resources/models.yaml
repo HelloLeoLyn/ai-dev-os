@@ -1,0 +1,30 @@
+providers:
+  - providerId: deepseek
+    name: DeepSeek
+    type: LLM
+    model: deepseek-chat
+    enabled: true
+
+  - providerId: openai
+    name: OpenAI
+    type: LLM
+    model: gpt-4o
+    enabled: true
+
+  - providerId: codex
+    name: Codex
+    type: AGENT
+    model: codex
+    enabled: true
+
+  - providerId: openclaw
+    name: OpenClaw
+    type: AGENT
+    model: openclaw
+    enabled: true
+
+routes:
+  TASK_ANALYSIS: deepseek
+  CODE_GENERATION: codex
+  BROWSER_TEST: openclaw
+  GENERAL: openai

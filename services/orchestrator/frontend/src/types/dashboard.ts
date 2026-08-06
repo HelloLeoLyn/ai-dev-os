@@ -1,3 +1,4 @@
+import type { AuditEvent } from './audit'
 import type { JobStatus } from './job'
 
 export interface TaskStatistics {
@@ -40,4 +41,52 @@ export interface DashboardSummary {
   jobs: JobStatistics
   executions: ExecutionStatistics
   recentJobs: RecentJobSummary[]
+}
+
+
+export interface HealthSummary {
+  status: string
+  ready: boolean
+}
+
+export interface AgentSummary {
+  total: number
+  enabled: number
+}
+
+export interface RecoverySummary {
+  pending: number
+}
+
+export interface DashboardSummaryDTO {
+  health: HealthSummary
+  agents: AgentSummary
+  jobs: JobStatistics
+  executions: ExecutionStatistics
+  recovery: RecoverySummary
+}
+
+
+export interface JobSummaryDTO {
+  jobId: string
+  status: string
+  priority: number
+  leaseOwner: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ExecutionSummaryDTO {
+  executionId: string
+  jobId: string | null
+  status: string | null
+  attempt: number
+  failureReason: string | null
+  createdAt: string | null
+}
+
+export interface DashboardTimeline {
+  scopeType: string
+  scopeId: string
+  events: AuditEvent[]
 }

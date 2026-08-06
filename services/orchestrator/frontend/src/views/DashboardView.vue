@@ -9,11 +9,12 @@ import {
 import { CanvasRenderer } from 'echarts/renderers'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 
-import { getDashboard } from '../api/dashboard'
-import BaseCard from '../components/BaseCard.vue'
-import StatusBadge from '../components/StatusBadge.vue'
-import type { DashboardSummary } from '../types/dashboard'
-import type { JobStatus } from '../types/job'
+import { getDashboardSummary } from '../api/dashboard'
+import ExecutionSummaryCard from '../components/ExecutionSummaryCard.vue'
+import HealthCard from '../components/HealthCard.vue'
+import JobSummaryCard from '../components/JobSummaryCard.vue'
+import RecoveryCard from '../components/RecoveryCard.vue'
+import type { DashboardSummaryDTO } from '../types/dashboard'
 
 echarts.use([
   PieChart,
@@ -23,7 +24,7 @@ echarts.use([
   CanvasRenderer,
 ])
 
-const summary = ref<DashboardSummary | null>(null)
+const summary = ref<DashboardSummaryDTO | null>(null)
 const loading = ref(true)
 const errorMessage = ref<string | null>(null)
 const chartElement = ref<HTMLDivElement | null>(null)
@@ -31,51 +32,22 @@ const chartElement = ref<HTMLDivElement | null>(null)
 let chart: echarts.ECharts | null = null
 let resizeObserver: ResizeObserver | null = null
 
-const statistics = computed(() => {
-  const jobs = summary.value?.jobs
-
-  return [
-    { label: 'Tasks', value: summary.value?.tasks.total ?? 0 },
-    { label: 'Jobs', value: jobs?.total ?? 0 },
-    { label: 'Running Jobs', value: jobs?.running ?? 0 },
-    {
-      label: 'Success Rate',
-      value: `${((jobs?.successRate ?? 0) * 100).toFixed(1)}%`,
-    },
-    { label: 'Failed Jobs', value: jobs?.failed ?? 0 },
-  ]
+const agentReadyRate = computed(() => {
+  const agents = summary.value?.agents
+  if (!agents || agents.total === 0) {
+    return 0
+  }
+  return Math.round((agents.enabled / agents.total) * 100)
 })
 
-function statusTone(status: JobStatus): 'neutral' | 'info' | 'success' | 'danger' {
-  switch (status) {
-    case 'RUNNING':
-      return 'info'
-    case 'SUCCESS':
-      return 'success'
-    case 'FAILED':
-      return 'danger'
-    default:
-      return 'neutral'
-  }
-}
-
-function formatDate(value: string | null): string {
-  if (!value) {
-    return '—'
-  }
-
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
-}
-
-function renderChart(data: DashboardSummary): void {
+function renderChart(data: DashboardSummaryDTO): void {
   if (!chartElement.value) {
     return
   }
 
   chart = echarts.init(chartElement.value)
   chart.setOption({
-    color: ['#9aa8c2', '#66c7ff', '#51d6a3', '#ff7b8b'],
+    color: ['#66c7ff', '#51d6a3', '#ff7b8b', '#9aa8c2'],
     tooltip: { trigger: 'item' },
     legend: {
       bottom: 0,
@@ -104,7 +76,7 @@ function renderChart(data: DashboardSummary): void {
 
 async function loadDashboard(): Promise<void> {
   try {
-    const data = await getDashboard()
+    const data = await getDashboardSummary()
     summary.value = data
     await nextTick()
     renderChart(data)
@@ -131,110 +103,79 @@ onBeforeUnmount(() => {
         <p class="page-eyebrow">AI Dev OS</p>
         <h1>Dashboard</h1>
       </div>
-      <StatusBadge tone="info">Live snapshot</StatusBadge>
+      <el-tag type="info" effect="dark">Live snapshot</el-tag>
     </header>
 
-    <BaseCard v-if="loading">
+    <el-card v-if="loading" shadow="never">
       <p class="dashboard-state muted">Loading dashboard…</p>
-    </BaseCard>
+    </el-card>
 
-    <BaseCard v-else-if="errorMessage">
+    <el-card v-else-if="errorMessage" shadow="never">
       <p class="dashboard-state dashboard-state--error">{{ errorMessage }}</p>
-    </BaseCard>
+    </el-card>
 
     <template v-else-if="summary">
-      <div class="statistics-grid">
-        <BaseCard v-for="statistic in statistics" :key="statistic.label">
-          <p class="statistic-label">{{ statistic.label }}</p>
-          <strong class="statistic-value">{{ statistic.value }}</strong>
-        </BaseCard>
-      </div>
+      <el-row :gutter="16" class="cards-row">
+        <el-col :xs="24" :sm="12" :lg="6">
+          <HealthCard :health="summary.health" />
+        </el-col>
+        <el-col :xs="24" :sm="12" :lg="6">
+          <JobSummaryCard :jobs="summary.jobs" />
+        </el-col>
+        <el-col :xs="24" :sm="12" :lg="6">
+          <ExecutionSummaryCard :executions="summary.executions" />
+        </el-col>
+        <el-col :xs="24" :sm="12" :lg="6">
+          <RecoveryCard :recovery="summary.recovery" />
+        </el-col>
+      </el-row>
 
-      <BaseCard>
-        <div class="section-heading">
-          <div>
-            <p class="page-eyebrow">Distribution</p>
-            <h2>Job status</h2>
-          </div>
-          <span class="muted">{{ summary.jobs.total }} total</span>
-        </div>
-        <div ref="chartElement" class="job-chart" aria-label="Job status chart" />
-      </BaseCard>
-
-      <BaseCard>
-        <div class="section-heading">
-          <div>
-            <p class="page-eyebrow">Latest activity</p>
-            <h2>Recent jobs</h2>
-          </div>
-          <span class="muted">Generated {{ formatDate(summary.generatedAt) }}</span>
-        </div>
-
-        <div class="table-scroll">
-          <table class="jobs-table">
-            <thead>
-              <tr>
-                <th>Task</th>
-                <th>Status</th>
-                <th>Created</th>
-                <th>Completed</th>
-                <th>Result</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="summary.recentJobs.length === 0">
-                <td colspan="5" class="empty-cell">No recent jobs.</td>
-              </tr>
-              <tr v-for="job in summary.recentJobs" :key="job.id">
-                <td class="task-id">{{ job.taskId }}</td>
-                <td>
-                  <StatusBadge :tone="statusTone(job.status)">
-                    {{ job.status }}
-                  </StatusBadge>
-                </td>
-                <td>{{ formatDate(job.createdAt) }}</td>
-                <td>{{ formatDate(job.completedAt) }}</td>
-                <td class="result-summary">{{ job.resultSummary || '—' }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </BaseCard>
+      <el-row :gutter="16" class="cards-row">
+        <el-col :xs="24" :lg="14">
+          <el-card shadow="never" class="dashboard-card">
+            <template #header>
+              <span class="card-title">Job 分布</span>
+            </template>
+            <div ref="chartElement" class="job-chart" />
+          </el-card>
+        </el-col>
+        <el-col :xs="24" :lg="10">
+          <el-card shadow="never" class="dashboard-card">
+            <template #header>
+              <span class="card-title">Agent 概览</span>
+            </template>
+            <div class="agent-summary">
+              <div class="stat">
+                <span class="stat-label">Agent 总数</span>
+                <span class="stat-value">{{ summary.agents.total }}</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">已启用</span>
+                <span class="stat-value stat-value--success">
+                  {{ summary.agents.enabled }}
+                </span>
+              </div>
+              <el-progress
+                :percentage="agentReadyRate"
+                :stroke-width="10"
+                color="#66c7ff"
+              />
+              <p class="progress-caption">启用率 {{ agentReadyRate }}%</p>
+            </div>
+          </el-card>
+        </el-col>
+      </el-row>
     </template>
   </section>
 </template>
 
 <style scoped>
-.statistics-grid {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 1rem;
-}
-
-.statistic-label {
-  margin: 0 0 0.75rem;
-  color: var(--color-text-muted);
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.statistic-value {
-  font-size: clamp(1.8rem, 4vw, 2.75rem);
-  letter-spacing: -0.04em;
-}
-
-.section-heading {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1rem;
+.cards-row {
   margin-bottom: 1rem;
 }
 
-.section-heading h2 {
-  margin: 0;
+.card-title {
+  font-weight: 700;
 }
 
 .job-chart {
@@ -242,46 +183,40 @@ onBeforeUnmount(() => {
   min-height: 22rem;
 }
 
-.table-scroll {
-  overflow-x: auto;
+.agent-summary {
+  display: flex;
+  min-height: 22rem;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
-.jobs-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-  text-align: left;
+.stat {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
 }
 
-.jobs-table th,
-.jobs-table td {
-  padding: 0.9rem 0.75rem;
-  border-bottom: 1px solid var(--color-border);
-  vertical-align: top;
-}
-
-.jobs-table th {
+.stat-label {
   color: var(--color-text-muted);
-  font-size: 0.75rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 0.85rem;
 }
 
-.jobs-table tbody tr:last-child td {
-  border-bottom: 0;
-}
-
-.task-id {
-  color: var(--color-primary-strong);
+.stat-value {
+  font-size: 1.5rem;
   font-weight: 700;
 }
 
-.result-summary {
-  max-width: 28rem;
-  overflow-wrap: anywhere;
+.stat-value--success {
+  color: var(--color-success);
 }
 
-.empty-cell,
+.progress-caption {
+  margin: 0.25rem 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  text-align: right;
+}
+
 .dashboard-state {
   color: var(--color-text-muted);
   text-align: center;
@@ -289,22 +224,5 @@ onBeforeUnmount(() => {
 
 .dashboard-state--error {
   color: var(--color-danger);
-}
-
-@media (max-width: 1100px) {
-  .statistics-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 560px) {
-  .statistics-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .section-heading {
-    align-items: flex-start;
-    flex-direction: column;
-  }
 }
 </style>

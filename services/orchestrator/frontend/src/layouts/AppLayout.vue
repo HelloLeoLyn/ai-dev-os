@@ -3,12 +3,17 @@ import { RouterLink, RouterView } from 'vue-router'
 
 const navigation = [
   { to: '/dashboard', label: 'Dashboard' },
-  { to: '/audit', label: 'Audit' },
   { to: '/jobs', label: 'Jobs' },
-  { to: '/execution-records', label: 'Executions' },
+  { to: '/executions', label: 'Executions' },
+  { to: '/timeline', label: 'Timeline' },
+  { to: '/audit', label: 'Audit' },
   { to: '/tasks', label: 'Tasks' },
   { to: '/schedules', label: 'Schedules' },
   { to: '/agents', label: 'Agents' },
+  { to: '/agent-flow', label: 'Agent Flow' },
+  { to: '/models', label: 'Models' },
+  { to: '/memory', label: 'Memory' },
+  { to: '/tests', label: 'Tests' },
 ]
 </script>
 

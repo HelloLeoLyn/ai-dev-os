@@ -3,14 +3,30 @@ import { onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 
 import { getJob } from '../api/jobs'
+import { getDashboardTimeline } from '../api/dashboard'
 import BaseCard from '../components/BaseCard.vue'
 import StatusBadge from '../components/StatusBadge.vue'
+import TimelineView from '../components/TimelineView.vue'
+import type { DashboardTimeline } from '../types/dashboard'
 import type { ExecutionJob, JobStatus } from '../types/job'
 
 const route = useRoute()
 const job = ref<ExecutionJob | null>(null)
 const loading = ref(true)
 const errorMessage = ref<string | null>(null)
+const timeline = ref<DashboardTimeline | null>(null)
+const timelineLoading = ref(false)
+
+async function loadTimeline(jobId: string): Promise<void> {
+  timelineLoading.value = true
+  try {
+    timeline.value = await getDashboardTimeline(jobId)
+  } catch {
+    timeline.value = null
+  } finally {
+    timelineLoading.value = false
+  }
+}
 
 function statusTone(status: JobStatus): 'neutral' | 'info' | 'success' | 'danger' {
   switch (status) {
@@ -36,6 +52,7 @@ async function loadJob(): Promise<void> {
 
   try {
     job.value = await getJob(jobId)
+    void loadTimeline(jobId)
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : 'Unable to load job.'
   } finally {
@@ -106,15 +123,21 @@ onMounted(loadJob)
     </BaseCard>
 
     <BaseCard v-if="job">
-      <div class="timeline-link-row">
-        <div>
-          <p class="page-eyebrow">Audit</p>
-          <h2>Job Timeline</h2>
-          <p>Inspect status transitions and correlated execution events.</p>
+      <div class="timeline-section">
+        <div class="timeline-header">
+          <div>
+            <p class="page-eyebrow">Execution Chain</p>
+            <h2>Job Timeline</h2>
+          </div>
+          <RouterLink
+            class="timeline-console-link"
+            :to="`/timeline?id=${encodeURIComponent(job.id)}`"
+          >
+            打开 Timeline 控制台 →
+          </RouterLink>
         </div>
-        <RouterLink class="button timeline-link" :to="`/audit/jobs/${encodeURIComponent(job.id)}`">
-          View timeline
-        </RouterLink>
+        <p class="timeline-description">状态流转与关联执行事件。</p>
+        <TimelineView :timeline="timeline" :loading="timelineLoading" />
       </div>
     </BaseCard>
   </section>
@@ -183,28 +206,33 @@ onMounted(loadJob)
   text-align: center;
 }
 
-.timeline-link-row {
+.timeline-section h2,
+.timeline-section p {
+  margin: 0;
+}
+
+.timeline-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
 }
 
-.timeline-link-row h2,
-.timeline-link-row p {
-  margin: 0;
-}
-
-.timeline-link-row p:last-child {
-  margin-top: 0.5rem;
-  color: var(--color-text-muted);
-}
-
-.timeline-link {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
+.timeline-console-link {
+  color: var(--color-primary-strong);
+  font-size: 0.85rem;
+  font-weight: 600;
   text-decoration: none;
+  white-space: nowrap;
+}
+
+.timeline-console-link:hover {
+  text-decoration: underline;
+}
+
+.timeline-description {
+  margin-bottom: 1rem !important;
+  color: var(--color-text-muted);
 }
 
 @media (max-width: 640px) {
@@ -216,13 +244,5 @@ onMounted(loadJob)
     grid-column: auto;
   }
 
-  .timeline-link-row {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .timeline-link {
-    justify-content: center;
-  }
 }
 </style>

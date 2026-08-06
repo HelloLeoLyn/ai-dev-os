@@ -198,6 +198,22 @@ public class AuditService {
 			"REPLAN_REQUESTED:replan:" + request.id()));
 	}
 
+	public void testEvent(EventType type, String testId, String taskId, String executionId,
+			String fromStatus, String toStatus, String summary, Map<String, Object> metadata) {
+		record(event(type, "test", testId, fromStatus, toStatus, taskId, null, null, null, null,
+			null, null, executionId, null, null, null, "AGENT", "testing", summary, metadata,
+			type + ":test:" + testId + ":" + value(fromStatus) + ":" + value(toStatus)));
+	}
+
+	public void agentPlanEvent(EventType type, String planId, String taskId, String agentId,
+			int step, String fromStatus, String toStatus, String summary,
+			Map<String, Object> metadata) {
+		record(event(type, "agent-plan", planId, fromStatus, toStatus, taskId, null, null, null,
+			null, null, null, null, null, null, null, "AGENT", agentId, summary, metadata,
+			type + ":agent-plan:" + planId + ":" + agentId + ":" + step + ":"
+				+ value(fromStatus) + ":" + value(toStatus)));
+	}
+
 	public void planRunCreated(PlanRun run) {
 		planRunEvent(EventType.PLAN_RUN_CREATED, run, null, run.getStatus().name());
 	}

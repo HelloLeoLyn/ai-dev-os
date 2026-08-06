@@ -205,3 +205,33 @@ a {
     padding: 1.25rem;
   }
 }
+
+/* Element Plus dark theme alignment */
+:root {
+  --el-color-primary: #7c9cff;
+  --el-color-primary-dark-2: #9bb2ff;
+  --el-color-primary-light-3: #5d80e0;
+  --el-color-primary-light-5: #4a6cc9;
+  --el-color-primary-light-7: #3857a8;
+  --el-color-primary-light-8: #2b4389;
+  --el-color-primary-light-9: #1f3366;
+  --el-bg-color: #121a2d;
+  --el-bg-color-overlay: #172238;
+  --el-fill-color-blank: #121a2d;
+  --el-border-color: #263550;
+  --el-border-color-light: #263550;
+  --el-border-color-lighter: #263550;
+  --el-border-color-extra-light: #1c2740;
+  --el-text-color-primary: #edf2ff;
+  --el-text-color-regular: #c7d2e8;
+  --el-text-color-secondary: #9aa8c2;
+  --el-card-bg-color: #121a2d;
+  --el-card-border-color: #263550;
+}
+
+.el-card {
+  --el-card-padding: 1rem;
+  border-radius: var(--radius-medium);
+  box-shadow: var(--shadow-card);
+  color: var(--color-text);
+}

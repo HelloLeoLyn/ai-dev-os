@@ -27,7 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Phase 8-F migration gate validation. Verifies that a fresh database is fully
- * initialized by V1..V7 and that a Phase 7-era database (V1..V4 only) upgrades
+ * initialized by V1..V8 and that a Phase 7-era database (V1..V4 only) upgrades
  * in place without losing data.
  */
 @Testcontainers(disabledWithoutDocker = true)
@@ -37,14 +37,14 @@ class PostgresMigrationValidationTest {
 	static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
 
 	@Test
-	void freshDatabaseAppliesAllMigrationsV1ThroughV7() throws Exception {
+	void freshDatabaseAppliesAllMigrationsV1ThroughV8() throws Exception {
 		PGSimpleDataSource dataSource = dataSource(POSTGRES.getDatabaseName());
 		new PostgresDocumentStore(dataSource, new ObjectMapper());
 
-		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7), appliedVersions(dataSource));
+		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8), appliedVersions(dataSource));
 		for (String table : List.of("repository_documents", "audit_events",
 				"plan_version_freezes", "audit_outbox", "jobs", "execution_attempts",
-				"schema_migrations")) {
+				"memory_records", "schema_migrations")) {
 			assertTrue(tableExists(dataSource, table), "missing table: " + table);
 		}
 		assertTrue(columnExists(dataSource, "repository_documents", "version"),
@@ -91,10 +91,10 @@ class PostgresMigrationValidationTest {
 				+ "VALUES ('plan:1','hash-old')");
 		}
 
-		// The full migration set upgrades V5..V7 in place.
+		// The full migration set upgrades V5..V8 in place.
 		new PostgresDocumentStore(dataSource, new ObjectMapper());
 
-		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7), appliedVersions(dataSource));
+		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8), appliedVersions(dataSource));
 		assertEquals(1, count(dataSource,
 			"SELECT COUNT(*) FROM repository_documents WHERE entity_id='run-old'"));
 		assertEquals(1, count(dataSource,
@@ -114,12 +114,21 @@ class PostgresMigrationValidationTest {
 		assertEquals(1, count(dataSource,
 			"SELECT COUNT(*) FROM jobs WHERE id='job-upgraded' AND version=0 "
 				+ "AND recovery_policy='MANUAL'"));
+		// V8's memory_records table is usable after the upgrade.
+		try (Connection connection = dataSource.getConnection();
+				Statement statement = connection.createStatement()) {
+			statement.execute("INSERT INTO memory_records(id,project_id,type,key,content,"
+				+ "created_at,updated_at) VALUES ('mem-upgraded','default','PROJECT_RULE',"
+				+ "'rule-1','use V8',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
+		}
+		assertEquals(1, count(dataSource,
+			"SELECT COUNT(*) FROM memory_records WHERE id='mem-upgraded' AND type='PROJECT_RULE'"));
 		assertTrue(columnExists(dataSource, "repository_documents", "version"),
 			"V6 version column missing after upgrade");
 
 		// Re-running the migration remains idempotent.
 		new PostgresDocumentStore(dataSource, new ObjectMapper());
-		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7), appliedVersions(dataSource));
+		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8), appliedVersions(dataSource));
 	}
 
 	private void applyMigrations(DataSource dataSource, int upToVersion) throws Exception {

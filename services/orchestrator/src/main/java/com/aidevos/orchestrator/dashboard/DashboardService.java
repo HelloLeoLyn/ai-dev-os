@@ -7,9 +7,12 @@ import java.util.List;
 import java.util.Map;
 
 import com.aidevos.orchestrator.execution.ExecutionRecordManager;
+import com.aidevos.orchestrator.health.ReadinessGate;
 import com.aidevos.orchestrator.job.ExecutionJob;
 import com.aidevos.orchestrator.job.JobStatus;
 import com.aidevos.orchestrator.job.JobRepository;
+import com.aidevos.orchestrator.manager.AgentManager;
+import com.aidevos.orchestrator.model.AgentDefinition;
 import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.model.TaskDefinition;
 import com.aidevos.orchestrator.task.TaskManager;
@@ -23,12 +26,17 @@ public class DashboardService {
 	private final TaskManager taskManager;
 	private final JobRepository jobStore;
 	private final ExecutionRecordManager executionRecordManager;
+	private final AgentManager agentManager;
+	private final ReadinessGate readinessGate;
 
 	public DashboardService(TaskManager taskManager, JobRepository jobStore,
-			ExecutionRecordManager executionRecordManager) {
+			ExecutionRecordManager executionRecordManager, AgentManager agentManager,
+			ReadinessGate readinessGate) {
 		this.taskManager = taskManager;
 		this.jobStore = jobStore;
 		this.executionRecordManager = executionRecordManager;
+		this.agentManager = agentManager;
+		this.readinessGate = readinessGate;
 	}
 
 	public DashboardSummary getSummary() {
@@ -37,6 +45,22 @@ public class DashboardService {
 		List<ExecutionRecord> executions = executionRecordManager.getAll();
 		return new DashboardSummary(Instant.now(), taskStatistics(tasks),
 			jobStatistics(jobs), executionStatistics(executions), recentJobs(jobs));
+	}
+
+	public DashboardSummaryDTO getDashboardSummary() {
+		List<ExecutionJob> jobs = jobStore.getAll();
+		List<ExecutionRecord> executions = executionRecordManager.getAll();
+		List<AgentDefinition> agents = agentManager.getAllAgents();
+		long recoveryPending = jobs.stream()
+			.filter(job -> job.getStatus() == JobStatus.RECOVERY_REQUIRED)
+			.count();
+		return new DashboardSummaryDTO(
+			new DashboardSummaryDTO.Health("UP", readinessGate.isReady()),
+			new DashboardSummaryDTO.Agents(agents.size(),
+				Math.toIntExact(agents.stream().filter(AgentDefinition::isEnabled).count())),
+			jobStatistics(jobs),
+			executionStatistics(executions),
+			new DashboardSummaryDTO.Recovery(Math.toIntExact(recoveryPending)));
 	}
 
 	private TaskStatistics taskStatistics(List<TaskDefinition> tasks) {
