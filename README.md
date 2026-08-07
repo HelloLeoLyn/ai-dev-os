@@ -1,5 +1,7 @@
 # AI Dev OS
 
+当前版本： v1.2.2
+
 ## 0. 2026-08-05 Phase 8 生产可靠性完成
 
 Phase 8（Production Reliability）已完整交付，含 8-F 生产验证与运维门禁。

@@ -1,38 +1,32 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { archiveProject, createProject, getProjects, setProjectActive } from '../api/projects'
+import { useRegistryList } from '../composables/useRegistryList'
 import ProjectSelector from '../components/ProjectSelector.vue'
 import ProjectTable from '../components/ProjectTable.vue'
 import type { Project } from '../types/project'
 
-const projects = ref<Project[]>([])
-const selectedProject = ref<Project | null>(null)
-const loading = ref(true)
 const submitting = ref(false)
-const errorMessage = ref<string | null>(null)
+const {
+  items: projects,
+  selected: selectedProject,
+  loading,
+  errorMessage,
+  reload,
+} = useRegistryList<Project>({
+  fetch: getProjects,
+  idOf: (project) => project.projectId,
+  errorText: '无法加载项目。',
+  reselectOnReload: false,
+})
 
 const form = reactive({
   name: '',
   path: '',
   description: '',
 })
-
-async function load(): Promise<void> {
-  loading.value = true
-  errorMessage.value = null
-  try {
-    projects.value = await getProjects()
-    if (!selectedProject.value && projects.value.length > 0) {
-      selectedProject.value = projects.value[0]
-    }
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '无法加载项目。'
-  } finally {
-    loading.value = false
-  }
-}
 
 async function handleCreate(): Promise<void> {
   if (!form.name.trim() || !form.path.trim()) {
@@ -50,7 +44,7 @@ async function handleCreate(): Promise<void> {
     form.path = ''
     form.description = ''
     ElMessage.success('项目创建成功。')
-    await load()
+    await reload()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '创建项目失败。')
   } finally {
@@ -62,7 +56,7 @@ async function handleSwitch(projectId: string): Promise<void> {
   try {
     const project = await setProjectActive(projectId)
     ElMessage.success(`已切换到项目「${project.name}」。`)
-    await load()
+    await reload()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '切换项目失败。')
   }
@@ -81,13 +75,11 @@ async function handleArchive(project: Project): Promise<void> {
   try {
     await archiveProject(project.projectId)
     ElMessage.success(`项目「${project.name}」已归档。`)
-    await load()
+    await reload()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '归档项目失败。')
   }
 }
-
-onMounted(load)
 </script>
 
 <template>

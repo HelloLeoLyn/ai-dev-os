@@ -254,7 +254,7 @@ public class OpenClawWebSocketClient implements OpenClawClient, WebSocket.Listen
 		String platform = System.getProperty("os.name", "unknown").toLowerCase();
 		Map<String, Object> client = Map.of(
 				"id", "openclaw-control-ui",
-				"version", "0.0.1",
+				"version", "1.2.2",
 				"platform", platform,
 				"mode", "webchat");
 		String role = "operator";
@@ -291,7 +291,7 @@ public class OpenClawWebSocketClient implements OpenClawClient, WebSocket.Listen
 				Map.entry("permissions", Map.of()),
 				Map.entry("auth", Map.of("token", properties.getToken())),
 				Map.entry("locale", "en-US"),
-				Map.entry("userAgent", "ai-dev-os-orchestrator/0.0.1"));
+				Map.entry("userAgent", "ai-dev-os-orchestrator/1.2.2"));
 		send(new GatewayRequest(connectRequestId, "connect", params));
 	}
 

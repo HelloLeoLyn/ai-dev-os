@@ -1,40 +1,26 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { disableMcpPlugin, enableMcpPlugin, getMcpPlugins } from '../api/mcpPlugins'
+import { useRegistryList } from '../composables/useRegistryList'
 import PluginDetail from '../components/PluginDetail.vue'
 import PluginTable from '../components/PluginTable.vue'
 import type { McpPlugin } from '../types/mcpPlugin'
 
-const plugins = ref<McpPlugin[]>([])
-const selectedPlugin = ref<McpPlugin | null>(null)
-const loading = ref(true)
-const errorMessage = ref<string | null>(null)
+const {
+  items: plugins,
+  selected: selectedPlugin,
+  loading,
+  errorMessage,
+  reload,
+} = useRegistryList<McpPlugin>({
+  fetch: getMcpPlugins,
+  idOf: (plugin) => plugin.pluginId,
+  errorText: '无法加载 MCP 插件。',
+})
 
 const enabledCount = computed(() => plugins.value.filter((plugin) => plugin.enabled).length)
-
-async function load(): Promise<void> {
-  loading.value = true
-  errorMessage.value = null
-  try {
-    plugins.value = await getMcpPlugins()
-    if (!selectedPlugin.value && plugins.value.length > 0) {
-      selectedPlugin.value = plugins.value[0]
-    } else if (selectedPlugin.value) {
-      const refreshed = plugins.value.find(
-        (plugin) => plugin.pluginId === selectedPlugin.value?.pluginId,
-      )
-      if (refreshed) {
-        selectedPlugin.value = refreshed
-      }
-    }
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '无法加载 MCP 插件。'
-  } finally {
-    loading.value = false
-  }
-}
 
 async function handleToggle(plugin: McpPlugin, enable: boolean): Promise<void> {
   const action = enable ? '启用' : '禁用'
@@ -52,13 +38,11 @@ async function handleToggle(plugin: McpPlugin, enable: boolean): Promise<void> {
       ? await enableMcpPlugin(plugin.pluginId)
       : await disableMcpPlugin(plugin.pluginId)
     ElMessage.success(`插件「${plugin.name}」已${action}。`)
-    await load()
+    await reload()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : `${action}插件失败。`)
   }
 }
-
-onMounted(load)
 </script>
 
 <template>

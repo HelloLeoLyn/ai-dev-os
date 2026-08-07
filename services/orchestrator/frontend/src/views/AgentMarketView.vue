@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import {
@@ -7,40 +7,26 @@ import {
   installAgentPackage,
   uninstallAgentPackage,
 } from '../api/agentMarket'
+import { useRegistryList } from '../composables/useRegistryList'
 import AgentMarketTable from '../components/AgentMarketTable.vue'
 import AgentPackageDetail from '../components/AgentPackageDetail.vue'
 import type { AgentPackage } from '../types/agentPackage'
 
-const packages = ref<AgentPackage[]>([])
-const selectedPackage = ref<AgentPackage | null>(null)
-const loading = ref(true)
-const errorMessage = ref<string | null>(null)
+const {
+  items: packages,
+  selected: selectedPackage,
+  loading,
+  errorMessage,
+  reload,
+} = useRegistryList<AgentPackage>({
+  fetch: getAgentPackages,
+  idOf: (agentPackage) => agentPackage.agentId,
+  errorText: '无法加载 Agent 市场。',
+})
 
 const installedCount = computed(
   () => packages.value.filter((agentPackage) => agentPackage.installed).length,
 )
-
-async function load(): Promise<void> {
-  loading.value = true
-  errorMessage.value = null
-  try {
-    packages.value = await getAgentPackages()
-    if (!selectedPackage.value && packages.value.length > 0) {
-      selectedPackage.value = packages.value[0]
-    } else if (selectedPackage.value) {
-      const refreshed = packages.value.find(
-        (agentPackage) => agentPackage.agentId === selectedPackage.value?.agentId,
-      )
-      if (refreshed) {
-        selectedPackage.value = refreshed
-      }
-    }
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '无法加载 Agent 市场。'
-  } finally {
-    loading.value = false
-  }
-}
 
 async function handleInstall(agentPackage: AgentPackage): Promise<void> {
   try {
@@ -56,7 +42,7 @@ async function handleInstall(agentPackage: AgentPackage): Promise<void> {
   try {
     selectedPackage.value = await installAgentPackage(agentPackage.agentId)
     ElMessage.success(`Agent「${agentPackage.name}」已安装。`)
-    await load()
+    await reload()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '安装 Agent 失败。')
   }
@@ -75,13 +61,11 @@ async function handleUninstall(agentPackage: AgentPackage): Promise<void> {
   try {
     selectedPackage.value = await uninstallAgentPackage(agentPackage.agentId)
     ElMessage.success(`Agent「${agentPackage.name}」已卸载。`)
-    await load()
+    await reload()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '卸载 Agent 失败。')
   }
 }
-
-onMounted(load)
 </script>
 
 <template>

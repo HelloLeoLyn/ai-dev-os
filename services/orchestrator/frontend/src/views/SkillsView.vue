@@ -1,19 +1,31 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { disableSkill, enableSkill, getSkills } from '../api/skills'
 import { getAgents } from '../api/agents'
+import { useRegistryList } from '../composables/useRegistryList'
 import SkillDetail from '../components/SkillDetail.vue'
 import SkillTable from '../components/SkillTable.vue'
 import type { AgentDefinition } from '../types/agent'
 import type { Skill } from '../types/skill'
 
-const skills = ref<Skill[]>([])
 const agents = ref<AgentDefinition[]>([])
-const selectedSkill = ref<Skill | null>(null)
-const loading = ref(true)
-const errorMessage = ref<string | null>(null)
+const {
+  items: skills,
+  selected: selectedSkill,
+  loading,
+  errorMessage,
+  reload,
+} = useRegistryList<Skill>({
+  fetch: async () => {
+    const [loadedSkills, loadedAgents] = await Promise.all([getSkills(), getAgents()])
+    agents.value = loadedAgents
+    return loadedSkills
+  },
+  idOf: (skill) => skill.skillId,
+  errorText: '无法加载 Skills。',
+})
 
 const enabledCount = computed(() => skills.value.filter((skill) => skill.enabled).length)
 
@@ -25,28 +37,6 @@ function boundAgentsFor(skill: Skill | null): string[] {
     .filter((agent) => agent.skillIds?.includes(skill.skillId))
     .map((agent) => agent.name ?? '')
     .filter((name) => name.length > 0)
-}
-
-async function load(): Promise<void> {
-  loading.value = true
-  errorMessage.value = null
-  try {
-    ;[skills.value, agents.value] = await Promise.all([getSkills(), getAgents()])
-    if (!selectedSkill.value && skills.value.length > 0) {
-      selectedSkill.value = skills.value[0]
-    } else if (selectedSkill.value) {
-      const refreshed = skills.value.find(
-        (skill) => skill.skillId === selectedSkill.value?.skillId,
-      )
-      if (refreshed) {
-        selectedSkill.value = refreshed
-      }
-    }
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '无法加载 Skills。'
-  } finally {
-    loading.value = false
-  }
 }
 
 async function handleToggle(skill: Skill, enable: boolean): Promise<void> {
@@ -65,13 +55,11 @@ async function handleToggle(skill: Skill, enable: boolean): Promise<void> {
       ? await enableSkill(skill.skillId)
       : await disableSkill(skill.skillId)
     ElMessage.success(`Skill「${skill.name}」已${action}。`)
-    await load()
+    await reload()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : `${action}Skill 失败。`)
   }
 }
-
-onMounted(load)
 </script>
 
 <template>

@@ -162,7 +162,7 @@ Coding Approval、Tool Approval 和 PlanScheduler，不引入并行或自动审�
 | --- | --- |
 | Java | 21；本机实测 OpenJDK 21.0.11 |
 | Spring Boot | 4.0.0 |
-| Maven artifact | `com.aidevos:orchestrator:0.0.1-SNAPSHOT` |
+| Maven artifact | `com.aidevos:orchestrator:1.2.2` |
 | Node.js | 本机实测 v24.18.0 |
 | 后端开发端口 | 18080 |
 | 前端开发端口 | 15174 |

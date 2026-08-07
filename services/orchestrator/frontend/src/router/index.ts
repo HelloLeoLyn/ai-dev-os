@@ -1,28 +1,28 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 
-import AgentDetailView from '../views/AgentDetailView.vue'
-import AgentMarketView from '../views/AgentMarketView.vue'
-import AgentFlowView from '../views/AgentFlowView.vue'
-import AgentsView from '../views/AgentsView.vue'
-import AuditConsoleView from '../views/AuditConsoleView.vue'
-import DashboardView from '../views/DashboardView.vue'
-import ExecutionMonitoringView from '../views/ExecutionMonitoringView.vue'
-import ExecutionTimelineView from '../views/ExecutionTimelineView.vue'
-import ExecutionRecordDetailView from '../views/ExecutionRecordDetailView.vue'
-import ExecutionRecordsView from '../views/ExecutionRecordsView.vue'
-import JobDetailView from '../views/JobDetailView.vue'
-import JobTimelineView from '../views/JobTimelineView.vue'
-import JobsView from '../views/JobsView.vue'
-import MemoryView from '../views/MemoryView.vue'
-import McpPluginsView from '../views/McpPluginsView.vue'
-import ModelsView from '../views/ModelsView.vue'
-import ProjectsView from '../views/ProjectsView.vue'
-import SchedulesView from '../views/SchedulesView.vue'
-import SkillsView from '../views/SkillsView.vue'
-import TasksView from '../views/TasksView.vue'
-import PlanRunTimelineView from '../views/PlanRunTimelineView.vue'
-import TimelineConsoleView from '../views/TimelineConsoleView.vue'
-import TestsView from '../views/TestsView.vue'
+const AgentDetailView = () => import('../views/AgentDetailView.vue')
+const AgentMarketView = () => import('../views/AgentMarketView.vue')
+const AgentFlowView = () => import('../views/AgentFlowView.vue')
+const AgentsView = () => import('../views/AgentsView.vue')
+const AuditConsoleView = () => import('../views/AuditConsoleView.vue')
+const DashboardView = () => import('../views/DashboardView.vue')
+const ExecutionMonitoringView = () => import('../views/ExecutionMonitoringView.vue')
+const ExecutionTimelineView = () => import('../views/ExecutionTimelineView.vue')
+const ExecutionRecordDetailView = () => import('../views/ExecutionRecordDetailView.vue')
+const ExecutionRecordsView = () => import('../views/ExecutionRecordsView.vue')
+const JobDetailView = () => import('../views/JobDetailView.vue')
+const JobTimelineView = () => import('../views/JobTimelineView.vue')
+const JobsView = () => import('../views/JobsView.vue')
+const MemoryView = () => import('../views/MemoryView.vue')
+const McpPluginsView = () => import('../views/McpPluginsView.vue')
+const ModelsView = () => import('../views/ModelsView.vue')
+const ProjectsView = () => import('../views/ProjectsView.vue')
+const SchedulesView = () => import('../views/SchedulesView.vue')
+const SkillsView = () => import('../views/SkillsView.vue')
+const TasksView = () => import('../views/TasksView.vue')
+const PlanRunTimelineView = () => import('../views/PlanRunTimelineView.vue')
+const TimelineConsoleView = () => import('../views/TimelineConsoleView.vue')
+const TestsView = () => import('../views/TestsView.vue')
 
 const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/dashboard' },
