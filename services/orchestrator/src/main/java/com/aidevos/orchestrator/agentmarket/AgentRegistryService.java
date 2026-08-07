@@ -164,6 +164,7 @@ public class AgentRegistryService {
 		definition.setExecutorConfig(agentPackage.getExecutorConfig());
 		definition.setCapabilities(agentPackage.getCapabilities());
 		definition.setSkillIds(agentPackage.getSkills());
+		definition.setVersion(agentPackage.getVersion());
 		definition.setDescription(agentPackage.getDescription());
 		definition.setType("market");
 		definition.setPermissionLevel("standard");

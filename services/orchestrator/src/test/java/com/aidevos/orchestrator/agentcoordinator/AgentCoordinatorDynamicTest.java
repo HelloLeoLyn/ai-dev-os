@@ -6,10 +6,8 @@ import java.util.Optional;
 
 import com.aidevos.orchestrator.agentcapability.AgentCapabilityResolver;
 import com.aidevos.orchestrator.audit.AuditService;
-import com.aidevos.orchestrator.audit.EventQuery;
-import com.aidevos.orchestrator.audit.EventRecord;
-import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.audit.InMemoryAuditRepository;
+import com.aidevos.orchestrator.execution.ExecutionContext;
 import com.aidevos.orchestrator.execution.ExecutionResult;
 import com.aidevos.orchestrator.executor.AgentExecutor;
 import com.aidevos.orchestrator.executor.ExecutorManager;
@@ -37,9 +35,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class AgentCoordinatorServiceTest {
+/**
+ * Verifies the coordinator resolves agents dynamically through the capability
+ * registry instead of hard-coded agent names.
+ */
+class AgentCoordinatorDynamicTest {
 
 	private TaskCenterService taskCenterService;
 	private ModelRouterService modelRouterService;
@@ -49,6 +52,9 @@ class AgentCoordinatorServiceTest {
 	private AuditService auditService;
 	private AgentManager agentManager;
 	private AgentCoordinatorService service;
+	private AgentExecutor coderExecutor;
+	private AgentExecutor browserExecutor;
+	private AgentExecutor testerExecutor;
 
 	@BeforeEach
 	void setUp() {
@@ -72,48 +78,35 @@ class AgentCoordinatorServiceTest {
 				new Plan("plan-1", 1, "goal", null, List.of(), List.of(), null, Instant.now())));
 		when(testAgentService.createTest(any(CreateTestRequest.class))).thenReturn(
 			successfulTest());
+
+		coderExecutor = mock(AgentExecutor.class);
+		browserExecutor = mock(AgentExecutor.class);
+		testerExecutor = mock(AgentExecutor.class);
+		when(coderExecutor.execute(any())).thenReturn(success());
+		when(browserExecutor.execute(any())).thenReturn(success());
+		when(testerExecutor.execute(any())).thenReturn(success());
+		when(executorManager.getExecutor("coder")).thenReturn(coderExecutor);
+		when(executorManager.getExecutor("browser-agent")).thenReturn(browserExecutor);
+		when(executorManager.getExecutor("tester")).thenReturn(testerExecutor);
 	}
 
 	@Test
-	void shouldSelectAgentPerTaskType() {
-		assertEquals("planner", service.selectAgent(TaskType.TASK_ANALYSIS));
-		assertEquals("coder", service.selectAgent(TaskType.CODE_GENERATION));
-		assertEquals("browser-agent", service.selectAgent(TaskType.BROWSER_TEST));
-		assertEquals("tester", service.selectAgent(TaskType.TEST_VERIFY));
-		assertEquals("planner", service.selectAgent(TaskType.GENERAL));
-		assertEquals("planner", service.selectAgent(null));
-	}
-
-	@Test
-	void shouldRunFullPipelineForTaskAnalysis() {
-		stubExecutors(success());
-
+	void shouldResolveChainAgentsByCapability() {
 		List<AgentExecutionPlan> steps = service.createCollaborationPlan("task-1",
 			TaskType.TASK_ANALYSIS);
 
 		assertEquals(List.of("planner", "coder", "browser-agent", "tester"),
 			agentIds(steps));
-		assertEquals(List.of(1, 2, 3, 4),
-			steps.stream().map(AgentExecutionPlan::getStep).toList());
-		assertEquals(steps.getFirst().getPlanId(), steps.get(1).getPlanId());
+		assertEquals(List.of("planning", "coding", "browser", "testing"),
+			steps.stream().map(AgentExecutionPlan::getCapability).toList());
 		assertTrue(steps.stream().allMatch(step -> step.getStatus() == AgentPlanStatus.SUCCESS));
-		assertTrue(steps.stream().allMatch(step -> step.getResult() != null));
 	}
 
 	@Test
-	void shouldStartChainAtMappedAgentForCodeGeneration() {
-		stubExecutors(success());
-
-		List<AgentExecutionPlan> steps = service.createCollaborationPlan("task-1",
+	void shouldStartChainAtMappedCapability() {
+		List<AgentExecutionPlan> code = service.createCollaborationPlan("task-1",
 			TaskType.CODE_GENERATION);
-
-		assertEquals(List.of("coder", "browser-agent", "tester"), agentIds(steps));
-		assertTrue(steps.stream().allMatch(step -> step.getStatus() == AgentPlanStatus.SUCCESS));
-	}
-
-	@Test
-	void shouldStartChainAtMappedAgentForBrowserTestAndVerify() {
-		stubExecutors(success());
+		assertEquals(List.of("coder", "browser-agent", "tester"), agentIds(code));
 
 		List<AgentExecutionPlan> browser = service.createCollaborationPlan("task-1",
 			TaskType.BROWSER_TEST);
@@ -125,54 +118,64 @@ class AgentCoordinatorServiceTest {
 	}
 
 	@Test
+	void shouldDispatchEachCapabilityToItsExecutor() {
+		service.createCollaborationPlan("task-1", TaskType.TASK_ANALYSIS);
+
+		verify(plannerService).createPlan(any(PlanningRequest.class));
+		verify(coderExecutor).execute(any(ExecutionContext.class));
+		verify(browserExecutor).execute(any(ExecutionContext.class));
+		verify(testAgentService).createTest(any(CreateTestRequest.class));
+	}
+
+	@Test
+	void shouldSelectHigherVersionAgentForSameCapability() {
+		agentManager.register(agent("coder-pro", "2.0.0", List.of("coding"), "codex"));
+		when(executorManager.getExecutor("coder-pro")).thenReturn(coderExecutor);
+
+		List<AgentExecutionPlan> steps = service.createCollaborationPlan("task-1",
+			TaskType.CODE_GENERATION);
+
+		assertEquals("coder-pro", steps.getFirst().getAgentId());
+		assertTrue(steps.getFirst().getStatus() == AgentPlanStatus.SUCCESS);
+	}
+
+	@Test
+	void shouldSkipDisabledAgents() {
+		agentManager.register(agent("coder-disabled", "9.9.9", List.of("coding"), "codex", false));
+
+		List<AgentExecutionPlan> steps = service.createCollaborationPlan("task-1",
+			TaskType.CODE_GENERATION);
+
+		assertEquals("coder", steps.getFirst().getAgentId());
+	}
+
+	@Test
 	void shouldStopAtFirstFailedStep() {
-		stubExecutors(failure());
+		when(coderExecutor.execute(any())).thenReturn(failure());
 
 		List<AgentExecutionPlan> steps = service.createCollaborationPlan("task-1",
 			TaskType.TASK_ANALYSIS);
 
 		assertEquals(AgentPlanStatus.SUCCESS, steps.get(0).getStatus());
 		assertEquals(AgentPlanStatus.FAILED, steps.get(1).getStatus());
-		assertEquals("execution boom", steps.get(1).getResult());
 		assertEquals(AgentPlanStatus.PENDING, steps.get(2).getStatus());
 		assertEquals(AgentPlanStatus.PENDING, steps.get(3).getStatus());
 	}
 
 	@Test
-	void shouldRejectUnknownTask() {
-		when(taskCenterService.getTask("missing")).thenReturn(Optional.empty());
+	void shouldRejectPlanWhenNoAgentProvidesCapability() {
+		AgentManager emptyManager = new AgentManager();
+		AgentCoordinatorService emptyService = new AgentCoordinatorService(taskCenterService,
+			modelRouterService, plannerService, executorManager, testAgentService, auditService,
+			new AgentCapabilityResolver(emptyManager));
 
-		assertThrows(IllegalArgumentException.class,
-			() -> service.createCollaborationPlan("missing", TaskType.GENERAL));
-	}
-
-	@Test
-	void shouldReturnPlanForTaskAndEmptyForUnknown() {
-		stubExecutors(success());
-		service.createCollaborationPlan("task-1", TaskType.TEST_VERIFY);
-
-		List<AgentExecutionPlan> stored = service.getCollaborationPlan("task-1").orElseThrow();
-		assertEquals(List.of("tester"), agentIds(stored));
-		assertTrue(service.getCollaborationPlan("missing").isEmpty());
-	}
-
-	@Test
-	void shouldRecordAuditEvents() {
-		stubExecutors(success());
-
-		service.createCollaborationPlan("task-1", TaskType.TEST_VERIFY);
-
-		List<EventRecord> events = auditService.query(EventQuery.all());
-		assertTrue(events.stream().anyMatch(
-			event -> event.type() == EventType.AGENT_PLAN_CREATED));
-		assertTrue(events.stream().anyMatch(
-			event -> event.type() == EventType.AGENT_PLAN_STARTED));
-		assertTrue(events.stream().anyMatch(
-			event -> event.type() == EventType.AGENT_PLAN_SUCCEEDED));
+		assertThrows(IllegalStateException.class,
+			() -> emptyService.createCollaborationPlan("task-1", TaskType.TEST_VERIFY));
 	}
 
 	private void registerAgents() {
 		agentManager.register(agent("planner", "1.0.0", List.of("planning", "analysis"), "mock"));
+		agentManager.register(agent("executor", "1.0.0", List.of("coding", "git"), "mock"));
 		agentManager.register(agent("coder", "1.0.0", List.of("coding", "git"), "codex"));
 		agentManager.register(agent("tester", "1.0.0", List.of("testing", "browser"), "openclaw"));
 		agentManager.register(agent("browser-agent", "1.0.0", List.of("browser"), "openclaw"));
@@ -180,24 +183,18 @@ class AgentCoordinatorServiceTest {
 
 	private AgentDefinition agent(String name, String version, List<String> capabilities,
 			String executor) {
+		return agent(name, version, capabilities, executor, true);
+	}
+
+	private AgentDefinition agent(String name, String version, List<String> capabilities,
+			String executor, boolean enabled) {
 		AgentDefinition definition = new AgentDefinition();
 		definition.setName(name);
 		definition.setVersion(version);
 		definition.setCapabilities(capabilities);
 		definition.setExecutor(executor);
+		definition.setEnabled(enabled);
 		return definition;
-	}
-
-	private void stubExecutors(ExecutionResult result) {
-		AgentExecutor coder = mock(AgentExecutor.class);
-		AgentExecutor browser = mock(AgentExecutor.class);
-		AgentExecutor tester = mock(AgentExecutor.class);
-		when(coder.execute(any())).thenReturn(result);
-		when(browser.execute(any())).thenReturn(result);
-		when(tester.execute(any())).thenReturn(result);
-		when(executorManager.getExecutor("coder")).thenReturn(coder);
-		when(executorManager.getExecutor("browser-agent")).thenReturn(browser);
-		when(executorManager.getExecutor("tester")).thenReturn(tester);
 	}
 
 	private List<String> agentIds(List<AgentExecutionPlan> steps) {

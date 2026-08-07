@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.agentcapability.AgentCapability;
+import com.aidevos.orchestrator.agentcapability.AgentCapabilityResolver;
 import com.aidevos.orchestrator.dashboard.AgentDetailDTO;
 import com.aidevos.orchestrator.dashboard.AgentHistoryDTO;
 import com.aidevos.orchestrator.dashboard.AgentRegistryService;
@@ -19,15 +21,28 @@ public class AgentController {
 
 	private final AgentManager agentManager;
 	private final AgentRegistryService agentRegistryService;
+	private final AgentCapabilityResolver capabilityResolver;
 
-	public AgentController(AgentManager agentManager, AgentRegistryService agentRegistryService) {
+	public AgentController(AgentManager agentManager, AgentRegistryService agentRegistryService,
+			AgentCapabilityResolver capabilityResolver) {
 		this.agentManager = agentManager;
 		this.agentRegistryService = agentRegistryService;
+		this.capabilityResolver = capabilityResolver;
 	}
 
 	@GetMapping("/api/agents")
 	public List<AgentDefinition> getAllAgents() {
 		return agentManager.getAllAgents();
+	}
+
+	@GetMapping("/api/agents/capabilities")
+	public List<AgentCapability> listCapabilities() {
+		return capabilityResolver.listCapabilities();
+	}
+
+	@GetMapping("/api/agents/capabilities/{capability}")
+	public List<AgentDefinition> getAgentsByCapability(@PathVariable String capability) {
+		return capabilityResolver.resolveByCapability(capability);
 	}
 
 	@GetMapping("/api/dashboard/agents")

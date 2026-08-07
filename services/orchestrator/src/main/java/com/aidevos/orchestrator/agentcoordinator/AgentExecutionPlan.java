@@ -11,6 +11,7 @@ public class AgentExecutionPlan {
 	private final String planId;
 	private final String taskId;
 	private final String agentId;
+	private final String capability;
 	private final int step;
 	private final Instant createdAt;
 	private volatile AgentPlanStatus status = AgentPlanStatus.PENDING;
@@ -20,9 +21,15 @@ public class AgentExecutionPlan {
 	private volatile String result;
 
 	public AgentExecutionPlan(String planId, String taskId, String agentId, int step) {
+		this(planId, taskId, agentId, step, null);
+	}
+
+	public AgentExecutionPlan(String planId, String taskId, String agentId, int step,
+			String capability) {
 		this.planId = planId;
 		this.taskId = taskId;
 		this.agentId = agentId;
+		this.capability = capability;
 		this.step = step;
 		this.createdAt = Instant.now();
 		this.updatedAt = this.createdAt;
@@ -58,6 +65,10 @@ public class AgentExecutionPlan {
 
 	public String getAgentId() {
 		return agentId;
+	}
+
+	public String getCapability() {
+		return capability;
 	}
 
 	public int getStep() {

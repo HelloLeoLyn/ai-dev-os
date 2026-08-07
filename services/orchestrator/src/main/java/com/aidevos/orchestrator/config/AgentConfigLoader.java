@@ -59,6 +59,7 @@ public class AgentConfigLoader {
 		agentDefinition.setSkillIds(toStringList(agent.get("skillIds")));
 		agentDefinition.setType((String) agent.get("type"));
 		agentDefinition.setDescription((String) agent.get("description"));
+		agentDefinition.setVersion((String) agent.get("version"));
 		agentDefinition.setPermissionLevel((String) agent.get("permissionLevel"));
 		if (agent.containsKey("enabled")) {
 			agentDefinition.setEnabled(Boolean.TRUE.equals(agent.get("enabled")));

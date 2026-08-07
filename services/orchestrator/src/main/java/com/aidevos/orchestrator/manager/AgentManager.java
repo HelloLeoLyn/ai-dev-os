@@ -3,6 +3,7 @@ package com.aidevos.orchestrator.manager;
 import com.aidevos.orchestrator.model.AgentDefinition;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -17,6 +18,9 @@ public class AgentManager {
 	public AgentManager(AgentRepository repository) { this.repository = repository; }
 
 	public void register(AgentDefinition agentDefinition) {
+		if (agentDefinition.getUpdatedAt() == null) {
+			agentDefinition.setUpdatedAt(Instant.now());
+		}
 		repository.save(agentDefinition);
 	}
 

@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import com.aidevos.orchestrator.agentcapability.AgentCapabilityResolver;
 import com.aidevos.orchestrator.dashboard.AgentDetailDTO;
 import com.aidevos.orchestrator.dashboard.AgentExecutionSummary;
 import com.aidevos.orchestrator.dashboard.AgentHistoryDTO;
@@ -26,8 +27,11 @@ import static org.mockito.Mockito.when;
 class AgentDetailControllerTest {
 
 	private MockMvc mockMvc(AgentRegistryService registryService) {
+		AgentManager agentManager = new AgentManager();
 		return standaloneSetup(
-			new AgentController(new AgentManager(), registryService)).setControllerAdvice(new GlobalExceptionHandler()).build();
+			new AgentController(agentManager, registryService,
+				new AgentCapabilityResolver(agentManager)))
+			.setControllerAdvice(new GlobalExceptionHandler()).build();
 	}
 
 	@Test

@@ -8,12 +8,14 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.aidevos.orchestrator.agentcapability.AgentCapabilityResolver;
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.execution.ExecutionContext;
 import com.aidevos.orchestrator.execution.ExecutionResult;
 import com.aidevos.orchestrator.executor.AgentExecutor;
 import com.aidevos.orchestrator.executor.ExecutorManager;
+import com.aidevos.orchestrator.model.AgentDefinition;
 import com.aidevos.orchestrator.modelrouter.ModelRouterService;
 import com.aidevos.orchestrator.modelrouter.ResolvedModel;
 import com.aidevos.orchestrator.modelrouter.TaskType;
@@ -31,25 +33,22 @@ import org.springframework.stereotype.Service;
 
 /**
  * Agent collaboration coordinator. Builds a sequential execution plan for a
- * Task Center task: the task type selects the responsible agent (initial
- * rules: TASK_ANALYSIS -&gt; Hermes, CODE_GENERATION -&gt; Codex,
- * BROWSER_TEST -&gt; OpenClaw, TEST_VERIFY -&gt; TestAgent) and the plan runs
- * the collaboration chain from that agent onwards. Reuses the existing
- * TaskCenter, ModelRouter, Planner/Hermes, executors and TestAgent; Scheduler,
- * Worker and ExecutionEngine are not modified. Steps run sequentially and stop
- * at the first failure (downstream steps remain PENDING).
+ * Task Center task: the task type is matched to an agent capability through
+ * AgentCapabilityResolver, which dynamically selects the registered agent
+ * (AgentRegistry) for that capability; the plan runs the collaboration chain
+ * from that agent onwards. Reuses the existing TaskCenter, ModelRouter,
+ * Planner/Hermes, executors and TestAgent; Scheduler, Worker and
+ * ExecutionEngine are not modified. Steps run sequentially and stop at the
+ * first failure (downstream steps remain PENDING).
  */
 @Service
 public class AgentCoordinatorService {
 
-	public static final String HERMES_AGENT = "hermes";
-	public static final String CODEX_AGENT = "codex";
-	public static final String OPENCLAW_AGENT = "openclaw";
-	public static final String TESTAGENT_AGENT = "testagent";
-
+	private static final String PLANNING_CAPABILITY = "planning";
+	private static final String CODING_CAPABILITY = "coding";
+	private static final String BROWSER_CAPABILITY = "browser";
+	private static final String TESTING_CAPABILITY = "testing";
 	private static final String HERMES_PLANNER = "hermes";
-	private static final String CODEX_AGENT_NAME = "coder";
-	private static final String OPENCLAW_AGENT_NAME = "tester";
 	private static final int LOG_LIMIT = 2000;
 
 	private final Map<String, List<AgentExecutionPlan>> plans = new ConcurrentHashMap<>();
@@ -59,31 +58,29 @@ public class AgentCoordinatorService {
 	private final ExecutorManager executorManager;
 	private final TestAgentService testAgentService;
 	private final AuditService auditService;
+	private final AgentCapabilityResolver capabilityResolver;
 
 	public AgentCoordinatorService(TaskCenterService taskCenterService,
 			ModelRouterService modelRouterService, PlannerService plannerService,
 			ExecutorManager executorManager, TestAgentService testAgentService,
-			AuditService auditService) {
+			AuditService auditService, AgentCapabilityResolver capabilityResolver) {
 		this.taskCenterService = taskCenterService;
 		this.modelRouterService = modelRouterService;
 		this.plannerService = plannerService;
 		this.executorManager = executorManager;
 		this.testAgentService = testAgentService;
 		this.auditService = auditService;
+		this.capabilityResolver = capabilityResolver;
 	}
 
 	/**
-	 * Initial collaboration rules: selects the responsible agent for a task
-	 * type. Unknown types fall back to Hermes.
+	 * Resolves the agent responsible for a task type through the capability
+	 * registry. Unknown types fall back to the planning capability.
 	 */
 	public String selectAgent(TaskType taskType) {
-		return switch (taskType == null ? TaskType.GENERAL : taskType) {
-			case TASK_ANALYSIS -> HERMES_AGENT;
-			case CODE_GENERATION -> CODEX_AGENT;
-			case BROWSER_TEST -> OPENCLAW_AGENT;
-			case TEST_VERIFY -> TESTAGENT_AGENT;
-			default -> HERMES_AGENT;
-		};
+		return capabilityResolver.resolveAgent(taskType)
+			.map(AgentDefinition::getName)
+			.orElse(null);
 	}
 
 	public List<AgentExecutionPlan> createCollaborationPlan(String taskId, TaskType taskType) {
@@ -95,7 +92,8 @@ public class AgentCoordinatorService {
 		List<AgentExecutionPlan> steps = buildSteps(planId, taskId, type);
 		plans.put(taskId, steps);
 		auditService.agentPlanEvent(EventType.AGENT_PLAN_CREATED, planId, taskId,
-			selectAgent(type), 0, null, "PENDING", "Agent collaboration plan created",
+			steps.getFirst().getAgentId(), 0, null, "PENDING",
+			"Agent collaboration plan created",
 			Map.of("taskType", type.name(), "model", model.model()));
 		execute(steps, task, model);
 		return List.copyOf(steps);
@@ -112,20 +110,29 @@ public class AgentCoordinatorService {
 	}
 
 	private List<AgentExecutionPlan> buildSteps(String planId, String taskId, TaskType taskType) {
-		List<String> chain = switch (taskType == null ? TaskType.GENERAL : taskType) {
-			case TASK_ANALYSIS ->
-				List.of(HERMES_AGENT, CODEX_AGENT, OPENCLAW_AGENT, TESTAGENT_AGENT);
-			case CODE_GENERATION -> List.of(CODEX_AGENT, OPENCLAW_AGENT, TESTAGENT_AGENT);
-			case BROWSER_TEST -> List.of(OPENCLAW_AGENT, TESTAGENT_AGENT);
-			case TEST_VERIFY -> List.of(TESTAGENT_AGENT);
-			default -> List.of(HERMES_AGENT, CODEX_AGENT, OPENCLAW_AGENT, TESTAGENT_AGENT);
-		};
 		List<AgentExecutionPlan> steps = new ArrayList<>();
 		int stepNumber = 1;
-		for (String agentId : chain) {
-			steps.add(new AgentExecutionPlan(planId, taskId, agentId, stepNumber++));
+		for (String capability : capabilitiesFor(taskType)) {
+			AgentDefinition agent = capabilityResolver.resolveAgent(capability)
+				.orElseThrow(() -> new IllegalStateException(
+					"No agent found for capability: " + capability));
+			steps.add(new AgentExecutionPlan(planId, taskId, agent.getName(), stepNumber++,
+				capability));
 		}
 		return steps;
+	}
+
+	private List<String> capabilitiesFor(TaskType taskType) {
+		return switch (taskType == null ? TaskType.GENERAL : taskType) {
+			case TASK_ANALYSIS -> List.of(PLANNING_CAPABILITY, CODING_CAPABILITY,
+				BROWSER_CAPABILITY, TESTING_CAPABILITY);
+			case CODE_GENERATION -> List.of(CODING_CAPABILITY, BROWSER_CAPABILITY,
+				TESTING_CAPABILITY);
+			case BROWSER_TEST -> List.of(BROWSER_CAPABILITY, TESTING_CAPABILITY);
+			case TEST_VERIFY -> List.of(TESTING_CAPABILITY);
+			default -> List.of(PLANNING_CAPABILITY, CODING_CAPABILITY,
+				BROWSER_CAPABILITY, TESTING_CAPABILITY);
+		};
 	}
 
 	private void execute(List<AgentExecutionPlan> steps, TaskRecord task, ResolvedModel model) {
@@ -143,13 +150,13 @@ public class AgentCoordinatorService {
 			step.getTaskId(), step.getAgentId(), step.getStep(), AgentPlanStatus.PENDING.name(),
 			AgentPlanStatus.RUNNING.name(), "Agent step started", Map.of());
 		try {
-			String result = switch (step.getAgentId()) {
-				case HERMES_AGENT -> runHermes(task, model);
-				case CODEX_AGENT -> runCodex(task);
-				case OPENCLAW_AGENT -> runOpenClaw(task);
-				case TESTAGENT_AGENT -> runTestAgent(task);
+			String result = switch (step.getCapability()) {
+				case PLANNING_CAPABILITY -> runPlanning(task, model);
+				case CODING_CAPABILITY -> runCoding(task, step.getAgentId());
+				case BROWSER_CAPABILITY -> runBrowser(task, step.getAgentId());
+				case TESTING_CAPABILITY -> runTesting(task);
 				default -> throw new IllegalStateException(
-					"Unsupported agent: " + step.getAgentId());
+					"Unsupported capability: " + step.getCapability());
 			};
 			step.markSuccess(truncate(result));
 			auditService.agentPlanEvent(EventType.AGENT_PLAN_SUCCEEDED, step.getPlanId(),
@@ -167,7 +174,7 @@ public class AgentCoordinatorService {
 		}
 	}
 
-	private String runHermes(TaskRecord task, ResolvedModel model) {
+	private String runPlanning(TaskRecord task, ResolvedModel model) {
 		String goal = task.getDescription() == null || task.getDescription().isBlank()
 			? task.getName() : task.getDescription();
 		PlanningResult result = plannerService.createPlan(new PlanningRequest(task.getTaskId(),
@@ -178,12 +185,12 @@ public class AgentCoordinatorService {
 		return "Plan created: " + result.plan().id();
 	}
 
-	private String runCodex(TaskRecord task) {
-		return summarize(executeAgent(CODEX_AGENT_NAME, task));
+	private String runCoding(TaskRecord task, String agentName) {
+		return summarize(executeAgent(agentName, task));
 	}
 
-	private String runOpenClaw(TaskRecord task) {
-		return summarize(executeAgent(OPENCLAW_AGENT_NAME, task));
+	private String runBrowser(TaskRecord task, String agentName) {
+		return summarize(executeAgent(agentName, task));
 	}
 
 	private ExecutionResult executeAgent(String agentName, TaskRecord task) {
@@ -202,7 +209,7 @@ public class AgentCoordinatorService {
 		return executor.execute(context);
 	}
 
-	private String runTestAgent(TaskRecord task) {
+	private String runTesting(TaskRecord task) {
 		TestPlan plan = testAgentService.createTest(new CreateTestRequest(task.getTaskId(),
 			TestType.UNIT_TEST, null, null, null));
 		if (TestStatus.SUCCESS.equals(plan.getStatus())) {

@@ -1,5 +1,6 @@
 package com.aidevos.orchestrator.model;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -13,6 +14,8 @@ public class AgentDefinition {
 	private List<String> skillIds;
 	private String type;
 	private String description;
+	private String version;
+	private Instant updatedAt;
 	private String permissionLevel;
 	private boolean enabled = true;
 
@@ -87,6 +90,22 @@ public class AgentDefinition {
 
 	public void setDescription(String description) {
 		this.description = description;
+	}
+
+	public String getVersion() {
+		return version;
+	}
+
+	public void setVersion(String version) {
+		this.version = version;
+	}
+
+	public Instant getUpdatedAt() {
+		return updatedAt;
+	}
+
+	public void setUpdatedAt(Instant updatedAt) {
+		this.updatedAt = updatedAt;
 	}
 
 	public String getPermissionLevel() {

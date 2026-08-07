@@ -1,11 +1,14 @@
 agents:
   - name: planner
     executor: mock
+    version: 1.0.0
     capabilities:
+      - planning
       - analysis
 
   - name: executor
     executor: mock
+    version: 1.0.0
     capabilities:
       - coding
       - git
@@ -15,6 +18,7 @@ agents:
     enabled: true
     type: system
     permissionLevel: standard
+    version: 1.0.0
     executor: codex
     codex:
       workspace:
@@ -28,6 +32,7 @@ agents:
 
   - name: tester
     executor: openclaw
+    version: 1.0.0
     openclaw:
       agentId: main
     capabilities:
@@ -39,6 +44,7 @@ agents:
 
   - name: browser-agent
     executor: openclaw
+    version: 1.0.0
     openclaw:
       agentId: main
     capabilities:
@@ -51,6 +57,7 @@ agents:
     enabled: true
     type: system
     permissionLevel: read-only
+    version: 1.0.0
     executor: tool
     capabilities:
       - tool
