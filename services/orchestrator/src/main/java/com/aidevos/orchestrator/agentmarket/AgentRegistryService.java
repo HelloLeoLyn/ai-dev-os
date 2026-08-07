@@ -7,6 +7,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.aidevos.orchestrator.audit.AuditService;
+import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.manager.AgentManager;
 import com.aidevos.orchestrator.mcpplugin.McpPluginRegistryService;
 import com.aidevos.orchestrator.model.AgentDefinition;
@@ -29,23 +31,33 @@ public class AgentRegistryService {
 	private final SkillRegistryService skillRegistryService;
 	private final McpPluginRegistryService mcpPluginRegistryService;
 	private final AgentPackageRepository repository;
+	private final AuditService auditService;
 
 	public AgentRegistryService(AgentMarketConfigLoader configLoader,
 			AgentManager agentManager, SkillRegistryService skillRegistryService,
 			McpPluginRegistryService mcpPluginRegistryService) {
 		this(configLoader, agentManager, skillRegistryService, mcpPluginRegistryService,
-			new InMemoryAgentPackageRepository());
+			new InMemoryAgentPackageRepository(), AuditService.noop());
+	}
+
+	public AgentRegistryService(AgentMarketConfigLoader configLoader,
+			AgentManager agentManager, SkillRegistryService skillRegistryService,
+			McpPluginRegistryService mcpPluginRegistryService,
+			AgentPackageRepository repository) {
+		this(configLoader, agentManager, skillRegistryService, mcpPluginRegistryService,
+			repository, AuditService.noop());
 	}
 
 	@Autowired
 	public AgentRegistryService(AgentMarketConfigLoader configLoader,
 			AgentManager agentManager, SkillRegistryService skillRegistryService,
 			McpPluginRegistryService mcpPluginRegistryService,
-			AgentPackageRepository repository) {
+			AgentPackageRepository repository, AuditService auditService) {
 		this.agentManager = agentManager;
 		this.skillRegistryService = skillRegistryService;
 		this.mcpPluginRegistryService = mcpPluginRegistryService;
 		this.repository = repository;
+		this.auditService = auditService;
 		configLoader.loadPackages().forEach(agentPackage -> register(restore(agentPackage)));
 	}
 
@@ -87,6 +99,10 @@ public class AgentRegistryService {
 		agentManager.register(toDefinition(agentPackage));
 		agentPackage.markInstalled();
 		repository.save(agentPackage);
+		auditService.adminEvent(EventType.AGENT_PACKAGE_INSTALLED, "agent-package",
+			agentPackage.getAgentId(), "USER",
+			"Agent package installed: " + agentPackage.getName(),
+			Map.of("version", agentPackage.getVersion() == null ? "" : agentPackage.getVersion()));
 		return agentPackage;
 	}
 
@@ -100,6 +116,9 @@ public class AgentRegistryService {
 			agentManager.removeAgent(agentId);
 			agentPackage.markUninstalled();
 			repository.save(agentPackage);
+			auditService.adminEvent(EventType.AGENT_PACKAGE_UNINSTALLED, "agent-package",
+				agentPackage.getAgentId(), "USER", "Agent package uninstalled: "
+					+ agentPackage.getName(), Map.of());
 		}
 		return agentPackage;
 	}

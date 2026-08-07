@@ -7,6 +7,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.aidevos.orchestrator.audit.AuditService;
+import com.aidevos.orchestrator.audit.EventType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -21,15 +23,22 @@ public class McpPluginRegistryService {
 
 	private final Map<String, McpPlugin> plugins = new ConcurrentHashMap<>();
 	private final McpPluginRepository repository;
+	private final AuditService auditService;
 
 	public McpPluginRegistryService(McpPluginConfigLoader configLoader) {
-		this(configLoader, new InMemoryMcpPluginRepository());
+		this(configLoader, new InMemoryMcpPluginRepository(), AuditService.noop());
+	}
+
+	public McpPluginRegistryService(McpPluginConfigLoader configLoader,
+			McpPluginRepository repository) {
+		this(configLoader, repository, AuditService.noop());
 	}
 
 	@Autowired
 	public McpPluginRegistryService(McpPluginConfigLoader configLoader,
-			McpPluginRepository repository) {
+			McpPluginRepository repository, AuditService auditService) {
 		this.repository = repository;
+		this.auditService = auditService;
 		configLoader.loadPlugins().forEach(plugin -> register(restore(plugin)));
 	}
 
@@ -63,6 +72,8 @@ public class McpPluginRegistryService {
 		plugin.ifPresent(value -> {
 			value.enable();
 			repository.save(value);
+			auditService.adminEvent(EventType.PLUGIN_ENABLED, "mcp-plugin",
+				value.getPluginId(), "USER", "Plugin enabled: " + value.getName(), Map.of());
 		});
 		return plugin;
 	}
@@ -72,6 +83,8 @@ public class McpPluginRegistryService {
 		plugin.ifPresent(value -> {
 			value.disable();
 			repository.save(value);
+			auditService.adminEvent(EventType.PLUGIN_DISABLED, "mcp-plugin",
+				value.getPluginId(), "USER", "Plugin disabled: " + value.getName(), Map.of());
 		});
 		return plugin;
 	}

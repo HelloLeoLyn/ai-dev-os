@@ -9,6 +9,8 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.aidevos.orchestrator.approval.ApprovalStatus;
+import com.aidevos.orchestrator.audit.AuditService;
+import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalRequest;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalService;
 import com.aidevos.orchestrator.plan.run.PlanRun;
@@ -16,6 +18,7 @@ import com.aidevos.orchestrator.plan.run.PlanRunRepository;
 import com.aidevos.orchestrator.planner.PlanningRequest;
 import com.aidevos.orchestrator.planner.PlanningResult;
 import com.aidevos.orchestrator.planner.PlannerService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -33,12 +36,21 @@ public class TaskCenterService {
 	private final PlannerService plannerService;
 	private final PlanApprovalService approvalService;
 	private final PlanRunRepository planRunRepository;
+	private final AuditService auditService;
 
 	public TaskCenterService(PlannerService plannerService,
 			PlanApprovalService approvalService, PlanRunRepository planRunRepository) {
+		this(plannerService, approvalService, planRunRepository, AuditService.noop());
+	}
+
+	@Autowired
+	public TaskCenterService(PlannerService plannerService,
+			PlanApprovalService approvalService, PlanRunRepository planRunRepository,
+			AuditService auditService) {
 		this.plannerService = plannerService;
 		this.approvalService = approvalService;
 		this.planRunRepository = planRunRepository;
+		this.auditService = auditService;
 	}
 
 	public TaskRecord createTask(CreateTaskRequest request) {
@@ -46,6 +58,9 @@ public class TaskCenterService {
 		TaskRecord task = new TaskRecord(taskId, request.name(), request.description(),
 			request.projectId());
 		tasks.put(taskId, task);
+		auditService.adminEvent(EventType.USER_OPERATION, "task", taskId, "USER",
+			"User submitted task", Map.of("name", request.name(),
+				"projectId", request.projectId() == null ? "default" : request.projectId()));
 		try {
 			PlanningResult result = plannerService.createPlan(new PlanningRequest(taskId,
 				request.goal(), plannerName(request), null, null, null, null, null));

@@ -4,9 +4,13 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.aidevos.orchestrator.audit.AuditService;
+import com.aidevos.orchestrator.audit.EventType;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -18,10 +22,17 @@ import org.springframework.stereotype.Service;
 public class ProjectService {
 
 	private final ProjectRepository repository;
+	private final AuditService auditService;
 	private volatile String currentProjectId;
 
 	public ProjectService(ProjectRepository repository) {
+		this(repository, AuditService.noop());
+	}
+
+	@Autowired
+	public ProjectService(ProjectRepository repository, AuditService auditService) {
 		this.repository = repository;
+		this.auditService = auditService;
 	}
 
 	public Project createProject(CreateProjectRequest request) {
@@ -57,6 +68,9 @@ public class ProjectService {
 			value.markActive();
 			repository.save(value);
 			currentProjectId = projectId;
+			auditService.adminEvent(EventType.PROJECT_SWITCHED, "project", projectId, "USER",
+				"Project switched to active: " + value.getName(), Map.of("path",
+					value.getPath() == null ? "" : value.getPath()));
 		});
 		return project;
 	}

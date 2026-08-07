@@ -214,6 +214,20 @@ public class AuditService {
 				+ value(fromStatus) + ":" + value(toStatus)));
 	}
 
+	/**
+	 * Records an administrative or user operation (agent package install /
+	 * uninstall, skill and plugin enable / disable, project switch, user task
+	 * submission). Keeps the existing audit API untouched.
+	 */
+	public void adminEvent(EventType type, String aggregateType, String aggregateId,
+			String actor, String summary, Map<String, Object> metadata) {
+		record(event(type, aggregateType, aggregateId, null, null, null, null, null, null,
+			null, null, null, null, null, null, null,
+			actor == null || actor.isBlank() ? "SYSTEM" : "USER", actor, summary,
+			metadata == null ? Map.of() : Map.copyOf(metadata),
+			type + ":" + aggregateType + ":" + aggregateId + ":" + UUID.randomUUID()));
+	}
+
 	public void planRunCreated(PlanRun run) {
 		planRunEvent(EventType.PLAN_RUN_CREATED, run, null, run.getStatus().name());
 	}

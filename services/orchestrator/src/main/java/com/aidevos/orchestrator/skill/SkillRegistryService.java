@@ -8,6 +8,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.aidevos.orchestrator.audit.AuditService;
+import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.manager.AgentManager;
 import com.aidevos.orchestrator.model.AgentDefinition;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,16 +29,23 @@ public class SkillRegistryService {
 	private final Map<String, Skill> skills = new ConcurrentHashMap<>();
 	private final AgentManager agentManager;
 	private final SkillRepository repository;
+	private final AuditService auditService;
 
 	public SkillRegistryService(SkillConfigLoader configLoader, AgentManager agentManager) {
-		this(configLoader, agentManager, new InMemorySkillRepository());
+		this(configLoader, agentManager, new InMemorySkillRepository(), AuditService.noop());
+	}
+
+	public SkillRegistryService(SkillConfigLoader configLoader, AgentManager agentManager,
+			SkillRepository repository) {
+		this(configLoader, agentManager, repository, AuditService.noop());
 	}
 
 	@Autowired
 	public SkillRegistryService(SkillConfigLoader configLoader, AgentManager agentManager,
-			SkillRepository repository) {
+			SkillRepository repository, AuditService auditService) {
 		this.agentManager = agentManager;
 		this.repository = repository;
+		this.auditService = auditService;
 		configLoader.loadSkills().forEach(skill -> register(restore(skill)));
 	}
 
@@ -70,6 +79,9 @@ public class SkillRegistryService {
 		skill.ifPresent(value -> {
 			value.enable();
 			repository.save(value);
+			auditService.adminEvent(EventType.SKILL_ENABLED, "skill", value.getSkillId(), "USER",
+				"Skill enabled: " + value.getName(), Map.of("version",
+					value.getVersion() == null ? "" : value.getVersion()));
 		});
 		return skill;
 	}
@@ -79,6 +91,8 @@ public class SkillRegistryService {
 		skill.ifPresent(value -> {
 			value.disable();
 			repository.save(value);
+			auditService.adminEvent(EventType.SKILL_DISABLED, "skill", value.getSkillId(), "USER",
+				"Skill disabled: " + value.getName(), Map.of());
 		});
 		return skill;
 	}
