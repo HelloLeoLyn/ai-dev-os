@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -27,7 +29,7 @@ class TimelineControllerTest {
 			new TimelineEventDTO("event-1", "JOB_STARTED", "JOB", "job-1",
 				"RUNNING", "job started", Instant.parse("2026-08-01T00:00:00Z"))));
 		when(service.timeline("job-1")).thenReturn(timeline);
-		MockMvc mockMvc = standaloneSetup(new TimelineController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new TimelineController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/timeline/job-1"))
 			.andExpect(status().isOk())
@@ -48,7 +50,7 @@ class TimelineControllerTest {
 	void shouldRejectBlankTimelineId() throws Exception {
 		TimelineService service = mock(TimelineService.class);
 		when(service.timeline(anyString())).thenThrow(new IllegalArgumentException("Timeline id is required"));
-		MockMvc mockMvc = standaloneSetup(new TimelineController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new TimelineController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/timeline/%20"))
 			.andExpect(status().isBadRequest());

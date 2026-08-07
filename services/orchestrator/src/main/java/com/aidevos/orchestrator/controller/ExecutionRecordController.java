@@ -2,6 +2,7 @@ package com.aidevos.orchestrator.controller;
 
 import java.util.List;
 
+import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.execution.query.ExecutionRecordDetail;
 import com.aidevos.orchestrator.execution.query.ExecutionRecordQueryService;
 import com.aidevos.orchestrator.execution.query.ExecutionRecordSummary;
@@ -31,8 +32,7 @@ public class ExecutionRecordController {
 
 	@GetMapping("/{id}")
 	public ResponseEntity<ExecutionRecordDetail> get(@PathVariable String id) {
-		return queryService.get(id)
-			.map(ResponseEntity::ok)
-			.orElseGet(() -> ResponseEntity.notFound().build());
+		return ResponseEntity.ok(queryService.get(id)
+			.orElseThrow(() -> new ResourceNotFoundException("Execution record", id)));
 	}
 }

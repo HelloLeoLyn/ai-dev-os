@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import java.util.List;
 
 import com.aidevos.orchestrator.planner.PlannerService;
@@ -22,7 +24,7 @@ class PlanningControllerTest {
 		PlannerService service = mock(PlannerService.class);
 		when(service.createPlan(any())).thenReturn(
 			PlanningResult.failure("hermes", null, List.of("INVALID")));
-		MockMvc mvc = MockMvcBuilders.standaloneSetup(new PlanningController(service)).build();
+		MockMvc mvc = MockMvcBuilders.standaloneSetup(new PlanningController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mvc.perform(post("/api/planning").contentType("application/json").content("""
 			{"requestId":"request-1","goal":"Inspect and fix","plannerName":"hermes"}

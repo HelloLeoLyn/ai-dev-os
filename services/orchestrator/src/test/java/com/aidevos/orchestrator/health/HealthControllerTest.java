@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.health;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
@@ -17,7 +19,7 @@ class HealthControllerTest {
 	@Test
 	void livenessIsAlwaysUp() throws Exception {
 		HealthController controller = new HealthController(mock(ReadinessGate.class));
-		MockMvc mockMvc = standaloneSetup(controller).build();
+		MockMvc mockMvc = standaloneSetup(controller).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/health"))
 			.andExpect(status().isOk())
@@ -29,7 +31,7 @@ class HealthControllerTest {
 		ReadinessGate gate = mock(ReadinessGate.class);
 		when(gate.isReady()).thenReturn(false);
 		when(gate.details()).thenReturn(Map.of("startupComplete", false));
-		MockMvc mockMvc = standaloneSetup(new HealthController(gate)).build();
+		MockMvc mockMvc = standaloneSetup(new HealthController(gate)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/health/readiness"))
 			.andExpect(status().isServiceUnavailable())
@@ -42,7 +44,7 @@ class HealthControllerTest {
 		ReadinessGate gate = mock(ReadinessGate.class);
 		when(gate.isReady()).thenReturn(true);
 		when(gate.details()).thenReturn(Map.of("startupComplete", true));
-		MockMvc mockMvc = standaloneSetup(new HealthController(gate)).build();
+		MockMvc mockMvc = standaloneSetup(new HealthController(gate)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/health/readiness"))
 			.andExpect(status().isOk())

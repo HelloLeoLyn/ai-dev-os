@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import java.time.Instant;
 
 import com.aidevos.orchestrator.memory.MemoryRecord;
@@ -25,7 +27,7 @@ class MemoryControllerTest {
 	void shouldCreateMemory() throws Exception {
 		MemoryService service = mock(MemoryService.class);
 		when(service.create(any())).thenReturn(record("mem-1"));
-		MockMvc mockMvc = standaloneSetup(new MemoryController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new MemoryController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(post("/api/memory")
 				.contentType("application/json")
@@ -42,7 +44,7 @@ class MemoryControllerTest {
 		MemoryService service = mock(MemoryService.class);
 		when(service.list("project-a", MemoryType.BUG_RECORD)).thenReturn(
 			java.util.List.of(record("mem-1")));
-		MockMvc mockMvc = standaloneSetup(new MemoryController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new MemoryController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/memory")
 				.param("projectId", "project-a")
@@ -57,7 +59,7 @@ class MemoryControllerTest {
 	void shouldGetMemoryById() throws Exception {
 		MemoryService service = mock(MemoryService.class);
 		when(service.get("mem-1")).thenReturn(record("mem-1"));
-		MockMvc mockMvc = standaloneSetup(new MemoryController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new MemoryController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/memory/mem-1"))
 			.andExpect(status().isOk())
@@ -68,7 +70,7 @@ class MemoryControllerTest {
 	void shouldReturn404WhenMemoryMissing() throws Exception {
 		MemoryService service = mock(MemoryService.class);
 		when(service.get("missing")).thenReturn(null);
-		MockMvc mockMvc = standaloneSetup(new MemoryController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new MemoryController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/memory/missing"))
 			.andExpect(status().isNotFound());
@@ -78,7 +80,7 @@ class MemoryControllerTest {
 	void shouldDeleteMemory() throws Exception {
 		MemoryService service = mock(MemoryService.class);
 		when(service.delete("mem-1")).thenReturn(true);
-		MockMvc mockMvc = standaloneSetup(new MemoryController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new MemoryController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(delete("/api/memory/mem-1"))
 			.andExpect(status().isNoContent());
@@ -88,7 +90,7 @@ class MemoryControllerTest {
 	void shouldReturn404WhenDeletingMissingMemory() throws Exception {
 		MemoryService service = mock(MemoryService.class);
 		when(service.delete("missing")).thenReturn(false);
-		MockMvc mockMvc = standaloneSetup(new MemoryController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new MemoryController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(delete("/api/memory/missing"))
 			.andExpect(status().isNotFound());

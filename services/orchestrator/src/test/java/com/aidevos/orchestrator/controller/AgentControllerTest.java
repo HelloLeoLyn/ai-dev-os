@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -28,7 +30,7 @@ class AgentControllerTest {
 		agentDefinition.setName("planner");
 		agentManager.register(agentDefinition);
 		MockMvc mockMvc = standaloneSetup(
-			new AgentController(agentManager, mock(AgentRegistryService.class))).build();
+			new AgentController(agentManager, mock(AgentRegistryService.class))).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/agents"))
 			.andExpect(status().isOk())
@@ -42,7 +44,7 @@ class AgentControllerTest {
 			"main", "tester", "system", AgentRuntimeStatus.RUNNING, true,
 			List.of("testing", "browser"), Instant.parse("2026-08-01T00:00:00Z"))));
 		MockMvc mockMvc = standaloneSetup(
-			new AgentController(new AgentManager(), registryService)).build();
+			new AgentController(new AgentManager(), registryService)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/dashboard/agents"))
 			.andExpect(status().isOk())

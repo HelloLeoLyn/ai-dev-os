@@ -2,6 +2,7 @@ package com.aidevos.orchestrator.controller;
 
 import com.aidevos.orchestrator.execution.ExecutionEngine;
 import com.aidevos.orchestrator.execution.ExecutionResult;
+import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.model.TaskDefinition;
 import com.aidevos.orchestrator.task.TaskManager;
 import org.springframework.http.ResponseEntity;
@@ -26,7 +27,7 @@ public class ExecutionController {
 	public ResponseEntity<ExecutionResult> execute(@PathVariable String id) {
 		TaskDefinition taskDefinition = taskManager.getTask(id);
 		if (taskDefinition == null) {
-			return ResponseEntity.notFound().build();
+			throw new ResourceNotFoundException("Task", id);
 		}
 		return ResponseEntity.ok(executionEngine.execute(taskDefinition));
 	}

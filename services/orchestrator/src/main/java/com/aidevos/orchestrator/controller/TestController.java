@@ -2,8 +2,8 @@ package com.aidevos.orchestrator.controller;
 
 import java.io.File;
 import java.util.List;
-import java.util.Optional;
 
+import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.testagent.CreateTestRequest;
 import com.aidevos.orchestrator.testagent.TestAgentService;
 import com.aidevos.orchestrator.testagent.TestPlan;
@@ -46,28 +46,27 @@ public class TestController {
 
 	@GetMapping("/{id}")
 	public ResponseEntity<TestPlan> get(@PathVariable String id) {
-		return testAgentService.getTest(id)
-			.map(ResponseEntity::ok)
-			.orElseGet(() -> ResponseEntity.notFound().build());
+		return ResponseEntity.ok(testAgentService.getTest(id)
+			.orElseThrow(() -> new ResourceNotFoundException("Test", id)));
 	}
 
 	@GetMapping("/{id}/report")
 	public ResponseEntity<TestReport> report(@PathVariable String id) {
-		return testAgentService.getTest(id)
+		return ResponseEntity.ok(testAgentService.getTest(id)
 			.map(reportGenerator::generateAndStore)
-			.map(ResponseEntity::ok)
-			.orElseGet(() -> ResponseEntity.notFound().build());
+			.orElseThrow(() -> new ResourceNotFoundException("Test", id)));
 	}
 
 	@GetMapping("/{id}/screenshot")
 	public ResponseEntity<Resource> screenshot(@PathVariable String id) {
-		Optional<TestPlan> plan = testAgentService.getTest(id);
-		if (plan.isEmpty() || plan.get().getScreenshotPath() == null) {
-			return ResponseEntity.notFound().build();
+		TestPlan plan = testAgentService.getTest(id)
+			.orElseThrow(() -> new ResourceNotFoundException("Test", id));
+		if (plan.getScreenshotPath() == null) {
+			throw new ResourceNotFoundException("Test screenshot", id);
 		}
-		File file = new File(plan.get().getScreenshotPath());
+		File file = new File(plan.getScreenshotPath());
 		if (!file.isFile()) {
-			return ResponseEntity.notFound().build();
+			throw new ResourceNotFoundException("Test screenshot", id);
 		}
 		return ResponseEntity.ok()
 			.contentType(MediaType.IMAGE_PNG)

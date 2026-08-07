@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import com.aidevos.orchestrator.agent.AgentResolver;
 import com.aidevos.orchestrator.agent.AgentSelector;
 import com.aidevos.orchestrator.execution.ExecutionEngine;
@@ -39,7 +41,7 @@ class ExecutionControllerTest {
 		agentManager.register(agentDefinition);
 
 		ExecutionEngine executionEngine = createExecutionEngine(agentManager);
-		MockMvc mockMvc = standaloneSetup(new ExecutionController(taskManager, executionEngine)).build();
+		MockMvc mockMvc = standaloneSetup(new ExecutionController(taskManager, executionEngine)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(post("/api/tasks/task-1/execute"))
 			.andExpect(status().isOk())
@@ -52,7 +54,7 @@ class ExecutionControllerTest {
 		TaskManager taskManager = new TaskManager();
 		AgentManager agentManager = new AgentManager();
 		ExecutionEngine executionEngine = createExecutionEngine(agentManager);
-		MockMvc mockMvc = standaloneSetup(new ExecutionController(taskManager, executionEngine)).build();
+		MockMvc mockMvc = standaloneSetup(new ExecutionController(taskManager, executionEngine)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(post("/api/tasks/unknown/execute"))
 			.andExpect(status().isNotFound());

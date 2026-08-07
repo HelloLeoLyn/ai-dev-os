@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -27,7 +29,7 @@ class ProjectControllerTest {
 	void shouldCreateProject() throws Exception {
 		ProjectService service = mock(ProjectService.class);
 		when(service.createProject(any(CreateProjectRequest.class))).thenReturn(project());
-		MockMvc mockMvc = standaloneSetup(new ProjectController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new ProjectController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(post("/api/projects")
 				.contentType("application/json")
@@ -43,7 +45,7 @@ class ProjectControllerTest {
 		ProjectService service = mock(ProjectService.class);
 		when(service.createProject(any(CreateProjectRequest.class)))
 			.thenThrow(new IllegalArgumentException("Project name and path are required"));
-		MockMvc mockMvc = standaloneSetup(new ProjectController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new ProjectController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(post("/api/projects")
 				.contentType("application/json")
@@ -55,7 +57,7 @@ class ProjectControllerTest {
 	void shouldListProjects() throws Exception {
 		ProjectService service = mock(ProjectService.class);
 		when(service.listProjects()).thenReturn(List.of(project()));
-		MockMvc mockMvc = standaloneSetup(new ProjectController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new ProjectController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/projects"))
 			.andExpect(status().isOk())
@@ -67,7 +69,7 @@ class ProjectControllerTest {
 	void shouldGetProjectById() throws Exception {
 		ProjectService service = mock(ProjectService.class);
 		when(service.getProject("project-1")).thenReturn(java.util.Optional.of(project()));
-		MockMvc mockMvc = standaloneSetup(new ProjectController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new ProjectController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/projects/project-1"))
 			.andExpect(status().isOk())
@@ -79,7 +81,7 @@ class ProjectControllerTest {
 	void shouldReturn404WhenProjectMissing() throws Exception {
 		ProjectService service = mock(ProjectService.class);
 		when(service.getProject("missing")).thenReturn(java.util.Optional.empty());
-		MockMvc mockMvc = standaloneSetup(new ProjectController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new ProjectController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/projects/missing"))
 			.andExpect(status().isNotFound());
@@ -90,7 +92,7 @@ class ProjectControllerTest {
 		ProjectService service = mock(ProjectService.class);
 		Project project = project();
 		when(service.setActive("project-1")).thenReturn(java.util.Optional.of(project));
-		MockMvc mockMvc = standaloneSetup(new ProjectController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new ProjectController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(post("/api/projects/project-1/active"))
 			.andExpect(status().isOk())
@@ -103,7 +105,7 @@ class ProjectControllerTest {
 		Project project = project();
 		project.markArchived();
 		when(service.archive("project-1")).thenReturn(java.util.Optional.of(project));
-		MockMvc mockMvc = standaloneSetup(new ProjectController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new ProjectController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(post("/api/projects/project-1/archive"))
 			.andExpect(status().isOk())
@@ -115,7 +117,7 @@ class ProjectControllerTest {
 		ProjectService service = mock(ProjectService.class);
 		when(service.setActive("missing")).thenReturn(java.util.Optional.empty());
 		when(service.archive("missing")).thenReturn(java.util.Optional.empty());
-		MockMvc mockMvc = standaloneSetup(new ProjectController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new ProjectController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(post("/api/projects/missing/active"))
 			.andExpect(status().isNotFound());

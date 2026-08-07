@@ -2,6 +2,7 @@ package com.aidevos.orchestrator.controller;
 
 import java.util.List;
 
+import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.plan.Plan;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalRequest;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalService;
@@ -32,7 +33,10 @@ public class PlanApprovalController {
 	@GetMapping("/{id}")
 	public ResponseEntity<PlanApprovalRequest> get(@PathVariable String id) {
 		PlanApprovalRequest request = approvalService.get(id);
-		return request == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(request);
+		if (request == null) {
+			throw new ResourceNotFoundException("Plan approval request", id);
+		}
+		return ResponseEntity.ok(request);
 	}
 
 	@PostMapping
@@ -62,7 +66,7 @@ public class PlanApprovalController {
 			return ResponseEntity.ok(operation.apply());
 		}
 		catch (PlanApprovalNotFoundException exception) {
-			return ResponseEntity.notFound().build();
+			throw new ResourceNotFoundException("Plan approval request", exception.getMessage());
 		}
 		catch (IllegalArgumentException | IllegalStateException exception) {
 			return ResponseEntity.status(409).build();

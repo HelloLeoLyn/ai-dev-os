@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import com.aidevos.orchestrator.execution.ExecutionEngine;
 import com.aidevos.orchestrator.execution.ExecutionResult;
 import com.aidevos.orchestrator.job.JobService;
@@ -29,7 +31,7 @@ class JobControllerTest {
 		taskManager.register(task);
 		JobService jobService = new JobService(new JobStore(),
 			new JobWorker(mock(ExecutionEngine.class), 1));
-		MockMvc mockMvc = standaloneSetup(new JobController(taskManager, jobService)).build();
+		MockMvc mockMvc = standaloneSetup(new JobController(taskManager, jobService)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		String response = mockMvc.perform(post("/api/tasks/task-1/jobs"))
 			.andExpect(status().isAccepted())
@@ -102,6 +104,6 @@ class JobControllerTest {
 	private MockMvc mockMvc(JobStore store) {
 		JobService jobService = new JobService(store,
 			new JobWorker(mock(ExecutionEngine.class), 1));
-		return standaloneSetup(new JobController(new TaskManager(), jobService)).build();
+		return standaloneSetup(new JobController(new TaskManager(), jobService)).setControllerAdvice(new GlobalExceptionHandler()).build();
 	}
 }

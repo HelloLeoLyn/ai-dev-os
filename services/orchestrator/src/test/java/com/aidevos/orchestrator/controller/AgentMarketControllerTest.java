@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -22,7 +24,7 @@ class AgentMarketControllerTest {
 	void shouldListPackages() throws Exception {
 		AgentRegistryService registry = mock(AgentRegistryService.class);
 		when(registry.listPackages()).thenReturn(List.of(package_()));
-		MockMvc mockMvc = standaloneSetup(new AgentMarketController(registry)).build();
+		MockMvc mockMvc = standaloneSetup(new AgentMarketController(registry)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/agent-market"))
 			.andExpect(status().isOk())
@@ -37,7 +39,7 @@ class AgentMarketControllerTest {
 	void shouldGetPackageDetail() throws Exception {
 		AgentRegistryService registry = mock(AgentRegistryService.class);
 		when(registry.getPackage("coder-agent")).thenReturn(Optional.of(package_()));
-		MockMvc mockMvc = standaloneSetup(new AgentMarketController(registry)).build();
+		MockMvc mockMvc = standaloneSetup(new AgentMarketController(registry)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/agent-market/coder-agent"))
 			.andExpect(status().isOk())
@@ -51,7 +53,7 @@ class AgentMarketControllerTest {
 	void shouldReturn404WhenPackageMissing() throws Exception {
 		AgentRegistryService registry = mock(AgentRegistryService.class);
 		when(registry.getPackage("missing")).thenReturn(Optional.empty());
-		MockMvc mockMvc = standaloneSetup(new AgentMarketController(registry)).build();
+		MockMvc mockMvc = standaloneSetup(new AgentMarketController(registry)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/agent-market/missing"))
 			.andExpect(status().isNotFound());
@@ -64,7 +66,7 @@ class AgentMarketControllerTest {
 		agentPackage.markInstalled();
 		when(registry.getPackage("coder-agent")).thenReturn(Optional.of(package_()));
 		when(registry.install("coder-agent")).thenReturn(agentPackage);
-		MockMvc mockMvc = standaloneSetup(new AgentMarketController(registry)).build();
+		MockMvc mockMvc = standaloneSetup(new AgentMarketController(registry)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(post("/api/agent-market/coder-agent/install"))
 			.andExpect(status().isOk())
@@ -79,7 +81,7 @@ class AgentMarketControllerTest {
 		agentPackage.markUninstalled();
 		when(registry.getPackage("coder-agent")).thenReturn(Optional.of(package_()));
 		when(registry.uninstall("coder-agent")).thenReturn(agentPackage);
-		MockMvc mockMvc = standaloneSetup(new AgentMarketController(registry)).build();
+		MockMvc mockMvc = standaloneSetup(new AgentMarketController(registry)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(post("/api/agent-market/coder-agent/uninstall"))
 			.andExpect(status().isOk())
@@ -90,7 +92,7 @@ class AgentMarketControllerTest {
 	void shouldReturn404WhenInstallingMissingPackage() throws Exception {
 		AgentRegistryService registry = mock(AgentRegistryService.class);
 		when(registry.getPackage("missing")).thenReturn(Optional.empty());
-		MockMvc mockMvc = standaloneSetup(new AgentMarketController(registry)).build();
+		MockMvc mockMvc = standaloneSetup(new AgentMarketController(registry)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(post("/api/agent-market/missing/install"))
 			.andExpect(status().isNotFound());

@@ -11,6 +11,7 @@ import com.aidevos.orchestrator.manager.AgentManager;
 import com.aidevos.orchestrator.mcpplugin.McpPluginRegistryService;
 import com.aidevos.orchestrator.model.AgentDefinition;
 import com.aidevos.orchestrator.skill.SkillRegistryService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -27,14 +28,25 @@ public class AgentRegistryService {
 	private final AgentManager agentManager;
 	private final SkillRegistryService skillRegistryService;
 	private final McpPluginRegistryService mcpPluginRegistryService;
+	private final AgentPackageRepository repository;
 
 	public AgentRegistryService(AgentMarketConfigLoader configLoader,
 			AgentManager agentManager, SkillRegistryService skillRegistryService,
 			McpPluginRegistryService mcpPluginRegistryService) {
+		this(configLoader, agentManager, skillRegistryService, mcpPluginRegistryService,
+			new InMemoryAgentPackageRepository());
+	}
+
+	@Autowired
+	public AgentRegistryService(AgentMarketConfigLoader configLoader,
+			AgentManager agentManager, SkillRegistryService skillRegistryService,
+			McpPluginRegistryService mcpPluginRegistryService,
+			AgentPackageRepository repository) {
 		this.agentManager = agentManager;
 		this.skillRegistryService = skillRegistryService;
 		this.mcpPluginRegistryService = mcpPluginRegistryService;
-		configLoader.loadPackages().forEach(this::register);
+		this.repository = repository;
+		configLoader.loadPackages().forEach(agentPackage -> register(restore(agentPackage)));
 	}
 
 	public AgentPackage register(AgentPackage agentPackage) {
@@ -46,6 +58,7 @@ public class AgentRegistryService {
 			throw new IllegalArgumentException("Agent package already registered: "
 				+ agentPackage.getAgentId());
 		}
+		repository.save(agentPackage);
 		return agentPackage;
 	}
 
@@ -73,6 +86,7 @@ public class AgentRegistryService {
 		validatePlugins(agentPackage);
 		agentManager.register(toDefinition(agentPackage));
 		agentPackage.markInstalled();
+		repository.save(agentPackage);
 		return agentPackage;
 	}
 
@@ -85,6 +99,7 @@ public class AgentRegistryService {
 		if (agentPackage.isInstalled()) {
 			agentManager.removeAgent(agentId);
 			agentPackage.markUninstalled();
+			repository.save(agentPackage);
 		}
 		return agentPackage;
 	}
@@ -102,7 +117,21 @@ public class AgentRegistryService {
 		if (agentPackage.isInstalled()) {
 			agentManager.register(toDefinition(agentPackage));
 		}
+		repository.save(agentPackage);
 		return agentPackage;
+	}
+
+	private AgentPackage restore(AgentPackage agentPackage) {
+		AgentPackage persisted = repository.get(agentPackage.getAgentId());
+		if (persisted == null) {
+			return agentPackage;
+		}
+		return new AgentPackage(agentPackage.getAgentId(), agentPackage.getName(),
+			persisted.getVersion() != null ? persisted.getVersion() : agentPackage.getVersion(),
+			agentPackage.getDescription(), agentPackage.getAuthor(),
+			agentPackage.getCapabilities(), agentPackage.getSkills(), agentPackage.getPlugins(),
+			agentPackage.getExecutor(), agentPackage.getExecutorConfig(),
+			persisted.isEnabled(), persisted.isInstalled());
 	}
 
 	private AgentPackage requirePackage(String agentId) {

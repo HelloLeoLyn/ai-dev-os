@@ -10,6 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import com.aidevos.orchestrator.manager.AgentManager;
 import com.aidevos.orchestrator.model.AgentDefinition;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -25,10 +26,18 @@ public class SkillRegistryService {
 
 	private final Map<String, Skill> skills = new ConcurrentHashMap<>();
 	private final AgentManager agentManager;
+	private final SkillRepository repository;
 
 	public SkillRegistryService(SkillConfigLoader configLoader, AgentManager agentManager) {
+		this(configLoader, agentManager, new InMemorySkillRepository());
+	}
+
+	@Autowired
+	public SkillRegistryService(SkillConfigLoader configLoader, AgentManager agentManager,
+			SkillRepository repository) {
 		this.agentManager = agentManager;
-		configLoader.loadSkills().forEach(this::register);
+		this.repository = repository;
+		configLoader.loadSkills().forEach(skill -> register(restore(skill)));
 	}
 
 	public Skill register(Skill skill) {
@@ -39,6 +48,7 @@ public class SkillRegistryService {
 		if (previous != null) {
 			throw new IllegalArgumentException("Skill already registered: " + skill.getSkillId());
 		}
+		repository.save(skill);
 		return skill;
 	}
 
@@ -57,14 +67,30 @@ public class SkillRegistryService {
 
 	public Optional<Skill> enable(String skillId) {
 		Optional<Skill> skill = getSkill(skillId);
-		skill.ifPresent(Skill::enable);
+		skill.ifPresent(value -> {
+			value.enable();
+			repository.save(value);
+		});
 		return skill;
 	}
 
 	public Optional<Skill> disable(String skillId) {
 		Optional<Skill> skill = getSkill(skillId);
-		skill.ifPresent(Skill::disable);
+		skill.ifPresent(value -> {
+			value.disable();
+			repository.save(value);
+		});
 		return skill;
+	}
+
+	private Skill restore(Skill skill) {
+		Skill persisted = repository.get(skill.getSkillId());
+		if (persisted == null) {
+			return skill;
+		}
+		return new Skill(skill.getSkillId(), skill.getName(), skill.getDescription(),
+			skill.getType(), skill.getVersion(), persisted.isEnabled(), skill.getTools(),
+			skill.getInstructions(), skill.getCreatedAt(), skill.getUpdatedAt());
 	}
 
 	/**

@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -23,7 +25,7 @@ class SkillControllerTest {
 	void shouldListSkills() throws Exception {
 		SkillRegistryService registry = mock(SkillRegistryService.class);
 		when(registry.listSkills()).thenReturn(List.of(skill()));
-		MockMvc mockMvc = standaloneSetup(new SkillController(registry)).build();
+		MockMvc mockMvc = standaloneSetup(new SkillController(registry)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/skills"))
 			.andExpect(status().isOk())
@@ -38,7 +40,7 @@ class SkillControllerTest {
 	void shouldGetSkillDetail() throws Exception {
 		SkillRegistryService registry = mock(SkillRegistryService.class);
 		when(registry.getSkill("coding-skill")).thenReturn(Optional.of(skill()));
-		MockMvc mockMvc = standaloneSetup(new SkillController(registry)).build();
+		MockMvc mockMvc = standaloneSetup(new SkillController(registry)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/skills/coding-skill"))
 			.andExpect(status().isOk())
@@ -51,7 +53,7 @@ class SkillControllerTest {
 	void shouldReturn404WhenSkillMissing() throws Exception {
 		SkillRegistryService registry = mock(SkillRegistryService.class);
 		when(registry.getSkill("missing")).thenReturn(Optional.empty());
-		MockMvc mockMvc = standaloneSetup(new SkillController(registry)).build();
+		MockMvc mockMvc = standaloneSetup(new SkillController(registry)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/skills/missing"))
 			.andExpect(status().isNotFound());
@@ -61,7 +63,7 @@ class SkillControllerTest {
 	void shouldGetSkillsForAgent() throws Exception {
 		SkillRegistryService registry = mock(SkillRegistryService.class);
 		when(registry.getSkillsForAgent("coder")).thenReturn(List.of(skill()));
-		MockMvc mockMvc = standaloneSetup(new SkillController(registry)).build();
+		MockMvc mockMvc = standaloneSetup(new SkillController(registry)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/skills/agents/coder"))
 			.andExpect(status().isOk())
@@ -74,7 +76,7 @@ class SkillControllerTest {
 		Skill skill = skill();
 		skill.enable();
 		when(registry.enable("coding-skill")).thenReturn(Optional.of(skill));
-		MockMvc mockMvc = standaloneSetup(new SkillController(registry)).build();
+		MockMvc mockMvc = standaloneSetup(new SkillController(registry)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(post("/api/skills/coding-skill/enable"))
 			.andExpect(status().isOk())
@@ -87,7 +89,7 @@ class SkillControllerTest {
 		Skill skill = skill();
 		skill.disable();
 		when(registry.disable("coding-skill")).thenReturn(Optional.of(skill));
-		MockMvc mockMvc = standaloneSetup(new SkillController(registry)).build();
+		MockMvc mockMvc = standaloneSetup(new SkillController(registry)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(post("/api/skills/coding-skill/disable"))
 			.andExpect(status().isOk())
@@ -99,7 +101,7 @@ class SkillControllerTest {
 		SkillRegistryService registry = mock(SkillRegistryService.class);
 		when(registry.enable("missing")).thenReturn(Optional.empty());
 		when(registry.disable("missing")).thenReturn(Optional.empty());
-		MockMvc mockMvc = standaloneSetup(new SkillController(registry)).build();
+		MockMvc mockMvc = standaloneSetup(new SkillController(registry)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(post("/api/skills/missing/enable"))
 			.andExpect(status().isNotFound());

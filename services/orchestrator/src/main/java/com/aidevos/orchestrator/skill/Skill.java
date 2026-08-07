@@ -1,5 +1,6 @@
 package com.aidevos.orchestrator.skill;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -16,10 +17,19 @@ public class Skill {
 	private final String version;
 	private final List<String> tools;
 	private final String instructions;
+	private final Instant createdAt;
+	private volatile Instant updatedAt;
 	private volatile boolean enabled;
 
 	public Skill(String skillId, String name, String description, SkillType type,
 			String version, boolean enabled, List<String> tools, String instructions) {
+		this(skillId, name, description, type, version, enabled, tools, instructions,
+			Instant.now(), Instant.now());
+	}
+
+	public Skill(String skillId, String name, String description, SkillType type,
+			String version, boolean enabled, List<String> tools, String instructions,
+			Instant createdAt, Instant updatedAt) {
 		this.skillId = skillId;
 		this.name = name;
 		this.description = description;
@@ -28,14 +38,18 @@ public class Skill {
 		this.enabled = enabled;
 		this.tools = tools == null ? List.of() : List.copyOf(tools);
 		this.instructions = instructions;
+		this.createdAt = createdAt == null ? Instant.now() : createdAt;
+		this.updatedAt = updatedAt == null ? Instant.now() : updatedAt;
 	}
 
 	public synchronized void enable() {
 		this.enabled = true;
+		this.updatedAt = Instant.now();
 	}
 
 	public synchronized void disable() {
 		this.enabled = false;
+		this.updatedAt = Instant.now();
 	}
 
 	public String getSkillId() {
@@ -68,5 +82,13 @@ public class Skill {
 
 	public String getInstructions() {
 		return instructions;
+	}
+
+	public Instant getCreatedAt() {
+		return createdAt;
+	}
+
+	public Instant getUpdatedAt() {
+		return updatedAt;
 	}
 }

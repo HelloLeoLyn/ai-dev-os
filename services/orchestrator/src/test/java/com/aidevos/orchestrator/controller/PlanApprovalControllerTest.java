@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -27,7 +29,7 @@ class PlanApprovalControllerTest {
 		when(service.getAll()).thenReturn(List.of(approval));
 		when(service.approve("approval-1", "alice")).thenReturn(approval);
 		MockMvc mvc = MockMvcBuilders.standaloneSetup(
-			new PlanApprovalController(service)).build();
+			new PlanApprovalController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mvc.perform(get("/api/plan-approvals"))
 			.andExpect(status().isOk())

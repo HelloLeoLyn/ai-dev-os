@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import com.aidevos.orchestrator.modelrouter.ModelProvider;
 import com.aidevos.orchestrator.modelrouter.ModelRoute;
 import com.aidevos.orchestrator.modelrouter.ModelRouterService;
@@ -27,7 +29,7 @@ class ModelControllerTest {
 		deepseek.setModel("deepseek-chat");
 		deepseek.setEnabled(true);
 		when(service.listProviders()).thenReturn(List.of(deepseek));
-		MockMvc mockMvc = standaloneSetup(new ModelController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new ModelController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/models"))
 			.andExpect(status().isOk())
@@ -44,7 +46,7 @@ class ModelControllerTest {
 		when(service.listRoutes()).thenReturn(List.of(
 			new ModelRoute("TASK_ANALYSIS", "deepseek", "deepseek-chat", true),
 			new ModelRoute("GENERAL", "openai", "gpt-4o", true)));
-		MockMvc mockMvc = standaloneSetup(new ModelController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new ModelController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/models/routes"))
 			.andExpect(status().isOk())

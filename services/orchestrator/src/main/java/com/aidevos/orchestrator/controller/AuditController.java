@@ -7,10 +7,8 @@ import com.aidevos.orchestrator.audit.query.AuditQueryService;
 import com.aidevos.orchestrator.audit.timeline.ExecutionTimeline;
 import com.aidevos.orchestrator.audit.timeline.TimelineService;
 import java.time.Instant;
-import java.util.Map;
 import java.util.Set;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -74,8 +72,4 @@ public class AuditController {
 		return timelineService.job(id, eventTypes, offset, limit);
 	}
 
-	@ExceptionHandler(IllegalArgumentException.class)
-	public ResponseEntity<Map<String, String>> invalidQuery(IllegalArgumentException exception) {
-		return ResponseEntity.badRequest().body(Map.of("error", exception.getMessage()));
-	}
 }

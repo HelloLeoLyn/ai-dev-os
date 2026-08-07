@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import java.util.List;
 
 import com.aidevos.orchestrator.approval.CodingApprovalRequest;
@@ -55,7 +57,7 @@ class ApprovalControllerTest {
 	}
 
 	private MockMvc mvc(CodingApprovalService approvalService, JobService jobService) {
-		return MockMvcBuilders.standaloneSetup(new ApprovalController(approvalService, jobService)).build();
+		return MockMvcBuilders.standaloneSetup(new ApprovalController(approvalService, jobService)).setControllerAdvice(new GlobalExceptionHandler()).build();
 	}
 
 	private CodingApprovalRequest request(String id, String jobId) {

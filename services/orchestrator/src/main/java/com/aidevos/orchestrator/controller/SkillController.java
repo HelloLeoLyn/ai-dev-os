@@ -2,6 +2,7 @@ package com.aidevos.orchestrator.controller;
 
 import java.util.List;
 
+import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.skill.Skill;
 import com.aidevos.orchestrator.skill.SkillRegistryService;
 import org.springframework.http.ResponseEntity;
@@ -32,9 +33,8 @@ public class SkillController {
 
 	@GetMapping("/{id}")
 	public ResponseEntity<Skill> get(@PathVariable String id) {
-		return registry.getSkill(id)
-			.map(ResponseEntity::ok)
-			.orElseGet(() -> ResponseEntity.notFound().build());
+		return ResponseEntity.ok(registry.getSkill(id)
+			.orElseThrow(() -> new ResourceNotFoundException("Skill", id)));
 	}
 
 	@GetMapping("/agents/{agentName}")
@@ -44,15 +44,13 @@ public class SkillController {
 
 	@PostMapping("/{id}/enable")
 	public ResponseEntity<Skill> enable(@PathVariable String id) {
-		return registry.enable(id)
-			.map(ResponseEntity::ok)
-			.orElseGet(() -> ResponseEntity.notFound().build());
+		return ResponseEntity.ok(registry.enable(id)
+			.orElseThrow(() -> new ResourceNotFoundException("Skill", id)));
 	}
 
 	@PostMapping("/{id}/disable")
 	public ResponseEntity<Skill> disable(@PathVariable String id) {
-		return registry.disable(id)
-			.map(ResponseEntity::ok)
-			.orElseGet(() -> ResponseEntity.notFound().build());
+		return ResponseEntity.ok(registry.disable(id)
+			.orElseThrow(() -> new ResourceNotFoundException("Skill", id)));
 	}
 }

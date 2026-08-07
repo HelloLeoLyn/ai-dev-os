@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import java.util.List;
 
 import com.aidevos.orchestrator.job.JobService;
@@ -27,7 +29,7 @@ class ToolApprovalControllerTest {
 		when(service.approve("tool-approval-1")).thenReturn(request);
 		when(jobs.resumeAfterApproval("job-1")).thenReturn(true);
 		MockMvc mvc = MockMvcBuilders.standaloneSetup(
-			new ToolApprovalController(service, jobs)).build();
+			new ToolApprovalController(service, jobs)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mvc.perform(get("/api/tool-approvals"))
 			.andExpect(status().isOk())

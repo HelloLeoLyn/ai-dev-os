@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -19,9 +20,17 @@ import org.springframework.stereotype.Service;
 public class McpPluginRegistryService {
 
 	private final Map<String, McpPlugin> plugins = new ConcurrentHashMap<>();
+	private final McpPluginRepository repository;
 
 	public McpPluginRegistryService(McpPluginConfigLoader configLoader) {
-		configLoader.loadPlugins().forEach(this::register);
+		this(configLoader, new InMemoryMcpPluginRepository());
+	}
+
+	@Autowired
+	public McpPluginRegistryService(McpPluginConfigLoader configLoader,
+			McpPluginRepository repository) {
+		this.repository = repository;
+		configLoader.loadPlugins().forEach(plugin -> register(restore(plugin)));
 	}
 
 	public McpPlugin register(McpPlugin plugin) {
@@ -32,6 +41,7 @@ public class McpPluginRegistryService {
 		if (previous != null) {
 			throw new IllegalArgumentException("Plugin already registered: " + plugin.getPluginId());
 		}
+		repository.save(plugin);
 		return plugin;
 	}
 
@@ -50,18 +60,34 @@ public class McpPluginRegistryService {
 
 	public Optional<McpPlugin> enable(String pluginId) {
 		Optional<McpPlugin> plugin = getPlugin(pluginId);
-		plugin.ifPresent(McpPlugin::enable);
+		plugin.ifPresent(value -> {
+			value.enable();
+			repository.save(value);
+		});
 		return plugin;
 	}
 
 	public Optional<McpPlugin> disable(String pluginId) {
 		Optional<McpPlugin> plugin = getPlugin(pluginId);
-		plugin.ifPresent(McpPlugin::disable);
+		plugin.ifPresent(value -> {
+			value.disable();
+			repository.save(value);
+		});
 		return plugin;
 	}
 
 	public List<McpPluginTool> getTools(String pluginId) {
 		return getPlugin(pluginId).map(McpPlugin::getTools).orElseGet(List::of);
+	}
+
+	private McpPlugin restore(McpPlugin plugin) {
+		McpPlugin persisted = repository.get(plugin.getPluginId());
+		if (persisted == null) {
+			return plugin;
+		}
+		return new McpPlugin(plugin.getPluginId(), plugin.getName(), plugin.getType(),
+			plugin.getDescription(), persisted.getPermissionLevel(), persisted.isEnabled(),
+			plugin.getTools());
 	}
 
 	private boolean isBlank(String value) {

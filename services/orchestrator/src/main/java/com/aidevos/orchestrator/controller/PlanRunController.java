@@ -3,6 +3,7 @@ package com.aidevos.orchestrator.controller;
 import java.net.URI;
 import java.util.List;
 
+import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.plan.run.PlanRun;
 import com.aidevos.orchestrator.plan.schedule.PlanScheduler;
 import org.springframework.http.ResponseEntity;
@@ -31,7 +32,7 @@ public class PlanRunController {
 				.body(run);
 		}
 		catch (IllegalArgumentException exception) {
-			return ResponseEntity.notFound().build();
+			throw new ResourceNotFoundException("Approval", request.approvalId());
 		}
 		catch (IllegalStateException exception) {
 			return ResponseEntity.status(409).build();
@@ -41,7 +42,10 @@ public class PlanRunController {
 	@GetMapping("/{id}")
 	public ResponseEntity<PlanRun> get(@PathVariable String id) {
 		PlanRun run = scheduler.get(id);
-		return run == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(run);
+		if (run == null) {
+			throw new ResourceNotFoundException("Plan run", id);
+		}
+		return ResponseEntity.ok(run);
 	}
 
 	@GetMapping

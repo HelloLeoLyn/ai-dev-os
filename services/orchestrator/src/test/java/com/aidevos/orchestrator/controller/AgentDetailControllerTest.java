@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -25,7 +27,7 @@ class AgentDetailControllerTest {
 
 	private MockMvc mockMvc(AgentRegistryService registryService) {
 		return standaloneSetup(
-			new AgentController(new AgentManager(), registryService)).build();
+			new AgentController(new AgentManager(), registryService)).setControllerAdvice(new GlobalExceptionHandler()).build();
 	}
 
 	@Test

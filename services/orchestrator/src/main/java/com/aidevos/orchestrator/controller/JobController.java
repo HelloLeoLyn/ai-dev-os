@@ -3,6 +3,7 @@ package com.aidevos.orchestrator.controller;
 import java.net.URI;
 import java.util.List;
 
+import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.job.ExecutionJob;
 import com.aidevos.orchestrator.job.JobQueueFullException;
 import com.aidevos.orchestrator.job.JobService;
@@ -32,7 +33,7 @@ public class JobController {
 	public ResponseEntity<JobSubmissionResponse> submit(@PathVariable String id) {
 		TaskDefinition taskDefinition = taskManager.getTask(id);
 		if (taskDefinition == null) {
-			return ResponseEntity.notFound().build();
+			throw new ResourceNotFoundException("Task", id);
 		}
 		try {
 			JobSubmissionResponse response = jobService.submit(taskDefinition);
@@ -48,7 +49,10 @@ public class JobController {
 	@GetMapping("/api/jobs/{id}")
 	public ResponseEntity<ExecutionJob> get(@PathVariable String id) {
 		ExecutionJob job = jobService.get(id);
-		return job == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(job);
+		if (job == null) {
+			throw new ResourceNotFoundException("Job", id);
+		}
+		return ResponseEntity.ok(job);
 	}
 
 	@GetMapping("/api/jobs")

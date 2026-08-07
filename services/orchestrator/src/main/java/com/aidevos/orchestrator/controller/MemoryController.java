@@ -2,6 +2,7 @@ package com.aidevos.orchestrator.controller;
 
 import java.util.List;
 
+import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.memory.CreateMemoryRequest;
 import com.aidevos.orchestrator.memory.MemoryRecord;
 import com.aidevos.orchestrator.memory.MemoryService;
@@ -47,13 +48,17 @@ public class MemoryController {
 	@GetMapping("/{id}")
 	public ResponseEntity<MemoryRecord> get(@PathVariable String id) {
 		MemoryRecord record = memoryService.get(id);
-		return record == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(record);
+		if (record == null) {
+			throw new ResourceNotFoundException("Memory record", id);
+		}
+		return ResponseEntity.ok(record);
 	}
 
 	@DeleteMapping("/{id}")
 	public ResponseEntity<Void> delete(@PathVariable String id) {
-		return memoryService.delete(id)
-			? ResponseEntity.noContent().build()
-			: ResponseEntity.notFound().build();
+		if (!memoryService.delete(id)) {
+			throw new ResourceNotFoundException("Memory record", id);
+		}
+		return ResponseEntity.noContent().build();
 	}
 }

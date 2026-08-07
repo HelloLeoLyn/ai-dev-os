@@ -2,6 +2,7 @@ package com.aidevos.orchestrator.controller;
 
 import java.util.List;
 
+import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.taskcenter.CreateTaskRequest;
 import com.aidevos.orchestrator.taskcenter.TaskCenterService;
 import com.aidevos.orchestrator.taskcenter.TaskRecord;
@@ -37,8 +38,7 @@ public class TaskController {
 
 	@GetMapping("/{id}")
 	public ResponseEntity<TaskRecord> get(@PathVariable String id) {
-		return taskCenterService.getTask(id)
-			.map(ResponseEntity::ok)
-			.orElseGet(() -> ResponseEntity.notFound().build());
+		return ResponseEntity.ok(taskCenterService.getTask(id)
+			.orElseThrow(() -> new ResourceNotFoundException("Task", id)));
 	}
 }

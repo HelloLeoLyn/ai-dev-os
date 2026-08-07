@@ -3,6 +3,7 @@ package com.aidevos.orchestrator.controller;
 import java.net.URI;
 import java.util.List;
 
+import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.schedule.ScheduleService;
 import com.aidevos.orchestrator.schedule.ScheduledTask;
 import org.springframework.http.ResponseEntity;
@@ -43,8 +44,9 @@ public class ScheduleController {
 
 	@DeleteMapping("/{id}")
 	public ResponseEntity<Void> delete(@PathVariable String id) {
-		return scheduleService.remove(id)
-				? ResponseEntity.noContent().build()
-				: ResponseEntity.notFound().build();
+		if (!scheduleService.remove(id)) {
+			throw new ResourceNotFoundException("Schedule", id);
+		}
+		return ResponseEntity.noContent().build();
 	}
 }

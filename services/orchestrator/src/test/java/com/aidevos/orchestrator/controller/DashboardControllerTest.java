@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -36,7 +38,7 @@ class DashboardControllerTest {
 			new ExecutionStatistics(2, 1, 1, 0, 50.0), List.of());
 		when(service.getSummary()).thenReturn(summary);
 		MockMvc mockMvc = standaloneSetup(
-			new DashboardController(service, mock(DashboardQueryService.class))).build();
+			new DashboardController(service, mock(DashboardQueryService.class))).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/dashboard"))
 			.andExpect(status().isOk())
@@ -62,7 +64,7 @@ class DashboardControllerTest {
 			new DashboardSummaryDTO.Recovery(1));
 		when(service.getDashboardSummary()).thenReturn(dto);
 		MockMvc mockMvc = standaloneSetup(
-			new DashboardController(service, mock(DashboardQueryService.class))).build();
+			new DashboardController(service, mock(DashboardQueryService.class))).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/dashboard/summary"))
 			.andExpect(status().isOk())
@@ -85,7 +87,7 @@ class DashboardControllerTest {
 			5, "worker-1", Instant.parse("2026-08-01T00:00:00Z"),
 			Instant.parse("2026-08-01T00:01:00Z"))));
 		MockMvc mockMvc = standaloneSetup(
-			new DashboardController(mock(DashboardService.class), queryService)).build();
+			new DashboardController(mock(DashboardService.class), queryService)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/dashboard/jobs"))
 			.andExpect(status().isOk())
@@ -106,7 +108,7 @@ class DashboardControllerTest {
 			new ExecutionSummaryDTO("exec-1", "job-1", "FAILED", 2, "STALE_EXECUTION",
 				Instant.parse("2026-08-01T00:00:00Z"))));
 		MockMvc mockMvc = standaloneSetup(
-			new DashboardController(mock(DashboardService.class), queryService)).build();
+			new DashboardController(mock(DashboardService.class), queryService)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/dashboard/executions"))
 			.andExpect(status().isOk())
@@ -126,7 +128,7 @@ class DashboardControllerTest {
 		when(queryService.timeline("job-1")).thenReturn(
 			new DashboardTimeline("JOB", "job-1", List.of()));
 		MockMvc mockMvc = standaloneSetup(
-			new DashboardController(mock(DashboardService.class), queryService)).build();
+			new DashboardController(mock(DashboardService.class), queryService)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/dashboard/timeline/job-1"))
 			.andExpect(status().isOk())

@@ -4,8 +4,8 @@ import java.util.List;
 
 import com.aidevos.orchestrator.agentmarket.AgentPackage;
 import com.aidevos.orchestrator.agentmarket.AgentRegistryService;
+import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,29 +33,21 @@ public class AgentMarketController {
 
 	@GetMapping("/{id}")
 	public ResponseEntity<AgentPackage> get(@PathVariable String id) {
-		return registry.getPackage(id)
-			.map(ResponseEntity::ok)
-			.orElseGet(() -> ResponseEntity.notFound().build());
+		return ResponseEntity.ok(registry.getPackage(id)
+			.orElseThrow(() -> new ResourceNotFoundException("Agent package", id)));
 	}
 
 	@PostMapping("/{id}/install")
 	public ResponseEntity<AgentPackage> install(@PathVariable String id) {
-		if (registry.getPackage(id).isEmpty()) {
-			return ResponseEntity.notFound().build();
-		}
+		registry.getPackage(id)
+			.orElseThrow(() -> new ResourceNotFoundException("Agent package", id));
 		return ResponseEntity.ok(registry.install(id));
 	}
 
 	@PostMapping("/{id}/uninstall")
 	public ResponseEntity<AgentPackage> uninstall(@PathVariable String id) {
-		if (registry.getPackage(id).isEmpty()) {
-			return ResponseEntity.notFound().build();
-		}
+		registry.getPackage(id)
+			.orElseThrow(() -> new ResourceNotFoundException("Agent package", id));
 		return ResponseEntity.ok(registry.uninstall(id));
-	}
-
-	@ExceptionHandler(IllegalArgumentException.class)
-	public ResponseEntity<Void> handleIllegalArgument(IllegalArgumentException exception) {
-		return ResponseEntity.badRequest().build();
 	}
 }

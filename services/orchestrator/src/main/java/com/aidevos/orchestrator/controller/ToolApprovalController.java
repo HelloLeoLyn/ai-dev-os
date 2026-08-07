@@ -2,6 +2,7 @@ package com.aidevos.orchestrator.controller;
 
 import java.util.List;
 
+import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.job.JobService;
 import com.aidevos.orchestrator.tool.approval.ToolApprovalRequest;
 import com.aidevos.orchestrator.tool.approval.ToolApprovalService;
@@ -33,7 +34,7 @@ public class ToolApprovalController {
 	public ResponseEntity<ToolApprovalRequest> approve(@PathVariable String id) {
 		ToolApprovalRequest request = approvalService.approve(id);
 		if (request == null) {
-			return ResponseEntity.notFound().build();
+			throw new ResourceNotFoundException("Tool approval request", id);
 		}
 		if (request.getJobId() != null && !jobService.resumeAfterApproval(request.getJobId())) {
 			return ResponseEntity.status(409).body(request);
@@ -47,6 +48,9 @@ public class ToolApprovalController {
 		if (request != null && request.getJobId() != null) {
 			jobService.rejectApproval(request.getJobId());
 		}
-		return request == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(request);
+		if (request == null) {
+			throw new ResourceNotFoundException("Tool approval request", id);
+		}
+		return ResponseEntity.ok(request);
 	}
 }

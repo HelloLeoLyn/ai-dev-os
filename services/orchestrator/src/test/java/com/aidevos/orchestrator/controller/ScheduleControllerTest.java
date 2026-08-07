@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import java.util.List;
 
 import com.aidevos.orchestrator.schedule.ScheduleService;
@@ -73,7 +75,7 @@ class ScheduleControllerTest {
 	}
 
 	private MockMvc mockMvc(ScheduleService service) {
-		return standaloneSetup(new ScheduleController(service)).build();
+		return standaloneSetup(new ScheduleController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 	}
 
 	private ScheduledTask scheduledTask(boolean enabled) {

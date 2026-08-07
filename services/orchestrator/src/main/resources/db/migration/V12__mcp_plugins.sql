@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS mcp_plugins (
+    plugin_id VARCHAR(255) PRIMARY KEY,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    permission_level VARCHAR(32) NOT NULL DEFAULT 'read-only',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

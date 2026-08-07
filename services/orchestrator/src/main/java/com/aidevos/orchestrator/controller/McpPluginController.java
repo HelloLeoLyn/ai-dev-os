@@ -2,6 +2,7 @@ package com.aidevos.orchestrator.controller;
 
 import java.util.List;
 
+import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.mcpplugin.McpPlugin;
 import com.aidevos.orchestrator.mcpplugin.McpPluginRegistryService;
 import org.springframework.http.ResponseEntity;
@@ -32,22 +33,19 @@ public class McpPluginController {
 
 	@GetMapping("/{id}")
 	public ResponseEntity<McpPlugin> get(@PathVariable String id) {
-		return registry.getPlugin(id)
-			.map(ResponseEntity::ok)
-			.orElseGet(() -> ResponseEntity.notFound().build());
+		return ResponseEntity.ok(registry.getPlugin(id)
+			.orElseThrow(() -> new ResourceNotFoundException("MCP plugin", id)));
 	}
 
 	@PostMapping("/{id}/enable")
 	public ResponseEntity<McpPlugin> enable(@PathVariable String id) {
-		return registry.enable(id)
-			.map(ResponseEntity::ok)
-			.orElseGet(() -> ResponseEntity.notFound().build());
+		return ResponseEntity.ok(registry.enable(id)
+			.orElseThrow(() -> new ResourceNotFoundException("MCP plugin", id)));
 	}
 
 	@PostMapping("/{id}/disable")
 	public ResponseEntity<McpPlugin> disable(@PathVariable String id) {
-		return registry.disable(id)
-			.map(ResponseEntity::ok)
-			.orElseGet(() -> ResponseEntity.notFound().build());
+		return ResponseEntity.ok(registry.disable(id)
+			.orElseThrow(() -> new ResourceNotFoundException("MCP plugin", id)));
 	}
 }

@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import com.aidevos.orchestrator.audit.*;
 import com.aidevos.orchestrator.audit.query.*;
 import com.aidevos.orchestrator.audit.timeline.TimelineService;
@@ -23,7 +25,7 @@ class AuditControllerTest {
 			"2026-08-03T01:00:01Z"));
 		AuditController controller = new AuditController(new AuditQueryService(repository),
 			new TimelineService(repository));
-		mvc = standaloneSetup(controller).build();
+		mvc = standaloneSetup(controller).setControllerAdvice(new GlobalExceptionHandler()).build();
 	}
 
 	@Test

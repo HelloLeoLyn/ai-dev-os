@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import java.util.List;
 
 import com.aidevos.orchestrator.mcpplugin.McpPlugin;
@@ -23,7 +25,7 @@ class McpPluginControllerTest {
 	void shouldListPlugins() throws Exception {
 		McpPluginRegistryService registry = mock(McpPluginRegistryService.class);
 		when(registry.listPlugins()).thenReturn(List.of(plugin()));
-		MockMvc mockMvc = standaloneSetup(new McpPluginController(registry)).build();
+		MockMvc mockMvc = standaloneSetup(new McpPluginController(registry)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/mcp/plugins"))
 			.andExpect(status().isOk())
@@ -36,7 +38,7 @@ class McpPluginControllerTest {
 	void shouldGetPluginDetail() throws Exception {
 		McpPluginRegistryService registry = mock(McpPluginRegistryService.class);
 		when(registry.getPlugin("filesystem")).thenReturn(java.util.Optional.of(plugin()));
-		MockMvc mockMvc = standaloneSetup(new McpPluginController(registry)).build();
+		MockMvc mockMvc = standaloneSetup(new McpPluginController(registry)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/mcp/plugins/filesystem"))
 			.andExpect(status().isOk())
@@ -49,7 +51,7 @@ class McpPluginControllerTest {
 	void shouldReturn404WhenPluginMissing() throws Exception {
 		McpPluginRegistryService registry = mock(McpPluginRegistryService.class);
 		when(registry.getPlugin("missing")).thenReturn(java.util.Optional.empty());
-		MockMvc mockMvc = standaloneSetup(new McpPluginController(registry)).build();
+		MockMvc mockMvc = standaloneSetup(new McpPluginController(registry)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/mcp/plugins/missing"))
 			.andExpect(status().isNotFound());
@@ -61,7 +63,7 @@ class McpPluginControllerTest {
 		McpPlugin plugin = plugin();
 		plugin.enable();
 		when(registry.enable("filesystem")).thenReturn(java.util.Optional.of(plugin));
-		MockMvc mockMvc = standaloneSetup(new McpPluginController(registry)).build();
+		MockMvc mockMvc = standaloneSetup(new McpPluginController(registry)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(post("/api/mcp/plugins/filesystem/enable"))
 			.andExpect(status().isOk())
@@ -74,7 +76,7 @@ class McpPluginControllerTest {
 		McpPlugin plugin = plugin();
 		plugin.disable();
 		when(registry.disable("filesystem")).thenReturn(java.util.Optional.of(plugin));
-		MockMvc mockMvc = standaloneSetup(new McpPluginController(registry)).build();
+		MockMvc mockMvc = standaloneSetup(new McpPluginController(registry)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(post("/api/mcp/plugins/filesystem/disable"))
 			.andExpect(status().isOk())
@@ -86,7 +88,7 @@ class McpPluginControllerTest {
 		McpPluginRegistryService registry = mock(McpPluginRegistryService.class);
 		when(registry.enable("missing")).thenReturn(java.util.Optional.empty());
 		when(registry.disable("missing")).thenReturn(java.util.Optional.empty());
-		MockMvc mockMvc = standaloneSetup(new McpPluginController(registry)).build();
+		MockMvc mockMvc = standaloneSetup(new McpPluginController(registry)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(post("/api/mcp/plugins/missing/enable"))
 			.andExpect(status().isNotFound());

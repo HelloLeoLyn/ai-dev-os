@@ -4,6 +4,7 @@ import java.util.List;
 
 import com.aidevos.orchestrator.approval.CodingApprovalRequest;
 import com.aidevos.orchestrator.approval.CodingApprovalService;
+import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.job.JobService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,7 +34,7 @@ public class ApprovalController {
 	public ResponseEntity<CodingApprovalRequest> approve(@PathVariable String id) {
 		CodingApprovalRequest request = approvalService.approve(id);
 		if (request == null) {
-			return ResponseEntity.notFound().build();
+			throw new ResourceNotFoundException("Approval request", id);
 		}
 		if (request.getJobId() != null) {
 			if (!jobService.resumeAfterApproval(request.getJobId())) {
@@ -49,6 +50,9 @@ public class ApprovalController {
 		if (request != null && request.getJobId() != null) {
 			jobService.rejectApproval(request.getJobId());
 		}
-		return request == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(request);
+		if (request == null) {
+			throw new ResourceNotFoundException("Approval request", id);
+		}
+		return ResponseEntity.ok(request);
 	}
 }

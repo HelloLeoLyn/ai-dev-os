@@ -6,6 +6,7 @@ import com.aidevos.orchestrator.dashboard.AgentRegistryService;
 import com.aidevos.orchestrator.dashboard.AgentStatusDTO;
 import com.aidevos.orchestrator.manager.AgentManager;
 import com.aidevos.orchestrator.model.AgentDefinition;
+import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -36,15 +37,13 @@ public class AgentController {
 
 	@GetMapping("/api/agents/{id}")
 	public ResponseEntity<AgentDetailDTO> getAgentDetail(@PathVariable String id) {
-		return agentRegistryService.getAgentDetail(id)
-			.map(ResponseEntity::ok)
-			.orElseGet(() -> ResponseEntity.notFound().build());
+		return ResponseEntity.ok(agentRegistryService.getAgentDetail(id)
+			.orElseThrow(() -> new ResourceNotFoundException("Agent", id)));
 	}
 
 	@GetMapping("/api/agents/{id}/history")
 	public ResponseEntity<AgentHistoryDTO> getAgentHistory(@PathVariable String id) {
-		return agentRegistryService.getAgentHistory(id)
-			.map(ResponseEntity::ok)
-			.orElseGet(() -> ResponseEntity.notFound().build());
+		return ResponseEntity.ok(agentRegistryService.getAgentHistory(id)
+			.orElseThrow(() -> new ResourceNotFoundException("Agent", id)));
 	}
 }

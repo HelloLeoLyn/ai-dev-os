@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -29,7 +31,7 @@ class PlanRunControllerTest {
 		PlanRun run = new PlanRun("run-1", "approval-1", plan, List.of(), Instant.now());
 		when(scheduler.start("approval-1")).thenReturn(run);
 		when(scheduler.get("run-1")).thenReturn(run);
-		MockMvc mvc = MockMvcBuilders.standaloneSetup(new PlanRunController(scheduler)).build();
+		MockMvc mvc = MockMvcBuilders.standaloneSetup(new PlanRunController(scheduler)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mvc.perform(post("/api/plan-runs").contentType("application/json")
 				.content("{\"approvalId\":\"approval-1\"}"))

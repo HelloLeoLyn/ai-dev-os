@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import java.util.List;
 
 import com.aidevos.orchestrator.agentcoordinator.AgentCoordinatorService;
@@ -26,7 +28,7 @@ class AgentPlanControllerTest {
 		AgentCoordinatorService coordinator = mock(AgentCoordinatorService.class);
 		when(coordinator.createCollaborationPlan(eq("task-1"), any(TaskType.class)))
 			.thenReturn(steps());
-		MockMvc mockMvc = standaloneSetup(new AgentPlanController(coordinator)).build();
+		MockMvc mockMvc = standaloneSetup(new AgentPlanController(coordinator)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(post("/api/agent-plans/task-1")
 				.param("taskType", "CODE_GENERATION"))
@@ -43,7 +45,7 @@ class AgentPlanControllerTest {
 		AgentCoordinatorService coordinator = mock(AgentCoordinatorService.class);
 		when(coordinator.getCollaborationPlan("task-1"))
 			.thenReturn(java.util.Optional.of(steps()));
-		MockMvc mockMvc = standaloneSetup(new AgentPlanController(coordinator)).build();
+		MockMvc mockMvc = standaloneSetup(new AgentPlanController(coordinator)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/agent-plans/task-1"))
 			.andExpect(status().isOk())
@@ -56,7 +58,7 @@ class AgentPlanControllerTest {
 		AgentCoordinatorService coordinator = mock(AgentCoordinatorService.class);
 		when(coordinator.getCollaborationPlan("missing"))
 			.thenReturn(java.util.Optional.empty());
-		MockMvc mockMvc = standaloneSetup(new AgentPlanController(coordinator)).build();
+		MockMvc mockMvc = standaloneSetup(new AgentPlanController(coordinator)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/agent-plans/missing"))
 			.andExpect(status().isNotFound());
@@ -67,7 +69,7 @@ class AgentPlanControllerTest {
 		AgentCoordinatorService coordinator = mock(AgentCoordinatorService.class);
 		when(coordinator.createCollaborationPlan(eq("missing"), any(TaskType.class)))
 			.thenThrow(new IllegalArgumentException("Task not found: missing"));
-		MockMvc mockMvc = standaloneSetup(new AgentPlanController(coordinator)).build();
+		MockMvc mockMvc = standaloneSetup(new AgentPlanController(coordinator)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(post("/api/agent-plans/missing"))
 			.andExpect(status().isBadRequest());

@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -28,7 +30,7 @@ class TaskControllerTest {
 		TaskRecord task = new TaskRecord("task-1", "Implement login", "Login flow");
 		task.markPlanning("approval-1");
 		when(service.createTask(any())).thenReturn(task);
-		MockMvc mockMvc = standaloneSetup(new TaskController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new TaskController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 		String requestBody = """
 				{
 				  "name": "Implement login",
@@ -55,7 +57,7 @@ class TaskControllerTest {
 		TaskCenterService service = mock(TaskCenterService.class);
 		TaskRecord task = new TaskRecord("task-1", "Implement login", "Login flow");
 		when(service.listTasks()).thenReturn(List.of(task));
-		MockMvc mockMvc = standaloneSetup(new TaskController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new TaskController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/tasks"))
 			.andExpect(status().isOk())
@@ -71,7 +73,7 @@ class TaskControllerTest {
 		TaskRecord task = new TaskRecord("task-1", "Implement login", "Login flow");
 		task.markSuccess();
 		when(service.getTask("task-1")).thenReturn(Optional.of(task));
-		MockMvc mockMvc = standaloneSetup(new TaskController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new TaskController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/tasks/task-1"))
 			.andExpect(status().isOk())
@@ -85,7 +87,7 @@ class TaskControllerTest {
 	void shouldReturnNotFoundForUnknownTask() throws Exception {
 		TaskCenterService service = mock(TaskCenterService.class);
 		when(service.getTask("missing")).thenReturn(Optional.empty());
-		MockMvc mockMvc = standaloneSetup(new TaskController(service)).build();
+		MockMvc mockMvc = standaloneSetup(new TaskController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/tasks/missing"))
 			.andExpect(status().isNotFound());

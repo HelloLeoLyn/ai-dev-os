@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import com.aidevos.orchestrator.execution.ExecutionRecordManager;
 import com.aidevos.orchestrator.execution.ExecutionReport;
 import com.aidevos.orchestrator.execution.query.ExecutionRecordQueryService;
@@ -22,7 +24,7 @@ class ExecutionRecordControllerTest {
 	void setUp() {
 		manager = new ExecutionRecordManager();
 		mockMvc = standaloneSetup(new ExecutionRecordController(
-			new ExecutionRecordQueryService(manager))).build();
+			new ExecutionRecordQueryService(manager))).setControllerAdvice(new GlobalExceptionHandler()).build();
 	}
 
 	@Test

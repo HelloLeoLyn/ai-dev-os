@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.controller;
 
+import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
+
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -36,7 +38,7 @@ class TestControllerTest {
 		TestAgentService service = mock(TestAgentService.class);
 		when(service.createTest(any(CreateTestRequest.class))).thenReturn(plan("test-1"));
 		MockMvc mockMvc = standaloneSetup(new TestController(service,
-			mock(TestReportGenerator.class))).build();
+			mock(TestReportGenerator.class))).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(post("/api/tests")
 				.contentType("application/json")
@@ -53,7 +55,7 @@ class TestControllerTest {
 		TestAgentService service = mock(TestAgentService.class);
 		when(service.listTests()).thenReturn(java.util.List.of(plan("test-1")));
 		MockMvc mockMvc = standaloneSetup(new TestController(service,
-			mock(TestReportGenerator.class))).build();
+			mock(TestReportGenerator.class))).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/tests"))
 			.andExpect(status().isOk())
@@ -65,7 +67,7 @@ class TestControllerTest {
 		TestAgentService service = mock(TestAgentService.class);
 		when(service.getTest("test-1")).thenReturn(java.util.Optional.of(plan("test-1")));
 		MockMvc mockMvc = standaloneSetup(new TestController(service,
-			mock(TestReportGenerator.class))).build();
+			mock(TestReportGenerator.class))).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/tests/test-1"))
 			.andExpect(status().isOk())
@@ -77,7 +79,7 @@ class TestControllerTest {
 		TestAgentService service = mock(TestAgentService.class);
 		when(service.getTest("missing")).thenReturn(java.util.Optional.empty());
 		MockMvc mockMvc = standaloneSetup(new TestController(service,
-			mock(TestReportGenerator.class))).build();
+			mock(TestReportGenerator.class))).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/tests/missing"))
 			.andExpect(status().isNotFound());
@@ -92,7 +94,7 @@ class TestControllerTest {
 			List.of("/api/tests/test-1/screenshot", "/api/tests/test-1/report"));
 		when(service.getTest("test-1")).thenReturn(java.util.Optional.of(plan));
 		when(generator.generateAndStore(plan)).thenReturn(report);
-		MockMvc mockMvc = standaloneSetup(new TestController(service, generator)).build();
+		MockMvc mockMvc = standaloneSetup(new TestController(service, generator)).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/tests/test-1/report"))
 			.andExpect(status().isOk())
@@ -109,7 +111,7 @@ class TestControllerTest {
 		TestAgentService service = mock(TestAgentService.class);
 		when(service.getTest("missing")).thenReturn(java.util.Optional.empty());
 		MockMvc mockMvc = standaloneSetup(new TestController(service,
-			mock(TestReportGenerator.class))).build();
+			mock(TestReportGenerator.class))).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/tests/missing/report"))
 			.andExpect(status().isNotFound());
@@ -124,7 +126,7 @@ class TestControllerTest {
 		TestAgentService service = mock(TestAgentService.class);
 		when(service.getTest("test-1")).thenReturn(java.util.Optional.of(plan));
 		MockMvc mockMvc = standaloneSetup(new TestController(service,
-			mock(TestReportGenerator.class))).build();
+			mock(TestReportGenerator.class))).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/tests/test-1/screenshot"))
 			.andExpect(status().isOk())
@@ -136,7 +138,7 @@ class TestControllerTest {
 		TestAgentService service = mock(TestAgentService.class);
 		when(service.getTest("test-1")).thenReturn(java.util.Optional.of(plan("test-1")));
 		MockMvc mockMvc = standaloneSetup(new TestController(service,
-			mock(TestReportGenerator.class))).build();
+			mock(TestReportGenerator.class))).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/tests/test-1/screenshot"))
 			.andExpect(status().isNotFound());

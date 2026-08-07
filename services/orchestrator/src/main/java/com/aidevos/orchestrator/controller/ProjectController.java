@@ -2,12 +2,12 @@ package com.aidevos.orchestrator.controller;
 
 import java.util.List;
 
+import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.project.CreateProjectRequest;
 import com.aidevos.orchestrator.project.Project;
 import com.aidevos.orchestrator.project.ProjectService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -42,27 +42,19 @@ public class ProjectController {
 
 	@GetMapping("/{id}")
 	public ResponseEntity<Project> get(@PathVariable String id) {
-		return projectService.getProject(id)
-			.map(ResponseEntity::ok)
-			.orElseGet(() -> ResponseEntity.notFound().build());
+		return ResponseEntity.ok(projectService.getProject(id)
+			.orElseThrow(() -> new ResourceNotFoundException("Project", id)));
 	}
 
 	@PostMapping("/{id}/active")
 	public ResponseEntity<Project> setActive(@PathVariable String id) {
-		return projectService.setActive(id)
-			.map(ResponseEntity::ok)
-			.orElseGet(() -> ResponseEntity.notFound().build());
+		return ResponseEntity.ok(projectService.setActive(id)
+			.orElseThrow(() -> new ResourceNotFoundException("Project", id)));
 	}
 
 	@PostMapping("/{id}/archive")
 	public ResponseEntity<Project> archive(@PathVariable String id) {
-		return projectService.archive(id)
-			.map(ResponseEntity::ok)
-			.orElseGet(() -> ResponseEntity.notFound().build());
-	}
-
-	@ExceptionHandler(IllegalArgumentException.class)
-	public ResponseEntity<Void> handleIllegalArgument(IllegalArgumentException exception) {
-		return ResponseEntity.badRequest().build();
+		return ResponseEntity.ok(projectService.archive(id)
+			.orElseThrow(() -> new ResourceNotFoundException("Project", id)));
 	}
 }
