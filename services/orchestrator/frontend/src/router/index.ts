@@ -2,6 +2,7 @@ import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-rou
 
 const AgentDetailView = () => import('../views/AgentDetailView.vue')
 const AgentMarketView = () => import('../views/AgentMarketView.vue')
+const AgentMetricsView = () => import('../views/AgentMetricsView.vue')
 const AgentFlowView = () => import('../views/AgentFlowView.vue')
 const AgentsView = () => import('../views/AgentsView.vue')
 const AuditConsoleView = () => import('../views/AuditConsoleView.vue')
@@ -73,6 +74,11 @@ const routes: RouteRecordRaw[] = [
   { path: '/skills', component: SkillsView, meta: { title: 'Skills' } },
   { path: '/agents', component: AgentsView, meta: { title: 'Agents' } },
   { path: '/agent-market', component: AgentMarketView, meta: { title: 'Agent Market' } },
+  {
+    path: '/agent-metrics',
+    component: AgentMetricsView,
+    meta: { title: 'Agent Metrics' },
+  },
   { path: '/agent-flow', component: AgentFlowView, meta: { title: 'Agent Flow' } },
   {
     path: '/agents/:id',

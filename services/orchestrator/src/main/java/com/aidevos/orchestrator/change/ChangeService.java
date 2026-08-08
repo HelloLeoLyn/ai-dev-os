@@ -81,6 +81,13 @@ public class ChangeService {
 		return result;
 	}
 
+	/** All change sets, newest first (read-only, for metrics/observability). */
+	public List<ChangeSet> listChanges() {
+		List<ChangeSet> result = new ArrayList<>(repository.list());
+		result.sort(Comparator.comparing(ChangeSet::getCreatedAt).reversed());
+		return result;
+	}
+
 	public String getDiff(String changeId) {
 		return requireChange(changeId).getDiff();
 	}

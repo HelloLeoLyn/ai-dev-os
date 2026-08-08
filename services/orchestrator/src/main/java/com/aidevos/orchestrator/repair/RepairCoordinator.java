@@ -92,6 +92,11 @@ public class RepairCoordinator {
 		return Optional.ofNullable(repairs.get(taskId));
 	}
 
+	/** Read-only snapshot of all tracked repair tasks (for observability). */
+	public List<RepairTask> listRepairs() {
+		return List.copyOf(repairs.values());
+	}
+
 	private void repair(RepairTask repairTask, TaskRecord task) {
 		String lastError = null;
 		while (repairTask.getRetryCount() < RepairPolicy.MAX_RETRY) {
