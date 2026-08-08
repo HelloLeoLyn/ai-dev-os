@@ -20,6 +20,7 @@ const ProjectsView = () => import('../views/ProjectsView.vue')
 const SchedulesView = () => import('../views/SchedulesView.vue')
 const SkillsView = () => import('../views/SkillsView.vue')
 const TasksView = () => import('../views/TasksView.vue')
+const WorkspacesView = () => import('../views/WorkspaceView.vue')
 const PlanRunTimelineView = () => import('../views/PlanRunTimelineView.vue')
 const TimelineConsoleView = () => import('../views/TimelineConsoleView.vue')
 const TestsView = () => import('../views/TestsView.vue')
@@ -66,7 +67,8 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'Execution Record Details' },
   },
   { path: '/tasks', component: TasksView, meta: { title: 'Tasks' } },
-  { path: '/projects', component: ProjectsView, meta: { title: 'Projects' } },
+    { path: '/projects', component: ProjectsView, meta: { title: 'Projects' } },
+  { path: '/workspaces', component: WorkspacesView, meta: { title: 'Workspaces' } },
   { path: '/schedules', component: SchedulesView, meta: { title: 'Schedules' } },
   { path: '/skills', component: SkillsView, meta: { title: 'Skills' } },
   { path: '/agents', component: AgentsView, meta: { title: 'Agents' } },

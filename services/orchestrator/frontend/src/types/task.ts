@@ -12,8 +12,11 @@ export type TaskStatus =
   | 'CREATED'
   | 'PLANNING'
   | 'APPROVED'
+  | 'CODING'
+  | 'TESTING'
   | 'RUNNING'
   | 'SUCCESS'
+  | 'COMPLETED'
   | 'FAILED'
 
 export interface TaskRecord {
@@ -25,6 +28,7 @@ export interface TaskRecord {
   updatedAt: string
   approvalId: string | null
   planRunId: string | null
+  workspaceId: string | null
   errorMessage: string | null
 }
 
@@ -33,4 +37,6 @@ export interface CreateTaskRequest {
   description: string
   goal: string
   plannerName: string
+  projectId?: string
+  workspaceId?: string
 }

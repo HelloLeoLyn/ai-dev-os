@@ -101,7 +101,7 @@ public class AgentCoordinatorService {
 		TaskType type = taskType == null ? TaskType.GENERAL : taskType;
 		ResolvedModel model = modelRouterService.route(type);
 		String planId = "plan-" + UUID.randomUUID();
-		List<AgentExecutionPlan> steps = buildSteps(planId, taskId, type);
+		List<AgentExecutionPlan> steps = buildSteps(planId, taskId, task.getWorkspaceId(), type);
 		plans.put(taskId, steps);
 		auditService.agentPlanEvent(EventType.AGENT_PLAN_CREATED, planId, taskId,
 			steps.getFirst().getAgentId(), 0, null, "PENDING",
@@ -122,7 +122,8 @@ public class AgentCoordinatorService {
 		return Optional.of(List.copyOf(ordered));
 	}
 
-	private List<AgentExecutionPlan> buildSteps(String planId, String taskId, TaskType taskType) {
+	private List<AgentExecutionPlan> buildSteps(String planId, String taskId,
+			String workspaceId, TaskType taskType) {
 		List<AgentExecutionPlan> steps = new ArrayList<>();
 		int stepNumber = 1;
 		for (String capability : capabilitiesFor(taskType)) {
@@ -130,7 +131,7 @@ public class AgentCoordinatorService {
 				.orElseThrow(() -> new IllegalStateException(
 					"No agent found for capability: " + capability));
 			steps.add(new AgentExecutionPlan(planId, taskId, agent.getName(), stepNumber++,
-				capability));
+				capability, workspaceId));
 		}
 		return steps;
 	}

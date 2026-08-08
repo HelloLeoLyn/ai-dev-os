@@ -6,6 +6,7 @@ export interface AgentExecutionPlan {
   agentId: string
   step: number
   status: AgentPlanStatus
+  workspaceId: string | null
   result: string | null
   createdAt: string
   updatedAt: string

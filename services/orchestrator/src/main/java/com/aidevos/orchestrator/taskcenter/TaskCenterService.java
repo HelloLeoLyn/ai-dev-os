@@ -71,7 +71,7 @@ public class TaskCenterService {
 	public TaskRecord createTask(CreateTaskRequest request) {
 		String taskId = "task-" + UUID.randomUUID();
 		TaskRecord task = new TaskRecord(taskId, request.name(), request.description(),
-			request.projectId());
+			request.projectId(), request.workspaceId());
 		tasks.put(taskId, task);
 		auditService.adminEvent(EventType.USER_OPERATION, "task", taskId, "USER",
 			"User submitted task", Map.of("name", request.name(),
