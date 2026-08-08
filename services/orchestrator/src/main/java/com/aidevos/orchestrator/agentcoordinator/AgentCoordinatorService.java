@@ -36,6 +36,11 @@ import com.aidevos.orchestrator.testagent.TestAgentService;
 import com.aidevos.orchestrator.testagent.TestPlan;
 import com.aidevos.orchestrator.testagent.TestStatus;
 import com.aidevos.orchestrator.testagent.TestType;
+import com.aidevos.orchestrator.workspace.Workspace;
+import com.aidevos.orchestrator.workspace.WorkspaceService;
+import com.aidevos.orchestrator.workspace.git.GitDiff;
+import com.aidevos.orchestrator.workspace.git.GitStatus;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -68,12 +73,25 @@ public class AgentCoordinatorService {
 	private final AgentCapabilityResolver capabilityResolver;
 	private final MemoryService memoryService;
 	private final ExecutionRecordManager executionRecordManager;
+	private WorkspaceService workspaceService;
 
 	public AgentCoordinatorService(TaskCenterService taskCenterService,
 			ModelRouterService modelRouterService, PlannerService plannerService,
 			ExecutorManager executorManager, TestAgentService testAgentService,
 			AuditService auditService, AgentCapabilityResolver capabilityResolver,
 			MemoryService memoryService, ExecutionRecordManager executionRecordManager) {
+		this(taskCenterService, modelRouterService, plannerService, executorManager,
+			testAgentService, auditService, capabilityResolver, memoryService,
+			executionRecordManager, null);
+	}
+
+	@Autowired
+	public AgentCoordinatorService(TaskCenterService taskCenterService,
+			ModelRouterService modelRouterService, PlannerService plannerService,
+			ExecutorManager executorManager, TestAgentService testAgentService,
+			AuditService auditService, AgentCapabilityResolver capabilityResolver,
+			MemoryService memoryService, ExecutionRecordManager executionRecordManager,
+			WorkspaceService workspaceService) {
 		this.taskCenterService = taskCenterService;
 		this.modelRouterService = modelRouterService;
 		this.plannerService = plannerService;
@@ -83,6 +101,16 @@ public class AgentCoordinatorService {
 		this.capabilityResolver = capabilityResolver;
 		this.memoryService = memoryService;
 		this.executionRecordManager = executionRecordManager;
+		this.workspaceService = workspaceService;
+	}
+
+	/**
+	 * Associates the workspace service used to resolve workspace paths for
+	 * coding steps. Injected through the constructor in production; tests that
+	 * build the coordinator manually can wire it here.
+	 */
+	public void setWorkspaceService(WorkspaceService workspaceService) {
+		this.workspaceService = workspaceService;
 	}
 
 	/**
@@ -180,8 +208,10 @@ public class AgentCoordinatorService {
 		try {
 			String result = switch (step.getCapability()) {
 				case PLANNING_CAPABILITY -> runPlanning(task, model);
-				case CODING_CAPABILITY -> runCoding(task, step.getAgentId());
-				case BROWSER_CAPABILITY -> runBrowser(task, step.getAgentId());
+				case CODING_CAPABILITY -> runCoding(task, step.getAgentId(),
+					step.getWorkspaceId());
+				case BROWSER_CAPABILITY -> runBrowser(task, step.getAgentId(),
+					step.getWorkspaceId());
 				case TESTING_CAPABILITY -> runTesting(task);
 				default -> throw new IllegalStateException(
 					"Unsupported capability: " + step.getCapability());
@@ -213,20 +243,42 @@ public class AgentCoordinatorService {
 		return "Plan created: " + result.plan().id();
 	}
 
-	private String runCoding(TaskRecord task, String agentName) {
-		return summarize(executeAgent(agentName, task));
+	private String runCoding(TaskRecord task, String agentName, String workspaceId) {
+		String executionId = "exec-" + UUID.randomUUID();
+		String workspacePath = resolveWorkspacePath(workspaceId);
+		auditService.codexExecutionEvent(EventType.CODEX_EXEC_STARTED, task.getTaskId(),
+			executionId, workspacePath, "Codex execution started",
+			Map.of("agent", agentName));
+		try {
+			ExecutionResult result = executeAgent(agentName, task, workspaceId, executionId);
+			if (!result.isSuccess()) {
+				throw new IllegalStateException(message(result));
+			}
+			auditService.codexExecutionEvent(EventType.CODEX_EXEC_COMPLETED, task.getTaskId(),
+				executionId, workspacePath, "Codex execution completed",
+				Map.of("workspace", workspacePath == null ? "" : workspacePath));
+			return summarize(result);
+		}
+		catch (RuntimeException exception) {
+			auditService.codexExecutionEvent(EventType.CODEX_EXEC_FAILED, task.getTaskId(),
+				executionId, workspacePath, "Codex execution failed: "
+					+ errorMessage(exception), Map.of());
+			throw exception;
+		}
 	}
 
-	private String runBrowser(TaskRecord task, String agentName) {
-		return summarize(executeAgent(agentName, task));
+	private String runBrowser(TaskRecord task, String agentName, String workspaceId) {
+		String executionId = "exec-" + UUID.randomUUID();
+		return summarize(executeAgent(agentName, task, workspaceId, executionId));
 	}
 
-	private ExecutionResult executeAgent(String agentName, TaskRecord task) {
+	private ExecutionResult executeAgent(String agentName, TaskRecord task, String workspaceId,
+			String executionId) {
 		AgentExecutor executor = executorManager.getExecutor(agentName);
 		if (executor == null) {
 			throw new IllegalStateException("Executor not found for agent: " + agentName);
 		}
-		String executionId = "exec-" + UUID.randomUUID();
+		String workspacePath = resolveWorkspacePath(workspaceId);
 		ExecutionContext context = new ExecutionContext();
 		context.setExecutionId(executionId);
 		context.setTaskId(task.getTaskId());
@@ -236,9 +288,27 @@ public class AgentCoordinatorService {
 		context.setInput(task.getDescription() == null || task.getDescription().isBlank()
 			? task.getName() : task.getDescription());
 		context.setAgentName(agentName);
+		if (workspacePath != null) {
+			context.setWorkspace(workspacePath);
+			context.getParameters().put("workspace", workspacePath);
+		}
 		ExecutionResult result = executor.execute(context);
-		saveExecutionRecord(task, agentName, executionId, result);
+		saveExecutionRecord(task, agentName, executionId, result, workspaceId, workspacePath);
 		return result;
+	}
+
+	private String resolveWorkspacePath(String workspaceId) {
+		if (workspaceId == null || workspaceId.isBlank() || workspaceService == null) {
+			return null;
+		}
+		return workspaceService.getWorkspace(workspaceId)
+			.map(Workspace::getPath)
+			.orElse(null);
+	}
+
+	private String message(ExecutionResult result) {
+		return result.getMessage() == null || result.getMessage().isBlank()
+			? "Agent execution failed" : result.getMessage();
 	}
 
 	/**
@@ -271,7 +341,7 @@ public class AgentCoordinatorService {
 	}
 
 	private void saveExecutionRecord(TaskRecord task, String agentName, String executionId,
-			ExecutionResult result) {
+			ExecutionResult result, String workspaceId, String workspacePath) {
 		try {
 			ExecutionRecord record = new ExecutionRecord();
 			record.setId(executionId);
@@ -281,6 +351,17 @@ public class AgentCoordinatorService {
 			record.setStatus(result.isSuccess() ? "SUCCESS" : "FAILED");
 			record.setMessage(result.getMessage());
 			record.setOutput(result.getOutput());
+			record.setWorkspace(metadataString(result, "workspace", workspacePath));
+			record.setBranch(metadataString(result, "branch", null));
+			Object exitCode = result.getMetadata().get("exitCode");
+			if (exitCode instanceof Number number) {
+				record.setExitCode(number.intValue());
+			}
+			Object threadId = result.getMetadata().get("codexThreadId");
+			if (threadId instanceof String value) {
+				record.setCodexThreadId(value);
+			}
+			captureGitState(record, workspaceId);
 			Instant now = Instant.now();
 			record.setStartedAt(now);
 			record.setCompletedAt(now);
@@ -289,6 +370,33 @@ public class AgentCoordinatorService {
 		catch (RuntimeException exception) {
 			// Execution record persistence must not break the agent flow.
 		}
+	}
+
+	private void captureGitState(ExecutionRecord record, String workspaceId) {
+		if (workspaceId == null || workspaceId.isBlank() || workspaceService == null) {
+			return;
+		}
+		try {
+			GitStatus gitStatus = workspaceService.checkGitStatus(workspaceId);
+			record.setGitStatus("branch=" + nullToEmpty(gitStatus.getBranch())
+				+ " modified=" + gitStatus.getModified()
+				+ " added=" + gitStatus.getAdded()
+				+ " deleted=" + gitStatus.getDeleted());
+			GitDiff gitDiff = workspaceService.getGitDiff(workspaceId);
+			record.setGitDiffStat(nullToEmpty(gitDiff.getStat()));
+		}
+		catch (RuntimeException exception) {
+			// Git inspection must not break the agent flow.
+		}
+	}
+
+	private String metadataString(ExecutionResult result, String key, String defaultValue) {
+		Object value = result.getMetadata().get(key);
+		return value instanceof String text ? text : defaultValue;
+	}
+
+	private String nullToEmpty(String value) {
+		return value == null ? "" : value;
 	}
 
 	private void saveHistoryTask(TaskRecord task, List<AgentExecutionPlan> steps) {

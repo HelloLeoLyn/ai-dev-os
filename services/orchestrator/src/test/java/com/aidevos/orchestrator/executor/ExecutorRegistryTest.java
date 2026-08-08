@@ -11,6 +11,8 @@ import com.aidevos.orchestrator.approval.CodingApprovalService;
 import com.aidevos.orchestrator.execution.ArtifactContentLimiter;
 import com.aidevos.orchestrator.tool.ToolArtifactMapper;
 import com.aidevos.orchestrator.tool.ToolRouter;
+import com.aidevos.orchestrator.executor.codex.CodexCommandBuilder;
+import com.aidevos.orchestrator.executor.codex.CodexExecutor;
 import com.aidevos.orchestrator.executor.codex.CodexProperties;
 import com.aidevos.orchestrator.executor.codex.CoderPromptBuilder;
 import com.aidevos.orchestrator.executor.codex.CodexOutputSchemaProvider;
@@ -40,7 +42,8 @@ class ExecutorRegistryTest {
 		CodexExecutor codexExecutor = new CodexExecutor(mock(CommandExecutor.class),
 			mock(WorkspaceResolver.class), mock(GitInspector.class), mock(CodexResultMapper.class),
 			mock(CodingApprovalService.class), new ArtifactContentLimiter(10_000),
-			new CodexProperties(), new CoderPromptBuilder(), mock(CodexOutputSchemaProvider.class),
+			new CodexProperties(), new CodexCommandBuilder(new CodexProperties(),
+				new CoderPromptBuilder(), mock(CodexOutputSchemaProvider.class)),
 			mock(UntrackedArtifactCollector.class));
 		ExecutorRegistry executorRegistry = new ExecutorRegistry(List.of(codexExecutor));
 

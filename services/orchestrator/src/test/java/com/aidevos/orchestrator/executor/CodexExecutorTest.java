@@ -7,6 +7,8 @@ import com.aidevos.orchestrator.executor.command.CommandOptions;
 import com.aidevos.orchestrator.executor.command.CommandResult;
 import com.aidevos.orchestrator.execution.workspace.WorkspaceResolver;
 import com.aidevos.orchestrator.execution.workspace.WorkspaceSnapshot;
+import com.aidevos.orchestrator.executor.codex.CodexCommandBuilder;
+import com.aidevos.orchestrator.executor.codex.CodexExecutor;
 import com.aidevos.orchestrator.executor.codex.CodexResultMapper;
 import com.aidevos.orchestrator.executor.git.GitInspector;
 import com.aidevos.orchestrator.executor.git.GitSnapshot;
@@ -178,7 +180,8 @@ class CodexExecutorTest {
 		when(untrackedCollector.collect(any(), any())).thenReturn(List.of());
 		return new CodexExecutor(commandExecutor, resolver, gitInspector,
 			new CodexResultMapper(new ObjectMapper()), mock(CodingApprovalService.class),
-			new ArtifactContentLimiter(10_000), properties, new CoderPromptBuilder(), schemaProvider,
+			new ArtifactContentLimiter(10_000), properties,
+			new CodexCommandBuilder(properties, new CoderPromptBuilder(), schemaProvider),
 			untrackedCollector);
 	}
 }

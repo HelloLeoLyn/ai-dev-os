@@ -29,6 +29,8 @@ public class ExecutionRecord {
 	private String afterHead;
 	private Integer exitCode;
 	private String codexThreadId;
+	private String gitStatus;
+	private String gitDiffStat;
 	private Instant startedAt;
 	private Instant completedAt;
 
@@ -125,6 +127,10 @@ public class ExecutionRecord {
 	public void setExitCode(Integer exitCode) { this.exitCode = exitCode; }
 	public String getCodexThreadId() { return codexThreadId; }
 	public void setCodexThreadId(String codexThreadId) { this.codexThreadId = codexThreadId; }
+	public String getGitStatus() { return gitStatus; }
+	public void setGitStatus(String gitStatus) { this.gitStatus = gitStatus; }
+	public String getGitDiffStat() { return gitDiffStat; }
+	public void setGitDiffStat(String gitDiffStat) { this.gitDiffStat = gitDiffStat; }
 	public Instant getStartedAt() { return startedAt; }
 	public void setStartedAt(Instant startedAt) { this.startedAt = startedAt; }
 	public Instant getCompletedAt() { return completedAt; }

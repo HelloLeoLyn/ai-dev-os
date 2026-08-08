@@ -232,6 +232,19 @@ public class AuditService {
 	 * Records a Task Center lifecycle transition. Unlike adminEvent, the event
 	 * carries the taskId so it appears in the task-scoped unified timeline.
 	 */
+	/**
+	 * Records a codex execution lifecycle event (CODEX_EXEC_STARTED /
+	 * COMPLETED / FAILED) carrying the taskId so it appears on the task
+	 * timeline alongside the agent plan events.
+	 */
+	public void codexExecutionEvent(EventType type, String taskId, String executionId,
+			String workspace, String summary, Map<String, Object> metadata) {
+		record(event(type, "execution", executionId, null, null, taskId, null, null, null,
+			null, null, null, null, null, null, null, "SYSTEM", "codex", summary,
+			metadata == null ? Map.of() : Map.copyOf(metadata),
+			type + ":execution:" + executionId + ":" + UUID.randomUUID()));
+	}
+
 	public void taskEvent(EventType type, String taskId, String fromStatus, String toStatus,
 			String summary, Map<String, Object> metadata) {
 		record(event(type, "task", taskId, fromStatus, toStatus, taskId, null, null, null,
