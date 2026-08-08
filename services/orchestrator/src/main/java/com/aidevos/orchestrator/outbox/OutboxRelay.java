@@ -40,8 +40,10 @@ public class OutboxRelay {
 	private final int maxAttempts;
 	private final Duration backoffBase;
 	private final Duration backoffMax;
-	private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(
-		Thread.ofPlatform().daemon().name("outbox-relay").factory());
+	private static final Duration SHUTDOWN_TIMEOUT = Duration.ofSeconds(10);
+
+	private volatile boolean stopRequested;
+	private volatile ScheduledExecutorService scheduler;
 
 	@Autowired
 	public OutboxRelay(OutboxRepository outboxRepository, OutboxTransactions transactions,
@@ -74,16 +76,38 @@ public class OutboxRelay {
 
 	@PostConstruct
 	void start() {
+		if (stopRequested || scheduler != null) {
+			return;
+		}
+		scheduler = Executors.newSingleThreadScheduledExecutor(
+			Thread.ofPlatform().daemon().name("outbox-relay").factory());
 		scheduler.scheduleWithFixedDelay(this::tick, 0,
 			Math.max(1, interval.toMillis()), TimeUnit.MILLISECONDS);
 	}
 
 	@PreDestroy
 	void stop() {
-		scheduler.shutdownNow();
+		stopRequested = true;
+		ScheduledExecutorService active = scheduler;
+		if (active == null) {
+			return;
+		}
+		active.shutdownNow();
+		try {
+			if (!active.awaitTermination(SHUTDOWN_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
+				logger.warn("Outbox relay scheduler did not terminate within {}", SHUTDOWN_TIMEOUT);
+			}
+		}
+		catch (InterruptedException interrupted) {
+			Thread.currentThread().interrupt();
+			logger.warn("Interrupted while stopping outbox relay");
+		}
 	}
 
 	void tick() {
+		if (stopRequested || Thread.currentThread().isInterrupted()) {
+			return;
+		}
 		try {
 			List<OutboxMessage> pending = outboxRepository.claimPending(clock.instant(), batchSize);
 			for (OutboxMessage message : pending) {
@@ -106,7 +130,9 @@ public class OutboxRelay {
 			}
 		}
 		catch (RuntimeException exception) {
-			logger.warn("Outbox relay tick failed", exception);
+			if (!stopRequested && !Thread.currentThread().isInterrupted()) {
+				logger.warn("Outbox relay tick failed", exception);
+			}
 		}
 	}
 
