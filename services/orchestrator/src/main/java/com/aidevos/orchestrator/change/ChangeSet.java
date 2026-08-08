@@ -75,6 +75,12 @@ public class ChangeSet {
 		this.updatedAt = this.reviewedAt;
 	}
 
+	public synchronized void markCommitted() {
+		requireStatus(ChangeStatus.APPROVED, "Only an APPROVED change can be committed");
+		this.status = ChangeStatus.COMMITTED;
+		this.updatedAt = Instant.now();
+	}
+
 	private void requireStatus(ChangeStatus expected, String message) {
 		if (this.status != expected) {
 			throw new IllegalStateException(message + " (current: " + this.status + ")");

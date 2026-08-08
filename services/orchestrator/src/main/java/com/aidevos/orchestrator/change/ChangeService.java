@@ -122,6 +122,16 @@ public class ChangeService {
 		return changeSet;
 	}
 
+	public ChangeSet markCommitted(String changeId) {
+		ChangeSet changeSet = requireChange(changeId);
+		String from = changeSet.getStatus().name();
+		changeSet.markCommitted();
+		auditService.changeEvent(EventType.CHANGE_COMMITTED, changeSet.getTaskId(),
+			changeSet.getChangeId(), from, ChangeStatus.COMMITTED.name(),
+			"Change committed", Map.of());
+		return changeSet;
+	}
+
 	private ChangeSet requireChange(String changeId) {
 		return getChange(changeId)
 			.orElseThrow(() -> new ResourceNotFoundException("Change", changeId));

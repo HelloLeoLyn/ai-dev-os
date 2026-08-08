@@ -61,6 +61,22 @@ public class ProcessGitCommandExecutor implements GitCommandExecutor {
 		return result.isSuccess() && result.getOutput() != null ? result.getOutput() : "";
 	}
 
+	@Override
+	public String commit(String path, String message) {
+		run(List.of("git", "add", "-A"), path);
+		CommandResult commitResult = run(List.of("git", "commit", "-m", message), path);
+		if (!commitResult.isSuccess()) {
+			return "";
+		}
+		return currentCommitHash(path);
+	}
+
+	@Override
+	public String currentCommitHash(String path) {
+		CommandResult result = run(List.of("git", "rev-parse", "HEAD"), path);
+		return result.isSuccess() && result.getOutput() != null ? result.getOutput().trim() : "";
+	}
+
 	private String branch(String path) {
 		CommandResult result = run(List.of("git", "branch", "--show-current"), path);
 		return result.isSuccess() && result.getOutput() != null

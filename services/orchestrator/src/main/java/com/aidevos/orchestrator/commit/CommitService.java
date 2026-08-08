@@ -1,0 +1,114 @@
+package com.aidevos.orchestrator.commit;
+
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+
+import com.aidevos.orchestrator.audit.AuditService;
+import com.aidevos.orchestrator.audit.EventType;
+import com.aidevos.orchestrator.change.ChangeService;
+import com.aidevos.orchestrator.change.ChangeSet;
+import com.aidevos.orchestrator.change.ChangeStatus;
+import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
+import com.aidevos.orchestrator.workspace.Workspace;
+import com.aidevos.orchestrator.workspace.WorkspaceService;
+import com.aidevos.orchestrator.workspace.git.GitCommandExecutor;
+import org.springframework.stereotype.Service;
+
+/**
+ * Git commit flow for approved change sets: APPROVED ChangeSet -> git commit
+ * in its workspace -> CommitRecord + ChangeSet COMMITTED. Only commits; never
+ * pushes, merges or touches remotes.
+ */
+@Service
+public class CommitService {
+
+	private final CommitRepository repository;
+	private final ChangeService changeService;
+	private final WorkspaceService workspaceService;
+	private final GitCommandExecutor gitCommandExecutor;
+	private final AuditService auditService;
+
+	public CommitService(CommitRepository repository, ChangeService changeService,
+			WorkspaceService workspaceService, GitCommandExecutor gitCommandExecutor,
+			AuditService auditService) {
+		this.repository = repository;
+		this.changeService = changeService;
+		this.workspaceService = workspaceService;
+		this.gitCommandExecutor = gitCommandExecutor;
+		this.auditService = auditService;
+	}
+
+	/**
+	 * Commits the workspace changes behind an APPROVED change set and records
+	 * the resulting git hash. On success the change set becomes COMMITTED.
+	 */
+	public CommitRecord commit(String changeId) {
+		ChangeSet change = changeService.getChange(changeId)
+			.orElseThrow(() -> new ResourceNotFoundException("Change", changeId));
+		if (change.getStatus() != ChangeStatus.APPROVED) {
+			throw new IllegalStateException("Only an APPROVED change can be committed "
+				+ "(current: " + change.getStatus() + ")");
+		}
+		Workspace workspace = workspaceService.getWorkspace(change.getWorkspaceId())
+			.orElseThrow(() -> new ResourceNotFoundException("Workspace",
+				change.getWorkspaceId()));
+		String message = "AI change " + changeId + " for task " + change.getTaskId();
+		CommitRecord record = new CommitRecord("commit-" + UUID.randomUUID(), changeId,
+			change.getTaskId(), change.getWorkspaceId(), change.getBranch(), message,
+			Instant.now());
+		repository.save(record);
+		String from = record.getStatus().name();
+		record.markCommitting();
+		auditService.commitEvent(EventType.COMMIT_STARTED, record.getTaskId(),
+			record.getCommitId(), record.getChangeId(), from, CommitStatus.COMMITTING.name(),
+			"Commit started", Map.of("workspaceId", change.getWorkspaceId()));
+		try {
+			String hash = gitCommandExecutor.commit(workspace.getPath(), message);
+			if (hash == null || hash.isBlank()) {
+				throw new IllegalStateException("Git commit failed in workspace: "
+					+ workspace.getPath());
+			}
+			record.markSuccess(hash);
+			changeService.markCommitted(changeId);
+			auditService.commitEvent(EventType.COMMIT_SUCCESS, record.getTaskId(),
+				record.getCommitId(), record.getChangeId(), CommitStatus.COMMITTING.name(),
+				CommitStatus.SUCCESS.name(), "Commit succeeded: " + hash,
+				Map.of("gitHash", hash));
+			return record;
+		}
+		catch (RuntimeException exception) {
+			record.markFailed();
+			auditService.commitEvent(EventType.COMMIT_FAILED, record.getTaskId(),
+				record.getCommitId(), record.getChangeId(), CommitStatus.COMMITTING.name(),
+				CommitStatus.FAILED.name(), "Commit failed: " + message(exception),
+				Map.of());
+			throw exception;
+		}
+	}
+
+	public Optional<CommitRecord> getCommit(String commitId) {
+		if (commitId == null || commitId.isBlank()) {
+			return Optional.empty();
+		}
+		return Optional.ofNullable(repository.get(commitId));
+	}
+
+	public List<CommitRecord> getCommitsByTask(String taskId) {
+		if (taskId == null || taskId.isBlank()) {
+			return List.of();
+		}
+		List<CommitRecord> result = new ArrayList<>(repository.getByTaskId(taskId));
+		result.sort(Comparator.comparing(CommitRecord::getCreatedAt).reversed());
+		return result;
+	}
+
+	private String message(RuntimeException exception) {
+		return exception.getMessage() == null || exception.getMessage().isBlank()
+			? exception.getClass().getSimpleName() : exception.getMessage();
+	}
+}

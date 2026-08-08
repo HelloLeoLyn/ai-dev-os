@@ -24,4 +24,17 @@ public interface GitCommandExecutor {
 	 * is not a git repository.
 	 */
 	String patch(String path);
+
+	/**
+	 * Stages all working-tree changes, creates a commit with the given message
+	 * and returns the new HEAD hash, or an empty string when the commit fails
+	 * (for example nothing to commit). Never pushes, merges or touches remotes.
+	 */
+	String commit(String path, String message);
+
+	/**
+	 * Returns the current HEAD hash of the repository, or an empty string when
+	 * the directory is not a git repository.
+	 */
+	String currentCommitHash(String path);
 }
