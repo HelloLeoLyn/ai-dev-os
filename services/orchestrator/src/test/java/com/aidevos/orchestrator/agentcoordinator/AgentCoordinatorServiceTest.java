@@ -11,9 +11,13 @@ import com.aidevos.orchestrator.audit.EventRecord;
 import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.audit.InMemoryAuditRepository;
 import com.aidevos.orchestrator.execution.ExecutionResult;
+import com.aidevos.orchestrator.execution.ExecutionRecordManager;
+import com.aidevos.orchestrator.execution.InMemoryExecutionRecordRepository;
 import com.aidevos.orchestrator.executor.AgentExecutor;
 import com.aidevos.orchestrator.executor.ExecutorManager;
 import com.aidevos.orchestrator.manager.AgentManager;
+import com.aidevos.orchestrator.memory.InMemoryMemoryRepository;
+import com.aidevos.orchestrator.memory.MemoryService;
 import com.aidevos.orchestrator.model.AgentDefinition;
 import com.aidevos.orchestrator.modelrouter.ModelRouterService;
 import com.aidevos.orchestrator.modelrouter.ResolvedModel;
@@ -48,6 +52,8 @@ class AgentCoordinatorServiceTest {
 	private TestAgentService testAgentService;
 	private AuditService auditService;
 	private AgentManager agentManager;
+	private MemoryService memoryService;
+	private ExecutionRecordManager executionRecordManager;
 	private AgentCoordinatorService service;
 
 	@BeforeEach
@@ -58,11 +64,14 @@ class AgentCoordinatorServiceTest {
 		executorManager = mock(ExecutorManager.class);
 		testAgentService = mock(TestAgentService.class);
 		auditService = new AuditService(new InMemoryAuditRepository());
+		memoryService = new MemoryService(new InMemoryMemoryRepository());
+		executionRecordManager = new ExecutionRecordManager(
+			new InMemoryExecutionRecordRepository(), auditService);
 		agentManager = new AgentManager();
 		registerAgents();
 		service = new AgentCoordinatorService(taskCenterService, modelRouterService,
 			plannerService, executorManager, testAgentService, auditService,
-			new AgentCapabilityResolver(agentManager));
+			new AgentCapabilityResolver(agentManager), memoryService, executionRecordManager);
 
 		when(taskCenterService.getTask("task-1")).thenReturn(Optional.of(task()));
 		when(modelRouterService.route(any(TaskType.class))).thenReturn(

@@ -39,7 +39,7 @@ public class TaskRecord {
 	}
 
 	public synchronized void markApproved() {
-		if (status == TaskStatus.SUCCESS || status == TaskStatus.FAILED) {
+		if (isTerminal()) {
 			return;
 		}
 		this.status = TaskStatus.APPROVED;
@@ -47,10 +47,31 @@ public class TaskRecord {
 	}
 
 	public synchronized void markRunning() {
-		if (status == TaskStatus.SUCCESS || status == TaskStatus.FAILED) {
+		if (isTerminal()) {
 			return;
 		}
 		this.status = TaskStatus.RUNNING;
+		this.updatedAt = Instant.now();
+	}
+
+	public synchronized void markCoding() {
+		if (isTerminal()) {
+			return;
+		}
+		this.status = TaskStatus.CODING;
+		this.updatedAt = Instant.now();
+	}
+
+	public synchronized void markTesting() {
+		if (isTerminal()) {
+			return;
+		}
+		this.status = TaskStatus.TESTING;
+		this.updatedAt = Instant.now();
+	}
+
+	public synchronized void markCompleted() {
+		this.status = TaskStatus.COMPLETED;
 		this.updatedAt = Instant.now();
 	}
 
@@ -63,6 +84,11 @@ public class TaskRecord {
 		this.status = TaskStatus.FAILED;
 		this.errorMessage = error;
 		this.updatedAt = Instant.now();
+	}
+
+	private boolean isTerminal() {
+		return status == TaskStatus.SUCCESS || status == TaskStatus.FAILED
+			|| status == TaskStatus.COMPLETED;
 	}
 
 	public synchronized void setPlanRunId(String planRunId) {

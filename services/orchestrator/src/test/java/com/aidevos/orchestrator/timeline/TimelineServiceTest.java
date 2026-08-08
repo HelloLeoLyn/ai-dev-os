@@ -3,6 +3,7 @@ package com.aidevos.orchestrator.timeline;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import com.aidevos.orchestrator.audit.EventRecord;
 import com.aidevos.orchestrator.audit.EventType;
@@ -16,11 +17,16 @@ import com.aidevos.orchestrator.plan.PlanStatus;
 import com.aidevos.orchestrator.plan.run.InMemoryPlanRunRepository;
 import com.aidevos.orchestrator.plan.run.PlanRun;
 import com.aidevos.orchestrator.task.TaskManager;
+import com.aidevos.orchestrator.taskcenter.TaskCenterService;
+import com.aidevos.orchestrator.taskcenter.TaskRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class TimelineServiceTest {
 
@@ -29,6 +35,7 @@ class TimelineServiceTest {
 	private JobStore jobStore;
 	private InMemoryExecutionRecordRepository recordRepository;
 	private TaskManager taskManager;
+	private TaskCenterService taskCenterService;
 	private TimelineService service;
 
 	@BeforeEach
@@ -38,8 +45,10 @@ class TimelineServiceTest {
 		jobStore = new JobStore();
 		recordRepository = new InMemoryExecutionRecordRepository();
 		taskManager = new TaskManager();
+		taskCenterService = mock(TaskCenterService.class);
+		when(taskCenterService.getTask(any())).thenReturn(Optional.empty());
 		service = new TimelineService(auditRepository, planRunRepository, jobStore,
-			recordRepository, taskManager);
+			recordRepository, taskManager, taskCenterService);
 	}
 
 	@Test
@@ -109,6 +118,25 @@ class TimelineServiceTest {
 		assertEquals("task-1", timeline.scopeId());
 		assertEquals(1, timeline.events().size());
 		assertEquals("PLAN_RUN", timeline.events().getFirst().sourceType());
+	}
+
+	@Test
+	void shouldResolveTaskCenterTaskScope() {
+		when(taskCenterService.getTask("task-center-1")).thenReturn(Optional.of(
+			new TaskRecord("task-center-1", "Login flow", "Implement login flow")));
+		append(new EventRecord("event-1", EventType.AGENT_PLAN_CREATED,
+			Instant.parse("2026-08-01T00:00:00Z"), 0, "agent-plan", "plan-1",
+			null, "PENDING", "task-center-1", null, null, null, null, null, null,
+			null, null, null, null, "AGENT", "coder", "Agent plan created",
+			Map.of(), "idem-1", 1));
+
+		UnifiedTimeline timeline = service.timeline("task-center-1");
+
+		assertEquals("TASK", timeline.scopeType());
+		assertEquals("task-center-1", timeline.scopeId());
+		assertEquals(1, timeline.events().size());
+		assertEquals("AGENT_PLAN_CREATED", timeline.events().getFirst().eventType());
+		assertEquals("TASK", timeline.events().getFirst().sourceType());
 	}
 
 	@Test

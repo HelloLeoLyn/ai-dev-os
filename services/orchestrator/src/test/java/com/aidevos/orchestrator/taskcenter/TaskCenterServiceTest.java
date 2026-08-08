@@ -4,7 +4,11 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import com.aidevos.orchestrator.agentcoordinator.AgentCoordinatorService;
 import com.aidevos.orchestrator.approval.ApprovalStatus;
+import com.aidevos.orchestrator.audit.AuditService;
+import com.aidevos.orchestrator.audit.InMemoryAuditRepository;
+import com.aidevos.orchestrator.modelrouter.TaskType;
 import com.aidevos.orchestrator.plan.Plan;
 import com.aidevos.orchestrator.plan.PlanStatus;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalRequest;
@@ -17,9 +21,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TaskCenterServiceTest {
@@ -139,5 +145,59 @@ class TaskCenterServiceTest {
 	void shouldReturnEmptyForUnknownTask() {
 		assertTrue(service.getTask("missing").isEmpty());
 		assertEquals(0, service.listTasks().size());
+	}
+
+	@Test
+	void shouldExecuteApprovedTaskThroughAgentCoordinator() {
+		AgentCoordinatorService coordinator = mock(AgentCoordinatorService.class);
+		service = new TaskCenterService(plannerService, approvalService, planRunRepository,
+			coordinator, new AuditService(new InMemoryAuditRepository()));
+		when(plannerService.createPlan(any()))
+			.thenReturn(PlanningResult.success("hermes", null, PLAN));
+		PlanApprovalRequest approval = new PlanApprovalRequest("approval-1", "task-1", PLAN,
+			"hash", Instant.parse("2026-08-01T00:00:00Z"));
+		approval.approve("user-1", Instant.parse("2026-08-01T00:05:00Z"));
+		when(approvalService.create(any(), any())).thenReturn(approval);
+		when(approvalService.get("approval-1")).thenReturn(approval);
+		when(planRunRepository.findRunIdByApproval("approval-1")).thenReturn(null);
+
+		TaskRecord task = service.createTask(new CreateTaskRequest(
+			"Implement login", null, "Goal", null, "default"));
+		TaskRecord approved = service.getTask(task.getTaskId()).orElseThrow();
+		assertEquals(TaskStatus.APPROVED, approved.getStatus());
+
+		TaskRecord executed = service.execute(task.getTaskId(), TaskType.CODE_GENERATION);
+
+		assertEquals(TaskStatus.APPROVED, executed.getStatus());
+		verify(coordinator).createCollaborationPlan(task.getTaskId(), TaskType.CODE_GENERATION);
+	}
+
+	@Test
+	void shouldRejectExecuteWhenTaskIsNotApproved() {
+		AgentCoordinatorService coordinator = mock(AgentCoordinatorService.class);
+		service = new TaskCenterService(plannerService, approvalService, planRunRepository,
+			coordinator, new AuditService(new InMemoryAuditRepository()));
+		when(plannerService.createPlan(any()))
+			.thenReturn(PlanningResult.success("hermes", null, PLAN));
+		when(approvalService.create(any(), any())).thenReturn(
+			new PlanApprovalRequest("approval-1", "task-1", PLAN, "hash",
+				Instant.parse("2026-08-01T00:00:00Z")));
+		when(planRunRepository.findRunIdByApproval("approval-1")).thenReturn(null);
+
+		TaskRecord task = service.createTask(new CreateTaskRequest(
+			"Implement login", null, "Goal", null, "default"));
+		assertEquals(TaskStatus.PLANNING, task.getStatus());
+
+		assertThrows(IllegalArgumentException.class,
+			() -> service.execute(task.getTaskId()));
+	}
+
+	@Test
+	void shouldRejectExecuteForUnknownTask() {
+		AgentCoordinatorService coordinator = mock(AgentCoordinatorService.class);
+		service = new TaskCenterService(plannerService, approvalService, planRunRepository,
+			coordinator, new AuditService(new InMemoryAuditRepository()));
+
+		assertThrows(IllegalArgumentException.class, () -> service.execute("missing"));
 	}
 }

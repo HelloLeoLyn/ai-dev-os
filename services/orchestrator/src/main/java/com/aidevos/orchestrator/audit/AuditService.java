@@ -228,6 +228,18 @@ public class AuditService {
 			type + ":" + aggregateType + ":" + aggregateId + ":" + UUID.randomUUID()));
 	}
 
+	/**
+	 * Records a Task Center lifecycle transition. Unlike adminEvent, the event
+	 * carries the taskId so it appears in the task-scoped unified timeline.
+	 */
+	public void taskEvent(EventType type, String taskId, String fromStatus, String toStatus,
+			String summary, Map<String, Object> metadata) {
+		record(event(type, "task", taskId, fromStatus, toStatus, taskId, null, null, null,
+			null, null, null, null, null, null, null, "SYSTEM", "task-center", summary,
+			metadata == null ? Map.of() : Map.copyOf(metadata),
+			type + ":task:" + taskId + ":" + value(fromStatus) + ":" + value(toStatus)));
+	}
+
 	public void planRunCreated(PlanRun run) {
 		planRunEvent(EventType.PLAN_RUN_CREATED, run, null, run.getStatus().name());
 	}

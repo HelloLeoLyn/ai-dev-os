@@ -8,9 +8,11 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.aidevos.orchestrator.agentcoordinator.AgentCoordinatorService;
 import com.aidevos.orchestrator.approval.ApprovalStatus;
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
+import com.aidevos.orchestrator.modelrouter.TaskType;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalRequest;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalService;
 import com.aidevos.orchestrator.plan.run.PlanRun;
@@ -18,6 +20,7 @@ import com.aidevos.orchestrator.plan.run.PlanRunRepository;
 import com.aidevos.orchestrator.planner.PlanningRequest;
 import com.aidevos.orchestrator.planner.PlanningResult;
 import com.aidevos.orchestrator.planner.PlannerService;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -37,20 +40,32 @@ public class TaskCenterService {
 	private final PlanApprovalService approvalService;
 	private final PlanRunRepository planRunRepository;
 	private final AuditService auditService;
+	private AgentCoordinatorService agentCoordinatorService;
 
 	public TaskCenterService(PlannerService plannerService,
 			PlanApprovalService approvalService, PlanRunRepository planRunRepository) {
-		this(plannerService, approvalService, planRunRepository, AuditService.noop());
+		this(plannerService, approvalService, planRunRepository, null, AuditService.noop());
 	}
 
 	@Autowired
 	public TaskCenterService(PlannerService plannerService,
 			PlanApprovalService approvalService, PlanRunRepository planRunRepository,
-			AuditService auditService) {
+			@Lazy AgentCoordinatorService agentCoordinatorService, AuditService auditService) {
 		this.plannerService = plannerService;
 		this.approvalService = approvalService;
 		this.planRunRepository = planRunRepository;
+		this.agentCoordinatorService = agentCoordinatorService;
 		this.auditService = auditService;
+	}
+
+	/**
+	 * Associates the agent coordinator used by the closed-loop execution entry.
+	 * Constructor injection is not possible because the coordinator also depends
+	 * on this service; Spring resolves the cycle through @Lazy and tests wire it
+	 * explicitly.
+	 */
+	public void setAgentCoordinatorService(AgentCoordinatorService agentCoordinatorService) {
+		this.agentCoordinatorService = agentCoordinatorService;
 	}
 
 	public TaskRecord createTask(CreateTaskRequest request) {
@@ -93,8 +108,39 @@ public class TaskCenterService {
 		return Optional.ofNullable(task);
 	}
 
+	/**
+	 * Closed-loop development entry: an APPROVED task runs through the agent
+	 * coordinator (collaboration plan -> coding -> testing) which updates the
+	 * task status, records executions and persists memory. The legacy plan-run
+	 * flow is untouched.
+	 */
+	public TaskRecord execute(String taskId) {
+		return execute(taskId, TaskType.GENERAL);
+	}
+
+	public TaskRecord execute(String taskId, TaskType taskType) {
+		TaskRecord task = tasks.get(taskId);
+		if (task == null) {
+			throw new IllegalArgumentException("Task not found: " + taskId);
+		}
+		refresh(task);
+		if (task.getStatus() != TaskStatus.APPROVED) {
+			throw new IllegalArgumentException("Task is not approved: " + taskId);
+		}
+		if (agentCoordinatorService == null) {
+			throw new IllegalStateException("Agent coordinator is not configured");
+		}
+		TaskType type = taskType == null ? TaskType.GENERAL : taskType;
+		auditService.taskEvent(EventType.USER_OPERATION, taskId, task.getStatus().name(),
+			TaskStatus.RUNNING.name(), "Task execution started",
+			Map.of("taskType", type.name()));
+		agentCoordinatorService.createCollaborationPlan(taskId, type);
+		return task;
+	}
+
 	private void refresh(TaskRecord task) {
-		if (task.getStatus() == TaskStatus.SUCCESS || task.getStatus() == TaskStatus.FAILED) {
+		if (task.getStatus() == TaskStatus.SUCCESS || task.getStatus() == TaskStatus.FAILED
+				|| task.getStatus() == TaskStatus.COMPLETED) {
 			return;
 		}
 		String approvalId = task.getApprovalId();

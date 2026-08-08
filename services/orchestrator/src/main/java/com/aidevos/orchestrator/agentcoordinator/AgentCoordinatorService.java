@@ -6,16 +6,22 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.Instant;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.aidevos.orchestrator.agentcapability.AgentCapabilityResolver;
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.execution.ExecutionContext;
+import com.aidevos.orchestrator.execution.ExecutionRecordManager;
 import com.aidevos.orchestrator.execution.ExecutionResult;
 import com.aidevos.orchestrator.executor.AgentExecutor;
 import com.aidevos.orchestrator.executor.ExecutorManager;
+import com.aidevos.orchestrator.memory.MemoryRecord;
+import com.aidevos.orchestrator.memory.MemoryService;
+import com.aidevos.orchestrator.memory.MemoryType;
 import com.aidevos.orchestrator.model.AgentDefinition;
+import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.modelrouter.ModelRouterService;
 import com.aidevos.orchestrator.modelrouter.ResolvedModel;
 import com.aidevos.orchestrator.modelrouter.TaskType;
@@ -24,6 +30,7 @@ import com.aidevos.orchestrator.planner.PlanningRequest;
 import com.aidevos.orchestrator.planner.PlanningResult;
 import com.aidevos.orchestrator.taskcenter.TaskCenterService;
 import com.aidevos.orchestrator.taskcenter.TaskRecord;
+import com.aidevos.orchestrator.taskcenter.TaskStatus;
 import com.aidevos.orchestrator.testagent.CreateTestRequest;
 import com.aidevos.orchestrator.testagent.TestAgentService;
 import com.aidevos.orchestrator.testagent.TestPlan;
@@ -59,11 +66,14 @@ public class AgentCoordinatorService {
 	private final TestAgentService testAgentService;
 	private final AuditService auditService;
 	private final AgentCapabilityResolver capabilityResolver;
+	private final MemoryService memoryService;
+	private final ExecutionRecordManager executionRecordManager;
 
 	public AgentCoordinatorService(TaskCenterService taskCenterService,
 			ModelRouterService modelRouterService, PlannerService plannerService,
 			ExecutorManager executorManager, TestAgentService testAgentService,
-			AuditService auditService, AgentCapabilityResolver capabilityResolver) {
+			AuditService auditService, AgentCapabilityResolver capabilityResolver,
+			MemoryService memoryService, ExecutionRecordManager executionRecordManager) {
 		this.taskCenterService = taskCenterService;
 		this.modelRouterService = modelRouterService;
 		this.plannerService = plannerService;
@@ -71,6 +81,8 @@ public class AgentCoordinatorService {
 		this.testAgentService = testAgentService;
 		this.auditService = auditService;
 		this.capabilityResolver = capabilityResolver;
+		this.memoryService = memoryService;
+		this.executionRecordManager = executionRecordManager;
 	}
 
 	/**
@@ -96,6 +108,7 @@ public class AgentCoordinatorService {
 			"Agent collaboration plan created",
 			Map.of("taskType", type.name(), "model", model.model()));
 		execute(steps, task, model);
+		finalizeOutcome(steps, task);
 		return List.copyOf(steps);
 	}
 
@@ -149,6 +162,20 @@ public class AgentCoordinatorService {
 		auditService.agentPlanEvent(EventType.AGENT_PLAN_STARTED, step.getPlanId(),
 			step.getTaskId(), step.getAgentId(), step.getStep(), AgentPlanStatus.PENDING.name(),
 			AgentPlanStatus.RUNNING.name(), "Agent step started", Map.of());
+		if (CODING_CAPABILITY.equals(step.getCapability())) {
+			String from = task.getStatus().name();
+			task.markCoding();
+			auditService.taskEvent(EventType.USER_OPERATION, task.getTaskId(), from,
+				TaskStatus.CODING.name(), "Coding started",
+				Map.of("agent", step.getAgentId()));
+		}
+		else if (TESTING_CAPABILITY.equals(step.getCapability())) {
+			String from = task.getStatus().name();
+			task.markTesting();
+			auditService.taskEvent(EventType.USER_OPERATION, task.getTaskId(), from,
+				TaskStatus.TESTING.name(), "Testing started",
+				Map.of("agent", step.getAgentId()));
+		}
 		try {
 			String result = switch (step.getCapability()) {
 				case PLANNING_CAPABILITY -> runPlanning(task, model);
@@ -198,7 +225,9 @@ public class AgentCoordinatorService {
 		if (executor == null) {
 			throw new IllegalStateException("Executor not found for agent: " + agentName);
 		}
+		String executionId = "exec-" + UUID.randomUUID();
 		ExecutionContext context = new ExecutionContext();
+		context.setExecutionId(executionId);
 		context.setTaskId(task.getTaskId());
 		context.setTaskName(task.getName());
 		context.setProjectId(task.getProjectId());
@@ -206,7 +235,104 @@ public class AgentCoordinatorService {
 		context.setInput(task.getDescription() == null || task.getDescription().isBlank()
 			? task.getName() : task.getDescription());
 		context.setAgentName(agentName);
-		return executor.execute(context);
+		ExecutionResult result = executor.execute(context);
+		saveExecutionRecord(task, agentName, executionId, result);
+		return result;
+	}
+
+	/**
+	 * Writes back the closed-loop outcome: task status, task-level audit event
+	 * and project memory (HISTORY_TASK on success, BUG_RECORD on failure).
+	 */
+	private void finalizeOutcome(List<AgentExecutionPlan> steps, TaskRecord task) {
+		boolean succeeded = steps.stream()
+			.allMatch(step -> step.getStatus() == AgentPlanStatus.SUCCESS);
+		if (succeeded) {
+			String from = task.getStatus().name();
+			task.markCompleted();
+			auditService.taskEvent(EventType.USER_OPERATION, task.getTaskId(), from,
+				TaskStatus.COMPLETED.name(), "Task completed",
+				Map.of("steps", steps.size()));
+			saveHistoryTask(task, steps);
+		}
+		else {
+			String from = task.getStatus().name();
+			String error = steps.stream()
+				.filter(step -> step.getStatus() == AgentPlanStatus.FAILED)
+				.map(AgentExecutionPlan::getResult)
+				.findFirst()
+				.orElse("Agent collaboration failed");
+			task.markFailed(error);
+			auditService.taskEvent(EventType.USER_OPERATION, task.getTaskId(), from,
+				TaskStatus.FAILED.name(), "Task failed: " + error, Map.of());
+			saveBugRecord(task, error);
+		}
+	}
+
+	private void saveExecutionRecord(TaskRecord task, String agentName, String executionId,
+			ExecutionResult result) {
+		try {
+			ExecutionRecord record = new ExecutionRecord();
+			record.setId(executionId);
+			record.setExecutionId(executionId);
+			record.setTaskId(task.getTaskId());
+			record.setAgentName(agentName);
+			record.setStatus(result.isSuccess() ? "SUCCESS" : "FAILED");
+			record.setMessage(result.getMessage());
+			record.setOutput(result.getOutput());
+			Instant now = Instant.now();
+			record.setStartedAt(now);
+			record.setCompletedAt(now);
+			executionRecordManager.save(record);
+		}
+		catch (RuntimeException exception) {
+			// Execution record persistence must not break the agent flow.
+		}
+	}
+
+	private void saveHistoryTask(TaskRecord task, List<AgentExecutionPlan> steps) {
+		try {
+			MemoryRecord record = new MemoryRecord();
+			record.setProjectId(task.getProjectId());
+			record.setType(MemoryType.HISTORY_TASK);
+			record.setKey("history:task:" + task.getTaskId());
+			record.setContent(historyContent(task, steps));
+			memoryService.create(record);
+		}
+		catch (RuntimeException exception) {
+			// Memory must not break the task flow; the failure is already audited.
+		}
+	}
+
+	private void saveBugRecord(TaskRecord task, String error) {
+		try {
+			MemoryRecord record = new MemoryRecord();
+			record.setProjectId(task.getProjectId());
+			record.setType(MemoryType.BUG_RECORD);
+			record.setKey("bug:task:" + task.getTaskId());
+			record.setContent("错误信息: " + error + System.lineSeparator()
+				+ "任务: " + task.getTaskId() + System.lineSeparator()
+				+ "项目: " + task.getProjectId());
+			memoryService.create(record);
+		}
+		catch (RuntimeException exception) {
+			// Memory must not break the task flow; the failure is already audited.
+		}
+	}
+
+	private String historyContent(TaskRecord task, List<AgentExecutionPlan> steps) {
+		StringBuilder builder = new StringBuilder();
+		builder.append("任务: ").append(task.getTaskId()).append(System.lineSeparator())
+			.append("名称: ").append(task.getName()).append(System.lineSeparator())
+			.append("项目: ").append(task.getProjectId()).append(System.lineSeparator())
+			.append("执行步骤:").append(System.lineSeparator());
+		for (AgentExecutionPlan step : steps) {
+			builder.append("  ").append(step.getStep()).append(". ")
+				.append(step.getCapability()).append(" -> ").append(step.getAgentId())
+				.append(" [").append(step.getStatus()).append("]")
+				.append(System.lineSeparator());
+		}
+		return builder.toString();
 	}
 
 	private String runTesting(TaskRecord task) {

@@ -9,9 +9,13 @@ import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.InMemoryAuditRepository;
 import com.aidevos.orchestrator.execution.ExecutionContext;
 import com.aidevos.orchestrator.execution.ExecutionResult;
+import com.aidevos.orchestrator.execution.ExecutionRecordManager;
+import com.aidevos.orchestrator.execution.InMemoryExecutionRecordRepository;
 import com.aidevos.orchestrator.executor.AgentExecutor;
 import com.aidevos.orchestrator.executor.ExecutorManager;
 import com.aidevos.orchestrator.manager.AgentManager;
+import com.aidevos.orchestrator.memory.InMemoryMemoryRepository;
+import com.aidevos.orchestrator.memory.MemoryService;
 import com.aidevos.orchestrator.model.AgentDefinition;
 import com.aidevos.orchestrator.modelrouter.ModelRouterService;
 import com.aidevos.orchestrator.modelrouter.ResolvedModel;
@@ -64,11 +68,14 @@ class AgentCoordinatorDynamicTest {
 		executorManager = mock(ExecutorManager.class);
 		testAgentService = mock(TestAgentService.class);
 		auditService = new AuditService(new InMemoryAuditRepository());
+		MemoryService memoryService = new MemoryService(new InMemoryMemoryRepository());
+		ExecutionRecordManager executionRecordManager = new ExecutionRecordManager(
+			new InMemoryExecutionRecordRepository(), auditService);
 		agentManager = new AgentManager();
 		registerAgents();
 		service = new AgentCoordinatorService(taskCenterService, modelRouterService,
 			plannerService, executorManager, testAgentService, auditService,
-			new AgentCapabilityResolver(agentManager));
+			new AgentCapabilityResolver(agentManager), memoryService, executionRecordManager);
 
 		when(taskCenterService.getTask("task-1")).thenReturn(Optional.of(task()));
 		when(modelRouterService.route(any(TaskType.class))).thenReturn(
@@ -167,7 +174,8 @@ class AgentCoordinatorDynamicTest {
 		AgentManager emptyManager = new AgentManager();
 		AgentCoordinatorService emptyService = new AgentCoordinatorService(taskCenterService,
 			modelRouterService, plannerService, executorManager, testAgentService, auditService,
-			new AgentCapabilityResolver(emptyManager));
+			new AgentCapabilityResolver(emptyManager), new MemoryService(new InMemoryMemoryRepository()),
+			new ExecutionRecordManager(new InMemoryExecutionRecordRepository(), auditService));
 
 		assertThrows(IllegalStateException.class,
 			() -> emptyService.createCollaborationPlan("task-1", TaskType.TEST_VERIFY));

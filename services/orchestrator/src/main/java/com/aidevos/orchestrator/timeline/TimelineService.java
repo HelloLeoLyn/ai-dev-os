@@ -10,6 +10,8 @@ import com.aidevos.orchestrator.job.JobRepository;
 import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.plan.run.PlanRunRepository;
 import com.aidevos.orchestrator.task.TaskManager;
+import com.aidevos.orchestrator.taskcenter.TaskCenterService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -27,15 +29,19 @@ public class TimelineService {
 	private final JobRepository jobRepository;
 	private final ExecutionRecordRepository executionRecordRepository;
 	private final TaskManager taskManager;
+	private final TaskCenterService taskCenterService;
 
+	@Autowired
 	public TimelineService(AuditRepository auditRepository,
 			PlanRunRepository planRunRepository, JobRepository jobRepository,
-			ExecutionRecordRepository executionRecordRepository, TaskManager taskManager) {
+			ExecutionRecordRepository executionRecordRepository, TaskManager taskManager,
+			TaskCenterService taskCenterService) {
 		this.auditRepository = auditRepository;
 		this.planRunRepository = planRunRepository;
 		this.jobRepository = jobRepository;
 		this.executionRecordRepository = executionRecordRepository;
 		this.taskManager = taskManager;
+		this.taskCenterService = taskCenterService;
 	}
 
 	public UnifiedTimeline timeline(String id) {
@@ -55,6 +61,9 @@ public class TimelineService {
 			return build("PLAN_RUN", id, eventsByPlanRun(id));
 		}
 		if (taskManager.getTask(id) != null) {
+			return build("TASK", id, eventsByTask(id));
+		}
+		if (taskCenterService.getTask(id).isPresent()) {
 			return build("TASK", id, eventsByTask(id));
 		}
 		return new UnifiedTimeline("AUDIT", id, eventsByAggregateOrStep(id));
