@@ -245,6 +245,14 @@ public class AuditService {
 			type + ":repair:" + repairId + ":" + value(fromStatus) + ":" + value(toStatus)));
 	}
 
+	public void changeEvent(EventType type, String taskId, String changeId, String fromStatus,
+			String toStatus, String summary, Map<String, Object> metadata) {
+		record(event(type, "change", changeId, fromStatus, toStatus, taskId, null, null, null,
+			null, null, null, null, null, null, null, "SYSTEM", "change-service", summary,
+			metadata == null ? Map.of() : Map.copyOf(metadata),
+			type + ":change:" + changeId + ":" + value(fromStatus) + ":" + value(toStatus)));
+	}
+
 	/**
 	 * Records a codex execution lifecycle event (CODEX_EXEC_STARTED /
 	 * COMPLETED / FAILED) carrying the taskId so it appears on the task

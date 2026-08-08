@@ -55,6 +55,12 @@ public class ProcessGitCommandExecutor implements GitCommandExecutor {
 		return new GitDiff(parseInt(stat, 1), parseInt(stat, 2), parseInt(stat, 3), stat);
 	}
 
+	@Override
+	public String patch(String path) {
+		CommandResult result = run(List.of("git", "diff", "--no-ext-diff"), path);
+		return result.isSuccess() && result.getOutput() != null ? result.getOutput() : "";
+	}
+
 	private String branch(String path) {
 		CommandResult result = run(List.of("git", "branch", "--show-current"), path);
 		return result.isSuccess() && result.getOutput() != null

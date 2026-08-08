@@ -12,6 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import com.aidevos.orchestrator.agentcapability.AgentCapabilityResolver;
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
+import com.aidevos.orchestrator.change.ChangeService;
 import com.aidevos.orchestrator.execution.ExecutionContext;
 import com.aidevos.orchestrator.execution.ExecutionRecordManager;
 import com.aidevos.orchestrator.execution.ExecutionResult;
@@ -74,6 +75,7 @@ public class AgentCoordinatorService {
 	private final MemoryService memoryService;
 	private final ExecutionRecordManager executionRecordManager;
 	private WorkspaceService workspaceService;
+	private final ChangeService changeService;
 
 	public AgentCoordinatorService(TaskCenterService taskCenterService,
 			ModelRouterService modelRouterService, PlannerService plannerService,
@@ -82,7 +84,18 @@ public class AgentCoordinatorService {
 			MemoryService memoryService, ExecutionRecordManager executionRecordManager) {
 		this(taskCenterService, modelRouterService, plannerService, executorManager,
 			testAgentService, auditService, capabilityResolver, memoryService,
-			executionRecordManager, null);
+			executionRecordManager, null, null);
+	}
+
+	public AgentCoordinatorService(TaskCenterService taskCenterService,
+			ModelRouterService modelRouterService, PlannerService plannerService,
+			ExecutorManager executorManager, TestAgentService testAgentService,
+			AuditService auditService, AgentCapabilityResolver capabilityResolver,
+			MemoryService memoryService, ExecutionRecordManager executionRecordManager,
+			WorkspaceService workspaceService) {
+		this(taskCenterService, modelRouterService, plannerService, executorManager,
+			testAgentService, auditService, capabilityResolver, memoryService,
+			executionRecordManager, workspaceService, null);
 	}
 
 	@Autowired
@@ -91,7 +104,7 @@ public class AgentCoordinatorService {
 			ExecutorManager executorManager, TestAgentService testAgentService,
 			AuditService auditService, AgentCapabilityResolver capabilityResolver,
 			MemoryService memoryService, ExecutionRecordManager executionRecordManager,
-			WorkspaceService workspaceService) {
+			WorkspaceService workspaceService, ChangeService changeService) {
 		this.taskCenterService = taskCenterService;
 		this.modelRouterService = modelRouterService;
 		this.plannerService = plannerService;
@@ -102,6 +115,7 @@ public class AgentCoordinatorService {
 		this.memoryService = memoryService;
 		this.executionRecordManager = executionRecordManager;
 		this.workspaceService = workspaceService;
+		this.changeService = changeService;
 	}
 
 	/**
@@ -257,6 +271,7 @@ public class AgentCoordinatorService {
 			auditService.codexExecutionEvent(EventType.CODEX_EXEC_COMPLETED, task.getTaskId(),
 				executionId, workspacePath, "Codex execution completed",
 				Map.of("workspace", workspacePath == null ? "" : workspacePath));
+			recordChange(task, workspaceId, executionId);
 			return summarize(result);
 		}
 		catch (RuntimeException exception) {
@@ -264,6 +279,23 @@ public class AgentCoordinatorService {
 				executionId, workspacePath, "Codex execution failed: "
 					+ errorMessage(exception), Map.of());
 			throw exception;
+		}
+	}
+
+	/**
+	 * Captures a change set for the coding step after a successful codex run.
+	 * Read-only git snapshot; change tracking must never break the agent flow.
+	 */
+	private void recordChange(TaskRecord task, String workspaceId, String executionId) {
+		if (changeService == null || workspaceId == null || workspaceId.isBlank()) {
+			return;
+		}
+		try {
+			changeService.createChange(task.getTaskId(), workspaceId, task.getProjectId(),
+				executionId);
+		}
+		catch (RuntimeException exception) {
+			// Change tracking must not break the agent flow.
 		}
 	}
 

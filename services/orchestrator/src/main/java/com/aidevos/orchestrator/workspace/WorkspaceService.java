@@ -95,6 +95,15 @@ public class WorkspaceService {
 		return gitCommandExecutor.diff(workspace.getPath());
 	}
 
+	/**
+	 * Returns the full working-tree diff (patch) of the workspace, or an empty
+	 * string when the working tree is clean. Read-only.
+	 */
+	public String getGitDiffContent(String workspaceId) {
+		Workspace workspace = requireWorkspace(workspaceId);
+		return gitCommandExecutor.patch(workspace.getPath());
+	}
+
 	private Workspace requireWorkspace(String workspaceId) {
 		return getWorkspace(workspaceId)
 			.orElseThrow(() -> new ResourceNotFoundException("Workspace", workspaceId));

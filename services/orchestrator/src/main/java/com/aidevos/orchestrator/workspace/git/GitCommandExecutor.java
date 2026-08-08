@@ -17,4 +17,11 @@ public interface GitCommandExecutor {
 	 * Returns the diff stat summary of the git repository at the given path.
 	 */
 	GitDiff diff(String path);
+
+	/**
+	 * Returns the full working-tree diff (patch) of the git repository at the
+	 * given path, or an empty string when no diff is present or the directory
+	 * is not a git repository.
+	 */
+	String patch(String path);
 }
