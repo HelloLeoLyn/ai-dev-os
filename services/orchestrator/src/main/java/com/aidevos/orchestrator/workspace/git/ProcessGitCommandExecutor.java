@@ -77,6 +77,18 @@ public class ProcessGitCommandExecutor implements GitCommandExecutor {
 		return result.isSuccess() && result.getOutput() != null ? result.getOutput().trim() : "";
 	}
 
+	@Override
+	public String listRemotes(String path) {
+		CommandResult result = run(List.of("git", "remote", "-v"), path);
+		return result.isSuccess() && result.getOutput() != null ? result.getOutput() : "";
+	}
+
+	@Override
+	public boolean push(String path, String remote, String branch) {
+		CommandResult result = run(List.of("git", "push", remote, branch), path);
+		return result.isSuccess();
+	}
+
 	private String branch(String path) {
 		CommandResult result = run(List.of("git", "branch", "--show-current"), path);
 		return result.isSuccess() && result.getOutput() != null

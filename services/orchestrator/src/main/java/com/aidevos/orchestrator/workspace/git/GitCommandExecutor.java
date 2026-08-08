@@ -37,4 +37,16 @@ public interface GitCommandExecutor {
 	 * the directory is not a git repository.
 	 */
 	String currentCommitHash(String path);
+
+	/**
+	 * Returns the configured remotes of the repository as "name url" lines
+	 * (git remote -v), or an empty string when no remote is configured.
+	 */
+	String listRemotes(String path);
+
+	/**
+	 * Pushes the given branch to the remote and returns true on success. Never
+	 * merges, rebases, deletes branches or creates pull requests.
+	 */
+	boolean push(String path, String remote, String branch);
 }

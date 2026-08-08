@@ -261,6 +261,14 @@ public class AuditService {
 			type + ":commit:" + commitId + ":" + value(fromStatus) + ":" + value(toStatus)));
 	}
 
+	public void remoteEvent(EventType type, String taskId, String remoteId, String commitId,
+			String fromStatus, String toStatus, String summary, Map<String, Object> metadata) {
+		record(event(type, "remote", remoteId, fromStatus, toStatus, taskId, null, null, null,
+			null, null, null, null, null, null, null, "SYSTEM", "remote-service", summary,
+			metadata == null ? Map.of() : Map.copyOf(metadata),
+			type + ":remote:" + remoteId + ":" + value(fromStatus) + ":" + value(toStatus)));
+	}
+
 	/**
 	 * Records a codex execution lifecycle event (CODEX_EXEC_STARTED /
 	 * COMPLETED / FAILED) carrying the taskId so it appears on the task
