@@ -233,6 +233,19 @@ public class AuditService {
 	 * carries the taskId so it appears in the task-scoped unified timeline.
 	 */
 	/**
+	 * Records an automatic repair lifecycle event (REPAIR_STARTED /
+	 * ANALYZING / FIXING / VERIFYING / SUCCESS / FAILED) carrying the taskId
+	 * so it appears on the task timeline.
+	 */
+	public void repairEvent(EventType type, String taskId, String repairId, String fromStatus,
+			String toStatus, String summary, Map<String, Object> metadata) {
+		record(event(type, "repair", repairId, fromStatus, toStatus, taskId, null, null, null,
+			null, null, null, null, null, null, null, "SYSTEM", "repair-coordinator", summary,
+			metadata == null ? Map.of() : Map.copyOf(metadata),
+			type + ":repair:" + repairId + ":" + value(fromStatus) + ":" + value(toStatus)));
+	}
+
+	/**
 	 * Records a codex execution lifecycle event (CODEX_EXEC_STARTED /
 	 * COMPLETED / FAILED) carrying the taskId so it appears on the task
 	 * timeline alongside the agent plan events.

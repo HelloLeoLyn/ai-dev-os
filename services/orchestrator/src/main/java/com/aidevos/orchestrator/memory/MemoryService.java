@@ -53,6 +53,12 @@ public class MemoryService {
 		if (changes.getContent() != null) {
 			existing.setContent(changes.getContent());
 		}
+		if (changes.getResolved() != null) {
+			existing.setResolved(changes.getResolved());
+		}
+		if (changes.getSolution() != null) {
+			existing.setSolution(changes.getSolution());
+		}
 		existing.setUpdatedAt(Instant.now());
 		validate(existing);
 		repository.save(existing);

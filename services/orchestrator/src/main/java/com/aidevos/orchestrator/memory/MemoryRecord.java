@@ -12,6 +12,8 @@ public class MemoryRecord {
 	private MemoryType type;
 	private String key;
 	private String content;
+	private Boolean resolved;
+	private String solution;
 	private Instant createdAt;
 	private Instant updatedAt;
 
@@ -56,6 +58,22 @@ public class MemoryRecord {
 
 	public void setContent(String content) {
 		this.content = content;
+	}
+
+	public Boolean getResolved() {
+		return resolved;
+	}
+
+	public void setResolved(Boolean resolved) {
+		this.resolved = resolved;
+	}
+
+	public String getSolution() {
+		return solution;
+	}
+
+	public void setSolution(String solution) {
+		this.solution = solution;
 	}
 
 	public Instant getCreatedAt() {
