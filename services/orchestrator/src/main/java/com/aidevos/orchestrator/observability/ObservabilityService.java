@@ -11,10 +11,13 @@ import com.aidevos.orchestrator.metrics.tool.ToolMetricsService;
 import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.observability.usage.UsageService;
 import com.aidevos.orchestrator.observability.usage.UsageSummary;
+import com.aidevos.orchestrator.runtime.AgentRuntimeService;
+import com.aidevos.orchestrator.runtime.AgentSession;
 import com.aidevos.orchestrator.taskcenter.TaskCenterService;
 import com.aidevos.orchestrator.taskcenter.TaskRecord;
 import com.aidevos.orchestrator.taskcenter.TaskStatus;
 import com.aidevos.orchestrator.timeline.TimelineService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -32,12 +35,23 @@ public class ObservabilityService {
 	private final UsageService usageService;
 	private final ToolMetricsService toolMetricsService;
 	private final TimelineService timelineService;
+	private final AgentRuntimeService runtimeService;
 
 	public ObservabilityService(TaskCenterService taskCenterService,
 			ExecutionRecordManager executionRecordManager,
 			AgentMetricsService agentMetricsService, ExecutionTraceService traceService,
 			UsageService usageService, ToolMetricsService toolMetricsService,
 			TimelineService timelineService) {
+		this(taskCenterService, executionRecordManager, agentMetricsService, traceService,
+			usageService, toolMetricsService, timelineService, null);
+	}
+
+	@Autowired
+	public ObservabilityService(TaskCenterService taskCenterService,
+			ExecutionRecordManager executionRecordManager,
+			AgentMetricsService agentMetricsService, ExecutionTraceService traceService,
+			UsageService usageService, ToolMetricsService toolMetricsService,
+			TimelineService timelineService, AgentRuntimeService runtimeService) {
 		this.taskCenterService = taskCenterService;
 		this.executionRecordManager = executionRecordManager;
 		this.agentMetricsService = agentMetricsService;
@@ -45,6 +59,7 @@ public class ObservabilityService {
 		this.usageService = usageService;
 		this.toolMetricsService = toolMetricsService;
 		this.timelineService = timelineService;
+		this.runtimeService = runtimeService;
 	}
 
 	public TaskObservability taskObservability(String taskId) {
@@ -59,8 +74,10 @@ public class ObservabilityService {
 			.toList();
 		TaskExecutionMetrics agent = agentMetricsService.getTaskMetrics(taskId);
 		UsageSummary usage = usageService.getTaskUsage(taskId);
+		List<AgentSession> sessions = runtimeService == null
+			? List.of() : runtimeService.sessionsForTask(taskId);
 		return new TaskObservability(taskId, task.getStatus().name(),
-			timelineService.timeline(taskId), traces, agent, toolTraces, usage);
+			timelineService.timeline(taskId), traces, agent, toolTraces, usage, sessions);
 	}
 
 	public ProjectObservability projectObservability(String projectId) {

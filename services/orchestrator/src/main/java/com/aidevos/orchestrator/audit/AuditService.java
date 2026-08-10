@@ -526,6 +526,27 @@ public class AuditService {
 			type + ":graph:" + graphId + ":" + value(nodeId) + ":" + UUID.randomUUID()));
 	}
 
+	/**
+	 * Records an agent runtime session lifecycle event (SESSION_STARTED /
+	 * PAUSED / RESUMED / STOPPED / COMPLETED / FAILED and
+	 * CHECKPOINT_CREATED) carrying the taskId so it appears on the task
+	 * timeline alongside the graph node events.
+	 */
+	public void sessionEvent(EventType type, String sessionId, String taskId,
+			String fromStatus, String toStatus, String summary,
+			Map<String, Object> metadata) {
+		Map<String, Object> enriched = new java.util.LinkedHashMap<>();
+		enriched.put("sessionId", value(sessionId));
+		if (metadata != null) {
+			enriched.putAll(metadata);
+		}
+		record(event(type, "agent-session", sessionId, fromStatus, toStatus, taskId, null,
+			null, null, null, null, null, null, null, null, null, "SYSTEM", "agent-runtime",
+			summary, Map.copyOf(enriched),
+			type + ":session:" + value(sessionId) + ":" + value(fromStatus) + ":"
+				+ value(toStatus) + ":" + UUID.randomUUID()));
+	}
+
 	public void taskEvent(EventType type, String taskId, String fromStatus, String toStatus,
 			String summary, Map<String, Object> metadata) {
 		record(event(type, "task", taskId, fromStatus, toStatus, taskId, null, null, null,

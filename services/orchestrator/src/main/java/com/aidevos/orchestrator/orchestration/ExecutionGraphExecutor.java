@@ -12,9 +12,13 @@ import com.aidevos.orchestrator.mcp.tool.McpToolRouter;
 import com.aidevos.orchestrator.mcp.tool.ToolDefinition;
 import com.aidevos.orchestrator.observability.ExecutionTraceService;
 import com.aidevos.orchestrator.observability.TraceRecord;
+import com.aidevos.orchestrator.runtime.AgentRuntimeService;
+import com.aidevos.orchestrator.runtime.AgentSession;
+import com.aidevos.orchestrator.runtime.AgentSessionStatus;
 import com.aidevos.orchestrator.taskcenter.TaskCenterService;
 import com.aidevos.orchestrator.taskcenter.TaskRecord;
 import com.aidevos.orchestrator.taskcenter.TaskStatus;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -26,6 +30,11 @@ import org.springframework.stereotype.Component;
  * stops the downstream nodes; in a repair graph a failed TEST_AGENT_VERIFY
  * re-enters the bounded loop (loopStart -> loopEnd) up to maxAttempts, which
  * reuses the existing RepairPolicy bound, so it never runs forever.
+ * <p>When the agent runtime is wired, executing a graph creates a runtime
+ * session before the run, saves a checkpoint after every completed node and
+ * a failure checkpoint on a failed node, and finalizes the session
+ * (COMPLETED / FAILED). A session resumed from a checkpoint continues after
+ * its current node instead of re-running the completed part.
  */
 @Component
 public class ExecutionGraphExecutor {
@@ -35,22 +44,30 @@ public class ExecutionGraphExecutor {
 	private final TaskCenterService taskCenterService;
 	private final McpToolRouter toolRouter;
 	private final ExecutionTraceService traceService;
+	private final ObjectProvider<AgentRuntimeService> runtimeServiceProvider;
 
 	public ExecutionGraphExecutor(List<AgentExecutor> agentExecutors,
 			AuditService auditService, TaskCenterService taskCenterService) {
-		this(agentExecutors, auditService, taskCenterService, null, null);
+		this(agentExecutors, auditService, taskCenterService, null, null, null);
 	}
 
 	public ExecutionGraphExecutor(List<AgentExecutor> agentExecutors,
 			AuditService auditService, TaskCenterService taskCenterService,
 			McpToolRouter toolRouter) {
-		this(agentExecutors, auditService, taskCenterService, toolRouter, null);
+		this(agentExecutors, auditService, taskCenterService, toolRouter, null, null);
+	}
+
+	public ExecutionGraphExecutor(List<AgentExecutor> agentExecutors,
+			AuditService auditService, TaskCenterService taskCenterService,
+			McpToolRouter toolRouter, ExecutionTraceService traceService) {
+		this(agentExecutors, auditService, taskCenterService, toolRouter, traceService, null);
 	}
 
 	@Autowired
 	public ExecutionGraphExecutor(List<AgentExecutor> agentExecutors,
 			AuditService auditService, TaskCenterService taskCenterService,
-			McpToolRouter toolRouter, ExecutionTraceService traceService) {
+			McpToolRouter toolRouter, ExecutionTraceService traceService,
+			ObjectProvider<AgentRuntimeService> runtimeServiceProvider) {
 		if (agentExecutors != null) {
 			for (AgentExecutor executor : agentExecutors) {
 				if (executor != null && executor.type() != null) {
@@ -62,34 +79,56 @@ public class ExecutionGraphExecutor {
 		this.taskCenterService = taskCenterService;
 		this.toolRouter = toolRouter;
 		this.traceService = traceService;
+		this.runtimeServiceProvider = runtimeServiceProvider;
 	}
 
 	/**
 	 * Executes the graph and returns it with the terminal node statuses.
-	 * Returns null when the graph or the context are not usable.
+	 * Returns null when the graph or the context are not usable. When the
+	 * agent runtime is available a session is created before the run (or a
+	 * reusable one is picked up), checkpoints are saved per node and the
+	 * session is finalized once the run finishes.
 	 */
 	public ExecutionGraph execute(ExecutionGraph graph, AgentExecutionContext context) {
 		if (graph == null || context == null || context.getTask() == null) {
 			return graph;
 		}
+		AgentRuntimeService runtime = runtimeService();
+		AgentSession session = null;
+		if (runtime != null) {
+			session = runtime.ensureSession(graph.getTaskId(), graph.getGraphId());
+			if (session != null) {
+				recover(graph, session);
+				runtime.markRunning(session.getSessionId());
+			}
+		}
 		int attempts = 0;
+		NodeFailure lastFailure = null;
 		while (attempts < graph.getMaxAttempts()) {
 			attempts++;
-			NodeFailure failure = runPass(graph, context);
+			NodeFailure failure = runPass(graph, context, runtime, session);
 			if (failure == null) {
+				if (session != null) {
+					runtime.completeSession(session.getSessionId());
+				}
 				return graph;
 			}
+			lastFailure = failure;
 			if (graph.hasLoop() && graph.getLoopEndNodeId().equals(failure.nodeId)
 				&& attempts < graph.getMaxAttempts()) {
 				graph.resetLoop();
 				continue;
 			}
-			return graph;
+			break;
+		}
+		if (session != null && lastFailure != null) {
+			runtime.failSession(session.getSessionId(), lastFailure.nodeId);
 		}
 		return graph;
 	}
 
-	private NodeFailure runPass(ExecutionGraph graph, AgentExecutionContext context) {
+	private NodeFailure runPass(ExecutionGraph graph, AgentExecutionContext context,
+			AgentRuntimeService runtime, AgentSession session) {
 		for (String nodeId : graph.getTopologicalOrder()) {
 			ExecutionNode node = graph.getNode(nodeId);
 			if (node.getStatus() != ExecutionNodeStatus.PENDING) {
@@ -107,7 +146,7 @@ public class ExecutionGraphExecutor {
 				failNodeTrace(traceId, "No executor registered for agent: "
 					+ node.getAgentType());
 				return fail(graph, node, "No executor registered for agent: "
-					+ node.getAgentType());
+					+ node.getAgentType(), runtime, session, context);
 			}
 			auditService.graphEvent(EventType.AGENT_SELECTED, graph.getGraphId(),
 				graph.getTaskId(), node.getNodeId(), node.getAgentType().name(),
@@ -133,10 +172,13 @@ public class ExecutionGraphExecutor {
 					graph.getTaskId(), node.getNodeId(), node.getAgentType().name(),
 					ExecutionNodeStatus.COMPLETED.name(), "Node completed",
 					nodeMetadata(graph, node));
+				if (session != null && runtime != null) {
+					runtime.checkpoint(session.getSessionId(), node.getNodeId(), nodeContext);
+				}
 			}
 			else {
 				failNodeTrace(traceId, result.error());
-				return fail(graph, node, result.error());
+				return fail(graph, node, result.error(), runtime, session, nodeContext);
 			}
 		}
 		return null;
@@ -165,12 +207,54 @@ public class ExecutionGraphExecutor {
 		}
 	}
 
-	private NodeFailure fail(ExecutionGraph graph, ExecutionNode node, String error) {
+	private NodeFailure fail(ExecutionGraph graph, ExecutionNode node, String error,
+			AgentRuntimeService runtime, AgentSession session,
+			AgentExecutionContext nodeContext) {
 		node.markFailed(error == null ? "Node failed" : error);
 		auditService.graphEvent(EventType.NODE_FAILED, graph.getGraphId(), graph.getTaskId(),
 			node.getNodeId(), node.getAgentType().name(), ExecutionNodeStatus.FAILED.name(),
 			"Node failed: " + value(error), nodeMetadata(graph, node));
+		if (session != null && runtime != null) {
+			runtime.failCheckpoint(session.getSessionId(), node.getNodeId(), nodeContext, error);
+		}
 		return new NodeFailure(node.getNodeId());
+	}
+
+	/**
+	 * Prepares a graph for resuming a session from its current node. Nodes
+	 * before the current node are marked completed so they are not re-run;
+	 * the current node itself is reset when the session failed (the failed
+	 * node is retried) or marked completed when the session was paused.
+	 */
+	private void recover(ExecutionGraph graph, AgentSession session) {
+		String resumeFrom = session.getCurrentNodeId();
+		if (resumeFrom == null || resumeFrom.isBlank()) {
+			return;
+		}
+		AgentSessionStatus status = session.getStatus();
+		boolean reached = false;
+		for (String nodeId : graph.getTopologicalOrder()) {
+			ExecutionNode node = graph.getNode(nodeId);
+			if (reached) {
+				continue;
+			}
+			if (nodeId.equals(resumeFrom)) {
+				reached = true;
+				if (status == AgentSessionStatus.FAILED) {
+					node.reset();
+				}
+				else if (node.getStatus() == ExecutionNodeStatus.PENDING) {
+					node.markCompleted("recovered");
+				}
+			}
+			else if (node.getStatus() == ExecutionNodeStatus.PENDING) {
+				node.markCompleted("recovered");
+			}
+		}
+	}
+
+	private AgentRuntimeService runtimeService() {
+		return runtimeServiceProvider == null ? null : runtimeServiceProvider.getIfAvailable();
 	}
 
 	/**

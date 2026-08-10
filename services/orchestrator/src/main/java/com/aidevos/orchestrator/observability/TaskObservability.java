@@ -4,11 +4,12 @@ import java.util.List;
 
 import com.aidevos.orchestrator.metrics.agent.TaskExecutionMetrics;
 import com.aidevos.orchestrator.observability.usage.UsageSummary;
+import com.aidevos.orchestrator.runtime.AgentSession;
 import com.aidevos.orchestrator.timeline.UnifiedTimeline;
 
 /**
  * Task-level observability bundle: unified timeline, execution traces, agent
- * execution statistics, tool traces and token/cost usage.
+ * execution statistics, tool traces, runtime sessions and token/cost usage.
  */
 public record TaskObservability(
 		String taskId,
@@ -17,10 +18,12 @@ public record TaskObservability(
 		List<TraceRecord> traces,
 		TaskExecutionMetrics agent,
 		List<TraceRecord> toolTraces,
-		UsageSummary usage) {
+		UsageSummary usage,
+		List<AgentSession> sessions) {
 
 	public TaskObservability {
 		traces = List.copyOf(traces);
 		toolTraces = List.copyOf(toolTraces);
+		sessions = sessions == null ? List.of() : List.copyOf(sessions);
 	}
 }
