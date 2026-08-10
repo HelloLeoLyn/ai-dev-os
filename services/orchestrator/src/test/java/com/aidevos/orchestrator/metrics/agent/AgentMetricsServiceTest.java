@@ -180,7 +180,7 @@ class AgentMetricsServiceTest {
 
 	private RepairTask repair(String repairId, String taskId, int retryCount) {
 		FailureContext context = new FailureContext(taskId, "workspace-1", "test-1",
-			"error", "trace", "report", "", NOW);
+			"error", "trace", "report", "", "TEST_FAILURE", "test-1", "", "", 0, NOW);
 		RepairTask repair = new RepairTask(repairId, taskId, "workspace-1", context);
 		for (int i = 0; i < retryCount; i++) {
 			repair.incrementRetry();

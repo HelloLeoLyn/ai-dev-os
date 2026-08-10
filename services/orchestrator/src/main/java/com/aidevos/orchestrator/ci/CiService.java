@@ -15,6 +15,7 @@ import com.aidevos.orchestrator.commit.CommitService;
 import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.pr.PullRequestRecord;
 import com.aidevos.orchestrator.pr.PullRequestService;
+import com.aidevos.orchestrator.repair.CiFailureAnalyzer;
 import com.aidevos.orchestrator.repair.FailureContext;
 import com.aidevos.orchestrator.repair.RepairCoordinator;
 import org.springframework.stereotype.Service;
@@ -23,7 +24,9 @@ import org.springframework.stereotype.Service;
  * CI/CD status awareness for pull requests: a check associates the PR commit
  * with its provider pipeline, records a CiRunRecord, polls the status and
  * emits CI_* audit events on the task timeline. On CI_FAILED a FailureContext
- * is registered for a later repair loop; this phase never starts a repair.
+ * is created (via CiFailureAnalyzer) and the RepairCoordinator starts a
+ * bounded repair loop; a successful repair snapshots a ChangeSet for manual
+ * review.
  * Scheduler, Worker and ExecutionEngine are not touched.
  */
 @Service
@@ -35,26 +38,28 @@ public class CiService {
 	private final PullRequestService pullRequestService;
 	private final CommitService commitService;
 	private final RepairCoordinator repairCoordinator;
+	private final CiFailureAnalyzer ciFailureAnalyzer;
 	private final AuditService auditService;
 
 	public CiService(CiRepository repository, CiProvider provider,
 			CiProviderProperties properties, PullRequestService pullRequestService,
 			CommitService commitService, RepairCoordinator repairCoordinator,
-			AuditService auditService) {
+			CiFailureAnalyzer ciFailureAnalyzer, AuditService auditService) {
 		this.repository = repository;
 		this.provider = provider;
 		this.properties = properties;
 		this.pullRequestService = pullRequestService;
 		this.commitService = commitService;
 		this.repairCoordinator = repairCoordinator;
+		this.ciFailureAnalyzer = ciFailureAnalyzer;
 		this.auditService = auditService;
 	}
 
 	/**
 	 * Checks the CI status of a pull request: creates a CiRunRecord and
 	 * triggers the provider on first check, then polls the provider status
-	 * and updates the record with CI_* audit events. A CI_FAILED registers a
-	 * FailureContext for a later repair loop without starting one.
+	 * and updates the record with CI_* audit events. A CI_FAILED builds a
+	 * FailureContext and starts the repair loop.
 	 */
 	public CiRunRecord check(String pullRequestId) {
 		PullRequestRecord pr = pullRequestService.get(pullRequestId)
@@ -103,7 +108,7 @@ public class CiService {
 				"CI run succeeded");
 			case FAILED -> {
 				if (transition(run, CiStatus.FAILED, EventType.CI_FAILED, "CI run failed")) {
-					registerFailure(run);
+					startRepair(run);
 				}
 			}
 			case CANCELLED -> transition(run, CiStatus.CANCELLED, EventType.CI_CANCELLED,
@@ -135,15 +140,14 @@ public class CiService {
 		return true;
 	}
 
-	private void registerFailure(CiRunRecord run) {
+	private void startRepair(CiRunRecord run) {
 		String workspaceId = pullRequestService.get(run.getPullRequestId())
 			.flatMap(pr -> commitService.getCommit(pr.getCommitId()))
 			.map(CommitRecord::getWorkspaceId)
 			.orElse("");
-		FailureContext context = new FailureContext(run.getTaskId(), workspaceId, null,
-			"CI run failed: " + value(run.getPipelineId()), null, value(run.getReportUrl()),
-			null, Instant.now());
-		repairCoordinator.registerFailure(context);
+		CiReport report = provider.getReport(run.getPipelineId());
+		FailureContext context = ciFailureAnalyzer.analyze(run, workspaceId, report);
+		repairCoordinator.startRepairFromCiFailure(context);
 	}
 
 	private String commitHash(PullRequestRecord pr) {

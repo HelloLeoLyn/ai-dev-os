@@ -9,12 +9,15 @@ import com.aidevos.orchestrator.audit.EventQuery;
 import com.aidevos.orchestrator.audit.EventRecord;
 import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.audit.InMemoryAuditRepository;
+import com.aidevos.orchestrator.change.ChangeService;
 import com.aidevos.orchestrator.commit.CommitRecord;
 import com.aidevos.orchestrator.commit.CommitService;
 import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.pr.PullRequestRecord;
 import com.aidevos.orchestrator.pr.PullRequestService;
 import com.aidevos.orchestrator.repair.FailureContext;
+import com.aidevos.orchestrator.repair.CiFailureAnalyzer;
+import com.aidevos.orchestrator.workspace.WorkspaceService;
 import com.aidevos.orchestrator.repair.RepairCoordinator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,8 +37,8 @@ import static org.mockito.Mockito.when;
 /**
  * Unit verification of CI status checks: a check creates a CiRunRecord and
  * emits CI_STARTED, polls provider status into CI_SUCCESS / CI_FAILED /
- * CI_CANCELLED, and registers a FailureContext on CI_FAILED without starting
- * a repair.
+ * CI_CANCELLED, and on CI_FAILED builds a CI_FAILURE FailureContext and
+ * starts the repair loop via the RepairCoordinator (once per run).
  */
 class CiServiceTest {
 
@@ -60,6 +63,7 @@ class CiServiceTest {
 		repairCoordinator = mock(RepairCoordinator.class);
 		ciService = new CiService(repository, provider, new CiProviderProperties(),
 			pullRequestService, commitService, repairCoordinator,
+			new CiFailureAnalyzer(mock(WorkspaceService.class), mock(ChangeService.class)),
 			new AuditService(auditRepository));
 
 		when(pullRequestService.get("pr-1")).thenReturn(Optional.of(pullRequest()));
@@ -111,7 +115,7 @@ class CiServiceTest {
 	}
 
 	@Test
-	void shouldMarkFailedAndRegisterFailureContext() {
+	void shouldMarkFailedAndStartRepairFromCiFailure() {
 		when(provider.getStatus("pipeline-1"))
 			.thenReturn(new CiRunResult(CiStatus.FAILED, REPORT_URL));
 
@@ -121,22 +125,28 @@ class CiServiceTest {
 		assertTrue(events().stream().anyMatch(event -> event.type() == EventType.CI_FAILED
 			&& "task-1".equals(event.taskId())));
 		ArgumentCaptor<FailureContext> captor = ArgumentCaptor.forClass(FailureContext.class);
-		verify(repairCoordinator).registerFailure(captor.capture());
-		assertEquals("task-1", captor.getValue().taskId());
-		assertEquals("workspace-1", captor.getValue().workspaceId());
-		assertEquals(REPORT_URL, captor.getValue().testReport());
-		assertEquals("CI run failed: pipeline-1", captor.getValue().errorMessage());
+		verify(repairCoordinator).startRepairFromCiFailure(captor.capture());
+		FailureContext context = captor.getValue();
+		assertEquals("task-1", context.taskId());
+		assertEquals("workspace-1", context.workspaceId());
+		assertEquals(REPORT_URL, context.testReport());
+		assertEquals("CI run failed: pipeline-1", context.errorMessage());
+		assertEquals("CI_FAILURE", context.sourceType());
+		assertEquals(run.getCiRunId(), context.sourceId());
+		assertEquals("abc123def", context.commitHash());
+		assertEquals("main", context.branch());
 	}
 
 	@Test
-	void shouldNotRegisterFailureTwiceOnRecheck() {
+	void shouldNotStartRepairTwiceOnRecheck() {
 		when(provider.getStatus("pipeline-1"))
 			.thenReturn(new CiRunResult(CiStatus.FAILED, REPORT_URL));
 
 		ciService.check("pr-1");
 		ciService.check("pr-1");
 
-		verify(repairCoordinator, times(1)).registerFailure(any(FailureContext.class));
+		verify(repairCoordinator, times(1))
+			.startRepairFromCiFailure(any(FailureContext.class));
 	}
 
 	@Test

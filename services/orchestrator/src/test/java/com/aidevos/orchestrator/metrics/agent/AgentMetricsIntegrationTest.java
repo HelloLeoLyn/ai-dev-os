@@ -170,7 +170,7 @@ class AgentMetricsIntegrationTest {
 		taskCenterService.setAgentCoordinatorService(coordinator);
 		RepairCoordinator repairCoordinator = new RepairCoordinator(taskCenterService,
 			testAgentService, plannerService, codexExecutor, workspaceService, memoryService,
-			auditService);
+			auditService, changeService);
 		agentMetricsService = new AgentMetricsService(executionRecordManager, agentManager,
 			auditService, repairCoordinator, changeService, taskCenterService);
 

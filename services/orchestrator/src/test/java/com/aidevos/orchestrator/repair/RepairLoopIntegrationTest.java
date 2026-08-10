@@ -13,6 +13,8 @@ import com.aidevos.orchestrator.agentcapability.AgentCapabilityResolver;
 import com.aidevos.orchestrator.approval.CodingApprovalService;
 import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.agentcoordinator.AgentCoordinatorService;
+import com.aidevos.orchestrator.change.ChangeService;
+import com.aidevos.orchestrator.change.InMemoryChangeRepository;
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.InMemoryAuditRepository;
 import com.aidevos.orchestrator.execution.ArtifactContentLimiter;
@@ -169,8 +171,11 @@ class RepairLoopIntegrationTest {
 			new AgentCapabilityResolver(agentManager), memoryService, executionRecordManager,
 			workspaceService);
 		taskCenterService.setAgentCoordinatorService(coordinator);
+		ChangeService changeService = new ChangeService(new InMemoryChangeRepository(),
+			workspaceService, auditService);
 		repairCoordinator = new RepairCoordinator(taskCenterService, testAgentService,
-			plannerService, codexExecutor, workspaceService, memoryService, auditService);
+			plannerService, codexExecutor, workspaceService, memoryService, auditService,
+			changeService);
 
 		when(modelRouterService.route(any(TaskType.class))).thenReturn(
 			new ResolvedModel(TaskType.GENERAL, "openai", "OpenAI", "LLM", "gpt-4o", true));

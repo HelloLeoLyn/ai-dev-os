@@ -9,6 +9,7 @@ import com.aidevos.orchestrator.audit.EventQuery;
 import com.aidevos.orchestrator.audit.EventRecord;
 import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.audit.InMemoryAuditRepository;
+import com.aidevos.orchestrator.change.ChangeService;
 import com.aidevos.orchestrator.execution.ExecutionResult;
 import com.aidevos.orchestrator.executor.codex.CodexExecutor;
 import com.aidevos.orchestrator.memory.InMemoryMemoryRepository;
@@ -75,7 +76,8 @@ class RepairCoordinatorTest {
 		memoryService = new MemoryService(memoryRepository);
 		auditRepository = new InMemoryAuditRepository();
 		coordinator = new RepairCoordinator(taskCenterService, testAgentService, plannerService,
-			codexExecutor, workspaceService, memoryService, new AuditService(auditRepository));
+			codexExecutor, workspaceService, memoryService, new AuditService(auditRepository),
+			mock(ChangeService.class));
 
 		when(taskCenterService.getTask("task-1"))
 			.thenReturn(Optional.of(task()));

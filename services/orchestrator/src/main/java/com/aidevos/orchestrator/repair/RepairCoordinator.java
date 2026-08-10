@@ -10,6 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
+import com.aidevos.orchestrator.change.ChangeService;
 import com.aidevos.orchestrator.execution.ExecutionContext;
 import com.aidevos.orchestrator.execution.ExecutionResult;
 import com.aidevos.orchestrator.executor.codex.CodexExecutor;
@@ -53,11 +54,13 @@ public class RepairCoordinator {
 	private final WorkspaceService workspaceService;
 	private final MemoryService memoryService;
 	private final AuditService auditService;
+	private final ChangeService changeService;
 
 	public RepairCoordinator(TaskCenterService taskCenterService,
 			TestAgentService testAgentService, PlannerService plannerService,
 			CodexExecutor codexExecutor, WorkspaceService workspaceService,
-			MemoryService memoryService, AuditService auditService) {
+			MemoryService memoryService, AuditService auditService,
+			ChangeService changeService) {
 		this.taskCenterService = taskCenterService;
 		this.testAgentService = testAgentService;
 		this.plannerService = plannerService;
@@ -65,6 +68,7 @@ public class RepairCoordinator {
 		this.workspaceService = workspaceService;
 		this.memoryService = memoryService;
 		this.auditService = auditService;
+		this.changeService = changeService;
 	}
 
 	public RepairTask start(String taskId) {
@@ -75,7 +79,8 @@ public class RepairCoordinator {
 		FailureContext failureContext = new FailureContext(taskId, workspaceId,
 			failedTest.getTestId(), failedTest.getErrorMessage(),
 			truncate(failedTest.getLogs()), truncate(failedTest.getLogs()),
-			gitDiff(workspaceId), Instant.now());
+			gitDiff(workspaceId), "TEST_FAILURE", failedTest.getTestId(), "", "", 0,
+			Instant.now());
 		RepairTask repairTask = new RepairTask("repair-" + UUID.randomUUID(), taskId,
 			workspaceId, failureContext);
 		repairs.put(taskId, repairTask);
@@ -91,6 +96,70 @@ public class RepairCoordinator {
 			return Optional.empty();
 		}
 		return Optional.ofNullable(repairs.get(taskId));
+	}
+
+	/**
+	 * Starts the repair loop for a failure that came from a CI run. The
+	 * existing PENDING -> ANALYZING -> FIXING -> VERIFYING -> SUCCESS | FAILED
+	 * loop is reused as-is (no duplicated repair logic); on success a
+	 * ChangeSet is snapshotted for manual review (never auto-approved or
+	 * auto-merged). Emits CI_REPAIR_STARTED / CI_REPAIR_SUCCESS /
+	 * CI_REPAIR_FAILED on top of the standard REPAIR_* events.
+	 */
+	public RepairTask startRepairFromCiFailure(FailureContext failureContext) {
+		if (failureContext == null || failureContext.taskId() == null
+			|| failureContext.taskId().isBlank()) {
+			throw new IllegalArgumentException("FailureContext with a taskId is required");
+		}
+		TaskRecord task = taskCenterService.getTask(failureContext.taskId())
+			.orElseThrow(() -> new IllegalArgumentException(
+				"Task not found: " + failureContext.taskId()));
+		String workspaceId = failureContext.workspaceId();
+		RepairTask repairTask = new RepairTask("repair-" + UUID.randomUUID(),
+			failureContext.taskId(), workspaceId, failureContext);
+		repairs.put(failureContext.taskId(), repairTask);
+		registerFailure(failureContext);
+		Map<String, Object> metadata = Map.of("sourceType", value(failureContext.sourceType()),
+			"sourceId", value(failureContext.sourceId()),
+			"commitHash", value(failureContext.commitHash()),
+			"branch", value(failureContext.branch()),
+			"changedFiles", failureContext.changedFiles());
+		auditService.repairEvent(EventType.CI_REPAIR_STARTED, failureContext.taskId(),
+			repairTask.getRepairId(), null, RepairStatus.PENDING.name(),
+			"CI failure repair started", metadata);
+		auditService.repairEvent(EventType.REPAIR_STARTED, failureContext.taskId(),
+			repairTask.getRepairId(), null, RepairStatus.PENDING.name(),
+			"Repair started from CI failure", metadata);
+		repair(repairTask, task);
+		if (repairTask.getStatus() == RepairStatus.SUCCESS) {
+			auditService.repairEvent(EventType.CI_REPAIR_SUCCESS, failureContext.taskId(),
+				repairTask.getRepairId(), RepairStatus.VERIFYING.name(),
+				RepairStatus.SUCCESS.name(), "CI failure repair succeeded", metadata);
+			snapshotChangeSet(repairTask, task);
+		}
+		else {
+			auditService.repairEvent(EventType.CI_REPAIR_FAILED, failureContext.taskId(),
+				repairTask.getRepairId(), RepairStatus.VERIFYING.name(),
+				RepairStatus.FAILED.name(), "CI failure repair failed", metadata);
+		}
+		return repairTask;
+	}
+
+	/**
+	 * Looks up the repair that was started for a CI run (the CI run id is the
+	 * failure context source id). Used by GET /api/repair/ci/{ciRunId}.
+	 */
+	public Optional<RepairTask> getByCiRun(String ciRunId) {
+		if (ciRunId == null || ciRunId.isBlank()) {
+			return Optional.empty();
+		}
+		for (RepairTask repairTask : repairs.values()) {
+			FailureContext context = repairTask.getFailureContext();
+			if (context != null && ciRunId.equals(context.sourceId())) {
+				return Optional.of(repairTask);
+			}
+		}
+		return Optional.empty();
 	}
 
 	/**
@@ -226,6 +295,25 @@ public class RepairCoordinator {
 			.max(Comparator.comparing(TestPlan::getCreatedAt))
 			.orElseThrow(() -> new IllegalArgumentException(
 				"No failed test found for task: " + taskId));
+	}
+
+	/**
+	 * Snapshots the repaired workspace as a ChangeSet for manual review. The
+	 * change is left in CREATED state: never auto-approved or auto-merged.
+	 * A missing/unusable workspace must not break the repair flow.
+	 */
+	private void snapshotChangeSet(RepairTask repairTask, TaskRecord task) {
+		String workspaceId = repairTask.getWorkspaceId();
+		if (workspaceId == null || workspaceId.isBlank()) {
+			return;
+		}
+		try {
+			changeService.createChange(task.getTaskId(), workspaceId, task.getProjectId(),
+				repairTask.getRepairId());
+		}
+		catch (RuntimeException exception) {
+			// ChangeSet creation must not break the repair flow.
+		}
 	}
 
 	private String gitDiff(String workspaceId) {

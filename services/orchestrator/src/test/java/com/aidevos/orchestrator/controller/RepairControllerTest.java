@@ -59,6 +59,32 @@ class RepairControllerTest {
 	}
 
 	@Test
+	void shouldReturnRepairByCiRun() throws Exception {
+		RepairCoordinator coordinator = mock(RepairCoordinator.class);
+		when(coordinator.getByCiRun("ci-1")).thenReturn(Optional.of(ciRepair()));
+		MockMvc mockMvc = mockMvc(coordinator);
+
+		mockMvc.perform(get("/api/repair/ci/ci-1"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.status").value("SUCCESS"))
+			.andExpect(jsonPath("$.failureContext.sourceType").value("CI_FAILURE"))
+			.andExpect(jsonPath("$.failureContext.sourceId").value("ci-1"))
+			.andExpect(jsonPath("$.failureContext.commitHash").value("abc123def"))
+			.andExpect(jsonPath("$.failureContext.branch").value("main"))
+			.andExpect(jsonPath("$.failureContext.changedFiles").value(2));
+	}
+
+	@Test
+	void shouldReturn404ForMissingCiRepair() throws Exception {
+		RepairCoordinator coordinator = mock(RepairCoordinator.class);
+		when(coordinator.getByCiRun("missing")).thenReturn(Optional.empty());
+		MockMvc mockMvc = mockMvc(coordinator);
+
+		mockMvc.perform(get("/api/repair/ci/missing"))
+			.andExpect(status().isNotFound());
+	}
+
+	@Test
 	void shouldReturn404ForMissingRepair() throws Exception {
 		RepairCoordinator coordinator = mock(RepairCoordinator.class);
 		when(coordinator.get("missing")).thenReturn(Optional.empty());
@@ -68,9 +94,20 @@ class RepairControllerTest {
 			.andExpect(status().isNotFound());
 	}
 
+	private RepairTask ciRepair() {
+		FailureContext context = new FailureContext("task-1", "workspace-1", null,
+			"CI run failed: pipeline-1", null, "https://mock.dev/ci/pipeline-1",
+			"2 files changed, 4 insertions(+), 2 deletions(-)",
+			"CI_FAILURE", "ci-1", "abc123def", "main", 2, NOW);
+		RepairTask task = new RepairTask("repair-ci-1", "task-1", "workspace-1", context);
+		task.markSuccess("Repair succeeded after 1 attempt(s)");
+		return task;
+	}
+
 	private RepairTask successfulRepair() {
 		FailureContext context = new FailureContext("task-1", "workspace-1", "test-1",
-			"exit code 1", "BUILD FAILURE", "BUILD FAILURE", "1 file changed", NOW);
+			"exit code 1", "BUILD FAILURE", "BUILD FAILURE", "1 file changed",
+			"TEST_FAILURE", "test-1", "", "", 0, NOW);
 		RepairTask task = new RepairTask("repair-1", "task-1", "workspace-1", context);
 		task.incrementRetry();
 		task.markSuccess("Repair succeeded after 1 attempt(s)");
