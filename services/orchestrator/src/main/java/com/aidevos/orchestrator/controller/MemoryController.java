@@ -4,9 +4,16 @@ import java.util.List;
 
 import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.memory.CreateMemoryRequest;
+import com.aidevos.orchestrator.memory.MemoryContext;
 import com.aidevos.orchestrator.memory.MemoryRecord;
 import com.aidevos.orchestrator.memory.MemoryService;
 import com.aidevos.orchestrator.memory.MemoryType;
+import com.aidevos.orchestrator.memory.search.MemoryMatch;
+import com.aidevos.orchestrator.memory.search.MemoryQuery;
+import com.aidevos.orchestrator.memory.search.MemorySearchService;
+import com.aidevos.orchestrator.taskcenter.TaskCenterService;
+import com.aidevos.orchestrator.taskcenter.TaskRecord;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -23,9 +30,44 @@ import org.springframework.web.bind.annotation.RestController;
 public class MemoryController {
 
 	private final MemoryService memoryService;
+	private final MemorySearchService searchService;
+	private final TaskCenterService taskCenterService;
 
 	public MemoryController(MemoryService memoryService) {
+		this(memoryService, null, null);
+	}
+
+	@Autowired
+	public MemoryController(MemoryService memoryService, MemorySearchService searchService,
+			TaskCenterService taskCenterService) {
 		this.memoryService = memoryService;
+		this.searchService = searchService;
+		this.taskCenterService = taskCenterService;
+	}
+
+	@GetMapping("/search")
+	public List<MemoryMatch> search(
+			@RequestParam(required = false) String q,
+			@RequestParam(required = false) String type,
+			@RequestParam(required = false) String agentType,
+			@RequestParam(required = false, defaultValue = "10") int limit,
+			@RequestParam(required = false) String projectId) {
+		if (searchService == null) {
+			return List.of();
+		}
+		return searchService.search(new MemoryQuery(q, type, agentType, projectId, limit));
+	}
+
+	@GetMapping("/tasks/{taskId}/memory")
+	public MemoryContext taskMemory(@PathVariable String taskId) {
+		if (taskCenterService == null || searchService == null) {
+			return new MemoryContext();
+		}
+		TaskRecord task = taskCenterService.getTask(taskId)
+			.orElseThrow(() -> new ResourceNotFoundException("Task", taskId));
+		String query = task.getDescription() == null || task.getDescription().isBlank()
+			? task.getName() : task.getDescription();
+		return searchService.taskContext(task.getTaskId(), task.getProjectId(), query);
 	}
 
 	@PostMapping

@@ -1,5 +1,9 @@
 package com.aidevos.orchestrator.memory;
 
+import com.aidevos.orchestrator.memory.search.MemoryMatch;
+import com.aidevos.orchestrator.memory.search.MemoryQuery;
+import com.aidevos.orchestrator.memory.search.MemorySearchService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -16,9 +20,35 @@ import java.util.UUID;
 public class MemoryService {
 
 	private final MemoryRepository repository;
+	private final MemorySearchService searchService;
 
 	public MemoryService(MemoryRepository repository) {
+		this(repository, null);
+	}
+
+	@Autowired
+	public MemoryService(MemoryRepository repository, MemorySearchService searchService) {
 		this.repository = repository;
+		this.searchService = searchService;
+	}
+
+	/**
+	 * Retrieves and ranks relevant historical experience (BUG_RECORD /
+	 * HISTORY_TASK / AGENT_EXPERIENCE) for an agent decision. Delegates to
+	 * the in-memory search; save/update semantics are unchanged.
+	 */
+	public List<MemoryMatch> search(MemoryQuery query) {
+		return searchService == null || query == null ? List.of() : searchService.search(query);
+	}
+
+	/** Similar historical tasks for the query, newest/highest priority first. */
+	public List<MemoryMatch> findSimilarTasks(String projectId, String query, int limit) {
+		return search(new MemoryQuery(query, "HISTORY_TASK", null, projectId, limit));
+	}
+
+	/** Known solutions (resolved bugs and agent experience) for the query. */
+	public List<MemoryMatch> findSolutions(String projectId, String query, int limit) {
+		return search(new MemoryQuery(query, null, null, projectId, limit));
 	}
 
 	public MemoryRecord create(MemoryRecord record) {

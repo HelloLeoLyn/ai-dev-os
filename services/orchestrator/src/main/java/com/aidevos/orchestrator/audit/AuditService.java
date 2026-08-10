@@ -328,6 +328,29 @@ public class AuditService {
 	 * NODE_STARTED / NODE_COMPLETED / NODE_FAILED) carrying the taskId so
 	 * the graph and its node statuses appear on the task timeline.
 	 */
+	/**
+	 * Records a memory retrieval event (MEMORY_SEARCHED / MEMORY_MATCHED /
+	 * MEMORY_APPLIED) carrying the taskId so the search and the matched
+	 * experience appear on the task timeline before agent execution.
+	 */
+	public void memoryEvent(EventType type, String taskId, String query, int matchCount,
+			java.util.List<String> memoryIds, String summary,
+			Map<String, Object> metadata) {
+		Map<String, Object> enriched = new java.util.LinkedHashMap<>();
+		enriched.put("query", value(query));
+		enriched.put("matchCount", matchCount);
+		if (memoryIds != null && !memoryIds.isEmpty()) {
+			enriched.put("memoryIds", java.util.List.copyOf(memoryIds));
+		}
+		if (metadata != null) {
+			enriched.putAll(metadata);
+		}
+		record(event(type, "memory", "memory-search-" + UUID.randomUUID(), null, null,
+			taskId, null, null, null, null, null, null, null, null, null, null,
+			"SYSTEM", "memory-search", summary, Map.copyOf(enriched),
+			type + ":memory:" + value(taskId) + ":" + UUID.randomUUID()));
+	}
+
 	public void graphEvent(EventType type, String graphId, String taskId, String nodeId,
 			String agentType, String status, String summary,
 			Map<String, Object> metadata) {

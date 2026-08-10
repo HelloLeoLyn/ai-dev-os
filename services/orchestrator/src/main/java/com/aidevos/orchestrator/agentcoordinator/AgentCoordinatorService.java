@@ -18,9 +18,13 @@ import com.aidevos.orchestrator.execution.ExecutionRecordManager;
 import com.aidevos.orchestrator.execution.ExecutionResult;
 import com.aidevos.orchestrator.executor.AgentExecutor;
 import com.aidevos.orchestrator.executor.ExecutorManager;
+import com.aidevos.orchestrator.memory.MemoryContext;
 import com.aidevos.orchestrator.memory.MemoryRecord;
 import com.aidevos.orchestrator.memory.MemoryService;
 import com.aidevos.orchestrator.memory.MemoryType;
+import com.aidevos.orchestrator.memory.search.MemoryMatch;
+import com.aidevos.orchestrator.memory.search.MemoryQuery;
+import com.aidevos.orchestrator.memory.search.MemorySearchService;
 import com.aidevos.orchestrator.model.AgentDefinition;
 import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.modelrouter.ModelRouterService;
@@ -85,6 +89,7 @@ public class AgentCoordinatorService {
 	private final ChangeService changeService;
 	private final ExecutionGraphBuilder graphBuilder;
 	private final ExecutionGraphExecutor graphExecutor;
+	private final MemorySearchService memorySearchService;
 
 	public AgentCoordinatorService(TaskCenterService taskCenterService,
 			ModelRouterService modelRouterService, PlannerService plannerService,
@@ -118,7 +123,6 @@ public class AgentCoordinatorService {
 			executionRecordManager, workspaceService, changeService, null, null);
 	}
 
-	@Autowired
 	public AgentCoordinatorService(TaskCenterService taskCenterService,
 			ModelRouterService modelRouterService, PlannerService plannerService,
 			ExecutorManager executorManager, TestAgentService testAgentService,
@@ -126,6 +130,21 @@ public class AgentCoordinatorService {
 			MemoryService memoryService, ExecutionRecordManager executionRecordManager,
 			WorkspaceService workspaceService, ChangeService changeService,
 			ExecutionGraphBuilder graphBuilder, ExecutionGraphExecutor graphExecutor) {
+		this(taskCenterService, modelRouterService, plannerService, executorManager,
+			testAgentService, auditService, capabilityResolver, memoryService,
+			executionRecordManager, workspaceService, changeService, graphBuilder,
+			graphExecutor, null);
+	}
+
+	@Autowired
+	public AgentCoordinatorService(TaskCenterService taskCenterService,
+			ModelRouterService modelRouterService, PlannerService plannerService,
+			ExecutorManager executorManager, TestAgentService testAgentService,
+			AuditService auditService, AgentCapabilityResolver capabilityResolver,
+			MemoryService memoryService, ExecutionRecordManager executionRecordManager,
+			WorkspaceService workspaceService, ChangeService changeService,
+			ExecutionGraphBuilder graphBuilder, ExecutionGraphExecutor graphExecutor,
+			MemorySearchService memorySearchService) {
 		this.taskCenterService = taskCenterService;
 		this.modelRouterService = modelRouterService;
 		this.plannerService = plannerService;
@@ -139,6 +158,7 @@ public class AgentCoordinatorService {
 		this.changeService = changeService;
 		this.graphBuilder = graphBuilder;
 		this.graphExecutor = graphExecutor;
+		this.memorySearchService = memorySearchService;
 	}
 
 	/**
@@ -195,24 +215,78 @@ public class AgentCoordinatorService {
 				"Execution graph components are not configured");
 		}
 		TaskType type = taskType == null ? TaskType.GENERAL : taskType;
-		String category = graphCategory(type);
-		ExecutionGraph graph = graphBuilder.build(taskId, category);
+		MemoryContext memoryHints = searchMemory(task, type);
+		ExecutionGraph graph = graphBuilder.build(task, type, memoryHints);
 		graphs.put(taskId, graph);
 		auditService.graphEvent(EventType.GRAPH_CREATED, graph.getGraphId(), taskId, null,
 			null, "CREATED", "Execution graph created",
 			Map.of("graphId", graph.getGraphId(), "taskType", type.name(),
-				"category", category));
+				"category", graphCategory(type)));
 		AgentExecutionContext context = new AgentExecutionContext();
 		context.setTaskId(taskId);
 		context.setTask(task);
 		context.setWorkspaceId(task.getWorkspaceId());
 		context.setWorkspacePath(resolveWorkspacePath(task.getWorkspaceId()));
 		context.setGraphId(graph.getGraphId());
+		context.setMemoryHints(memoryHints);
 		context.setInput(task.getDescription() == null || task.getDescription().isBlank()
 			? task.getName() : task.getDescription());
+		if (memoryHints != null && !memoryHints.isEmpty()) {
+			auditService.memoryEvent(EventType.MEMORY_APPLIED, taskId,
+				description(task), memoryHints.getSimilarTasks().size()
+					+ memoryHints.getSolutions().size(),
+				java.util.List.of(), "Memory hints applied to execution graph",
+				Map.of("graphId", graph.getGraphId()));
+		}
 		graphExecutor.execute(graph, context);
 		finalizeGraphOutcome(graph, task);
 		return graph;
+	}
+
+	/**
+	 * Retrieves historical experience (similar tasks, known issues and
+	 * recommended solutions) before the graph runs so agents can reuse it.
+	 * Audits MEMORY_SEARCHED / MEMORY_MATCHED with the taskId so the search
+	 * appears on the task timeline.
+	 */
+	private MemoryContext searchMemory(TaskRecord task, TaskType taskType) {
+		if (memorySearchService == null) {
+			return null;
+		}
+		String query = description(task);
+		MemoryQuery memoryQuery = new MemoryQuery(query, taskType == null ? null
+			: taskType.name(), null, task.getProjectId(), 10);
+		List<MemoryMatch> matches = memorySearchService.search(memoryQuery);
+		auditService.memoryEvent(EventType.MEMORY_SEARCHED, task.getTaskId(), query,
+			matches.size(), java.util.List.of(),
+			"Memory search executed before agent execution", Map.of());
+		if (matches.isEmpty()) {
+			return new MemoryContext();
+		}
+		auditService.memoryEvent(EventType.MEMORY_MATCHED, task.getTaskId(), query,
+			matches.size(), matches.stream().map(MemoryMatch::memoryId).toList(),
+			"Memory records matched for task", Map.of());
+		MemoryContext context = new MemoryContext();
+		context.setSimilarTasks(matches.stream()
+			.filter(match -> match.type() == MemoryType.HISTORY_TASK).toList());
+		context.setSolutions(matches.stream()
+			.filter(match -> match.type() == MemoryType.BUG_RECORD
+				|| match.type() == MemoryType.AGENT_EXPERIENCE).toList());
+		context.setWarnings(matches.stream()
+			.filter(match -> match.type() == MemoryType.BUG_RECORD
+				&& !Boolean.TRUE.equals(match.metadata().get("resolved")))
+			.map(match -> match.summary())
+			.limit(3).toList());
+		context.setRecommendations(matches.stream()
+			.map(MemoryMatch::solution)
+			.filter(solution -> solution != null && !solution.isBlank())
+			.limit(5).toList());
+		return context;
+	}
+
+	private String description(TaskRecord task) {
+		return task == null || task.getDescription() == null || task.getDescription().isBlank()
+			? task == null ? "" : task.getName() : task.getDescription();
 	}
 
 	public Optional<ExecutionGraph> getGraph(String taskId) {

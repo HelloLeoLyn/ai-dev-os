@@ -3,8 +3,10 @@ package com.aidevos.orchestrator.orchestration;
 import java.util.UUID;
 
 import com.aidevos.orchestrator.agent.AgentType;
+import com.aidevos.orchestrator.memory.MemoryContext;
 import com.aidevos.orchestrator.modelrouter.TaskType;
 import com.aidevos.orchestrator.repair.RepairPolicy;
+import com.aidevos.orchestrator.taskcenter.TaskRecord;
 import org.springframework.stereotype.Component;
 
 /**
@@ -33,6 +35,28 @@ public class ExecutionGraphBuilder {
 
 	public ExecutionGraph build(String taskId, TaskType taskType) {
 		return build(taskId, categoryFor(taskType));
+	}
+
+	/**
+	 * Memory-aware build: the graph topology follows the task category while
+	 * the memory context (similar tasks / solutions / warnings) is attached
+	 * to the graph and carried into the agent execution context, so the
+	 * Hermes planner produces its plan with the historical experience.
+	 */
+	public ExecutionGraph build(TaskRecord task, TaskType taskType,
+			MemoryContext memoryHints) {
+		String taskId = task == null ? "task-unknown" : task.getTaskId();
+		ExecutionGraph graph = build(taskId, categoryFor(taskType));
+		graph.setMemoryContext(memoryHints);
+		return graph;
+	}
+
+	public ExecutionGraph build(TaskRecord task, String taskCategory,
+			MemoryContext memoryHints) {
+		String taskId = task == null ? "task-unknown" : task.getTaskId();
+		ExecutionGraph graph = build(taskId, taskCategory);
+		graph.setMemoryContext(memoryHints);
+		return graph;
 	}
 
 	private String categoryFor(TaskType taskType) {

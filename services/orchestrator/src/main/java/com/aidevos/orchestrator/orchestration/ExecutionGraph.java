@@ -5,6 +5,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.aidevos.orchestrator.memory.MemoryContext;
+
 /**
  * Execution graph for one task: the nodes (each with an agent type and
  * dependencies) and the downstream edges. A repair graph additionally
@@ -21,6 +23,7 @@ public class ExecutionGraph {
 	private final String loopStartNodeId;
 	private final String loopEndNodeId;
 	private final int maxAttempts;
+	private volatile MemoryContext memoryContext;
 
 	public ExecutionGraph(String graphId, String taskId, List<ExecutionNode> nodes,
 			String loopStartNodeId, String loopEndNodeId, int maxAttempts) {
@@ -126,5 +129,13 @@ public class ExecutionGraph {
 
 	public boolean hasLoop() {
 		return !loopStartNodeId.isBlank() && !loopEndNodeId.isBlank();
+	}
+
+	public MemoryContext getMemoryContext() {
+		return memoryContext;
+	}
+
+	public void setMemoryContext(MemoryContext memoryContext) {
+		this.memoryContext = memoryContext;
 	}
 }

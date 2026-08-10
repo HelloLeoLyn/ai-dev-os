@@ -155,6 +155,7 @@ public class ExecutionGraphExecutor {
 		copy.setAgentType(node.getAgentType());
 		copy.setInput(base.getInput());
 		copy.setPlanningResult(base.getPlanningResult());
+		copy.setMemoryHints(base.getMemoryHints());
 		return copy;
 	}
 

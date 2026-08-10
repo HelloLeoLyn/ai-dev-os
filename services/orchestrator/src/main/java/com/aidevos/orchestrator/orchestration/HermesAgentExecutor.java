@@ -40,8 +40,7 @@ public class HermesAgentExecutor implements AgentExecutor {
 			return success(context, "Plan created: " + context.getPlanningResult().plan().id());
 		}
 		try {
-			String goal = task.getDescription() == null || task.getDescription().isBlank()
-				? task.getName() : task.getDescription();
+			String goal = goal(task, context);
 			PlanningResult result = plannerService.createPlan(new PlanningRequest(
 				task.getTaskId(), goal, HERMES_PLANNER, null, null, null, null, null));
 			if (!result.success() || result.plan() == null) {
@@ -52,6 +51,34 @@ public class HermesAgentExecutor implements AgentExecutor {
 		catch (RuntimeException exception) {
 			return failure(context, errorMessage(exception));
 		}
+	}
+
+	/**
+	 * Builds the planning goal from the task, appending the memory context
+	 * (warnings and recommended solutions) so historical experience is
+	 * carried into the Hermes plan.
+	 */
+	private String goal(TaskRecord task, AgentExecutionContext context) {
+		StringBuilder goal = new StringBuilder(
+			task.getDescription() == null || task.getDescription().isBlank()
+				? task.getName() : task.getDescription());
+		if (context.getMemoryHints() == null) {
+			return goal.toString();
+		}
+		com.aidevos.orchestrator.memory.MemoryContext hints = context.getMemoryHints();
+		if (!hints.getWarnings().isEmpty()) {
+			goal.append(System.lineSeparator()).append("历史已知问题:");
+			for (String warning : hints.getWarnings()) {
+				goal.append(System.lineSeparator()).append("- ").append(warning);
+			}
+		}
+		if (!hints.getRecommendations().isEmpty()) {
+			goal.append(System.lineSeparator()).append("历史推荐方案:");
+			for (String recommendation : hints.getRecommendations()) {
+				goal.append(System.lineSeparator()).append("- ").append(recommendation);
+			}
+		}
+		return goal.toString();
 	}
 
 	private String joinErrors(java.util.List<String> errors) {

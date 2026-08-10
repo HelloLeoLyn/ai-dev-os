@@ -1,6 +1,7 @@
 package com.aidevos.orchestrator.orchestration;
 
 import com.aidevos.orchestrator.agent.AgentType;
+import com.aidevos.orchestrator.memory.MemoryContext;
 import com.aidevos.orchestrator.planner.PlanningResult;
 import com.aidevos.orchestrator.taskcenter.TaskRecord;
 
@@ -20,6 +21,7 @@ public class AgentExecutionContext {
 	private AgentType agentType;
 	private String input;
 	private PlanningResult planningResult;
+	private MemoryContext memoryHints;
 
 	public String getTaskId() {
 		return taskId;
@@ -91,5 +93,13 @@ public class AgentExecutionContext {
 
 	public void setPlanningResult(PlanningResult planningResult) {
 		this.planningResult = planningResult;
+	}
+
+	public MemoryContext getMemoryHints() {
+		return memoryHints;
+	}
+
+	public void setMemoryHints(MemoryContext memoryHints) {
+		this.memoryHints = memoryHints;
 	}
 }
