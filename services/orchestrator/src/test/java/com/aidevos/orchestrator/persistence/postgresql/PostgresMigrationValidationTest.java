@@ -37,17 +37,24 @@ class PostgresMigrationValidationTest {
 	static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
 
 	@Test
-	void freshDatabaseAppliesAllMigrationsV1ThroughV12() throws Exception {
+	void freshDatabaseAppliesAllMigrationsV1ThroughV23() throws Exception {
 		PGSimpleDataSource dataSource = dataSource(POSTGRES.getDatabaseName());
 		new PostgresDocumentStore(dataSource, new ObjectMapper());
 
-		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
+		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+				18, 19, 20, 21, 22, 23),
 			appliedVersions(dataSource));
 		for (String table : List.of("repository_documents", "audit_events",
 				"plan_version_freezes", "audit_outbox", "jobs", "execution_attempts",
 				"memory_records", "projects", "skills", "agent_packages", "mcp_plugins",
+				"workspaces", "tasks", "execution_records", "change_sets", "commits",
+				"ci_runs", "repair_tasks", "pr_feedback", "traces", "usage_records",
 				"schema_migrations")) {
 			assertTrue(tableExists(dataSource, table), "missing table: " + table);
+		}
+		for (String column : List.of("repository_url", "default_branch")) {
+			assertTrue(columnExists(dataSource, "projects", column),
+				"projects column missing: " + column);
 		}
 		for (String column : List.of("skill_id", "name", "version", "enabled",
 				"created_at", "updated_at")) {
@@ -106,10 +113,11 @@ class PostgresMigrationValidationTest {
 				+ "VALUES ('plan:1','hash-old')");
 		}
 
-		// The full migration set upgrades V5..V12 in place.
+		// The full migration set upgrades V5..V23 in place.
 		new PostgresDocumentStore(dataSource, new ObjectMapper());
 
-		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
+		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+				18, 19, 20, 21, 22, 23),
 			appliedVersions(dataSource));
 		assertEquals(1, count(dataSource,
 			"SELECT COUNT(*) FROM repository_documents WHERE entity_id='run-old'"));
@@ -160,7 +168,8 @@ class PostgresMigrationValidationTest {
 
 		// Re-running the migration remains idempotent.
 		new PostgresDocumentStore(dataSource, new ObjectMapper());
-		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
+		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+				18, 19, 20, 21, 22, 23),
 			appliedVersions(dataSource));
 	}
 

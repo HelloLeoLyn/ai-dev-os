@@ -14,7 +14,8 @@ import org.springframework.stereotype.Repository;
  * later without touching the service.
  */
 @Repository
-@ConditionalOnProperty(prefix = "aidevos.persistence", name = "type", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "aidevos.persistence", name = "type", havingValue = "in-memory",
+	matchIfMissing = true)
 public class InMemoryFeedbackRepository implements FeedbackRepository {
 
 	private final Map<String, PrFeedbackRecord> records = new LinkedHashMap<>();

@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ai_dev_os
+      POSTGRES_USER: ai_dev_os
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ai_dev_os}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_dev_os -d ai_dev_os"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    networks:
+      - aidevos-network
+
+  orchestrator:
+    build:
+      context: ./services/orchestrator
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      POSTGRES_URL: jdbc:postgresql://postgres:5432/ai_dev_os
+      POSTGRES_USER: ai_dev_os
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ai_dev_os}
+      OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL:-ws://host.docker.internal:18789}
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+      AI_DEV_OS_WORKSPACE_ROOT: ${AI_DEV_OS_WORKSPACE_ROOT:-/workspace}
+      CODEX_EXECUTABLE: ${CODEX_EXECUTABLE:-codex}
+      TOOLS_MCP_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "18080:18080"
+    volumes:
+      - ${AI_DEV_OS_WORKSPACE_ROOT:-/tmp/ai-dev-os-workspace}:/workspace
+    restart: unless-stopped
+    networks:
+      - aidevos-network
+
+  frontend:
+    build:
+      context: ./services/orchestrator/frontend
+    depends_on:
+      - orchestrator
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+    networks:
+      - aidevos-network
+
+volumes:
+  postgres-data:
+
+networks:
+  aidevos-network:

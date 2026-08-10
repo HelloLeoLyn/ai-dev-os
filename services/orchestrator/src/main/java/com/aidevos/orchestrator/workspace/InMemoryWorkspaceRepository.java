@@ -16,7 +16,8 @@ import org.springframework.stereotype.Repository;
  * implementation can be added in a later phase without touching the service.
  */
 @Repository
-@ConditionalOnProperty(prefix = "aidevos.persistence", name = "type", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "aidevos.persistence", name = "type", havingValue = "in-memory",
+	matchIfMissing = true)
 public class InMemoryWorkspaceRepository implements WorkspaceRepository {
 
 	private final Map<String, Workspace> workspaces = new LinkedHashMap<>();

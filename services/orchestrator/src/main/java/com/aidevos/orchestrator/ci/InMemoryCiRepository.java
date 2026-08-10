@@ -14,7 +14,8 @@ import org.springframework.stereotype.Repository;
  * can be added later without touching the service.
  */
 @Repository
-@ConditionalOnProperty(prefix = "aidevos.persistence", name = "type", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "aidevos.persistence", name = "type", havingValue = "in-memory",
+	matchIfMissing = true)
 public class InMemoryCiRepository implements CiRepository {
 
 	private final Map<String, CiRunRecord> records = new LinkedHashMap<>();

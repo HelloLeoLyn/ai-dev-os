@@ -33,6 +33,35 @@ public class TraceRecord {
 		this.startTime = startTime == null ? Instant.now() : startTime;
 	}
 
+	private TraceRecord(String traceId, String taskId, String projectId, String graphId,
+			String nodeId, String agentType, String toolId, TraceStatus status,
+			Instant startTime, Instant endTime, long duration, String errorMessage) {
+		this.traceId = traceId;
+		this.taskId = taskId;
+		this.projectId = projectId;
+		this.graphId = graphId;
+		this.nodeId = nodeId;
+		this.agentType = agentType;
+		this.toolId = toolId;
+		this.status = status == null ? TraceStatus.RUNNING : status;
+		this.startTime = startTime == null ? Instant.now() : startTime;
+		this.endTime = endTime;
+		this.duration = duration;
+		this.errorMessage = errorMessage;
+	}
+
+	/**
+	 * Reconstructs a persisted trace. Used by the PostgreSQL repository; the
+	 * runtime lifecycle stays on createTrace/complete/fail.
+	 */
+	public static TraceRecord restore(String traceId, String taskId, String projectId,
+			String graphId, String nodeId, String agentType, String toolId,
+			TraceStatus status, Instant startTime, Instant endTime, long duration,
+			String errorMessage) {
+		return new TraceRecord(traceId, taskId, projectId, graphId, nodeId, agentType,
+			toolId, status, startTime, endTime, duration, errorMessage);
+	}
+
 	public void complete() {
 		this.status = TraceStatus.SUCCESS;
 		this.endTime = Instant.now();

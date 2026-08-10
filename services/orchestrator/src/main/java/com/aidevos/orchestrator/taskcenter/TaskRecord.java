@@ -40,6 +40,36 @@ public class TaskRecord {
 		this.updatedAt = this.createdAt;
 	}
 
+	private TaskRecord(String taskId, String name, String description, String projectId,
+			String workspaceId, TaskStatus status, Instant createdAt, Instant updatedAt,
+			String approvalId, String planRunId, String errorMessage) {
+		this.taskId = taskId;
+		this.name = name;
+		this.description = description;
+		this.projectId = projectId == null || projectId.isBlank() ? "default"
+			: projectId.trim();
+		this.workspaceId = workspaceId == null || workspaceId.isBlank()
+			? null : workspaceId.trim();
+		this.status = status == null ? TaskStatus.CREATED : status;
+		this.createdAt = createdAt == null ? Instant.now() : createdAt;
+		this.updatedAt = updatedAt == null ? this.createdAt : updatedAt;
+		this.approvalId = approvalId;
+		this.planRunId = planRunId;
+		this.errorMessage = errorMessage;
+	}
+
+	/**
+	 * Reconstructs a persisted task without running state transitions. Used by
+	 * the PostgreSQL repository; the normal lifecycle methods remain the only
+	 * way to change state at runtime.
+	 */
+	public static TaskRecord restore(String taskId, String name, String description,
+			String projectId, String workspaceId, TaskStatus status, Instant createdAt,
+			Instant updatedAt, String approvalId, String planRunId, String errorMessage) {
+		return new TaskRecord(taskId, name, description, projectId, workspaceId, status,
+			createdAt, updatedAt, approvalId, planRunId, errorMessage);
+	}
+
 	public synchronized void markPlanning(String approvalId) {
 		this.approvalId = approvalId;
 		this.status = TaskStatus.PLANNING;

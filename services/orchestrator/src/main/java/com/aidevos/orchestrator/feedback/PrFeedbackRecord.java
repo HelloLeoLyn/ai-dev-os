@@ -113,6 +113,34 @@ public class PrFeedbackRecord {
 		}
 	}
 
+	private PrFeedbackRecord(String feedbackId, String taskId, String pullRequestId,
+			String repairTaskId, String changeId, String commitId, String ciRunId,
+			FeedbackStatus status, int retryCount, Instant createdAt, Instant updatedAt) {
+		this.feedbackId = feedbackId;
+		this.taskId = taskId;
+		this.pullRequestId = pullRequestId == null ? "" : pullRequestId;
+		this.repairTaskId = repairTaskId == null ? "" : repairTaskId;
+		this.changeId = changeId == null ? "" : changeId;
+		this.commitId = commitId == null ? "" : commitId;
+		this.ciRunId = ciRunId == null ? "" : ciRunId;
+		this.status = status == null ? FeedbackStatus.CREATED : status;
+		this.retryCount = retryCount;
+		this.createdAt = createdAt;
+		this.updatedAt = updatedAt == null ? createdAt : updatedAt;
+	}
+
+	/**
+	 * Reconstructs a persisted feedback record without running state
+	 * transitions. Used by the PostgreSQL repository.
+	 */
+	public static PrFeedbackRecord restore(String feedbackId, String taskId,
+			String pullRequestId, String repairTaskId, String changeId, String commitId,
+			String ciRunId, FeedbackStatus status, int retryCount, Instant createdAt,
+			Instant updatedAt) {
+		return new PrFeedbackRecord(feedbackId, taskId, pullRequestId, repairTaskId,
+			changeId, commitId, ciRunId, status, retryCount, createdAt, updatedAt);
+	}
+
 	public String getFeedbackId() {
 		return feedbackId;
 	}

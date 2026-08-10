@@ -59,6 +59,32 @@ public class CommitRecord {
 		}
 	}
 
+	private CommitRecord(String commitId, String changeId, String taskId, String workspaceId,
+			String branch, String message, CommitStatus status, String gitHash,
+			Instant createdAt, Instant updatedAt) {
+		this.commitId = commitId;
+		this.changeId = changeId;
+		this.taskId = taskId;
+		this.workspaceId = workspaceId;
+		this.branch = branch == null ? "" : branch;
+		this.message = message;
+		this.createdAt = createdAt;
+		this.status = status == null ? CommitStatus.PENDING : status;
+		this.gitHash = gitHash;
+		this.updatedAt = updatedAt == null ? createdAt : updatedAt;
+	}
+
+	/**
+	 * Reconstructs a persisted commit record without running state transitions.
+	 * Used by the PostgreSQL repository.
+	 */
+	public static CommitRecord restore(String commitId, String changeId, String taskId,
+			String workspaceId, String branch, String message, CommitStatus status,
+			String gitHash, Instant createdAt, Instant updatedAt) {
+		return new CommitRecord(commitId, changeId, taskId, workspaceId, branch, message,
+			status, gitHash, createdAt, updatedAt);
+	}
+
 	public String getCommitId() {
 		return commitId;
 	}

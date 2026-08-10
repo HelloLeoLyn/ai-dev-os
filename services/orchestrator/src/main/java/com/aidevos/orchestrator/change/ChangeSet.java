@@ -87,6 +87,47 @@ public class ChangeSet {
 		}
 	}
 
+	private ChangeSet(String changeId, String taskId, String workspaceId, String projectId,
+			String executionId, String branch, String diff, String diffStat, int filesChanged,
+			int insertions, int deletions, int modified, int added, int deleted,
+			ChangeStatus status, String reviewedBy, Instant reviewedAt, Instant createdAt,
+			Instant updatedAt) {
+		this.changeId = changeId;
+		this.taskId = taskId;
+		this.workspaceId = workspaceId;
+		this.projectId = projectId;
+		this.executionId = executionId;
+		this.branch = branch == null ? "" : branch;
+		this.diff = diff == null ? "" : diff;
+		this.diffStat = diffStat == null ? "" : diffStat;
+		this.filesChanged = filesChanged;
+		this.insertions = insertions;
+		this.deletions = deletions;
+		this.modified = modified;
+		this.added = added;
+		this.deleted = deleted;
+		this.createdAt = createdAt;
+		this.status = status == null ? ChangeStatus.CREATED : status;
+		this.reviewedBy = reviewedBy;
+		this.reviewedAt = reviewedAt;
+		this.updatedAt = updatedAt == null ? createdAt : updatedAt;
+	}
+
+	/**
+	 * Reconstructs a persisted change set without running state transitions.
+	 * Used by the PostgreSQL repository; the lifecycle methods remain the only
+	 * way to change state at runtime.
+	 */
+	public static ChangeSet restore(String changeId, String taskId, String workspaceId,
+			String projectId, String executionId, String branch, String diff, String diffStat,
+			int filesChanged, int insertions, int deletions, int modified, int added,
+			int deleted, ChangeStatus status, String reviewedBy, Instant reviewedAt,
+			Instant createdAt, Instant updatedAt) {
+		return new ChangeSet(changeId, taskId, workspaceId, projectId, executionId, branch,
+			diff, diffStat, filesChanged, insertions, deletions, modified, added, deleted,
+			status, reviewedBy, reviewedAt, createdAt, updatedAt);
+	}
+
 	public String getChangeId() {
 		return changeId;
 	}

@@ -60,6 +60,31 @@ public class RepairTask {
 		this.updatedAt = Instant.now();
 	}
 
+	private RepairTask(String repairId, String taskId, String workspaceId,
+			FailureContext failureContext, RepairStatus status, int retryCount,
+			String lastResult, Instant createdAt, Instant updatedAt) {
+		this.repairId = repairId;
+		this.taskId = taskId;
+		this.workspaceId = workspaceId;
+		this.failureContext = failureContext;
+		this.createdAt = createdAt == null ? Instant.now() : createdAt;
+		this.status = status == null ? RepairStatus.PENDING : status;
+		this.retryCount = retryCount;
+		this.lastResult = lastResult;
+		this.updatedAt = updatedAt == null ? this.createdAt : updatedAt;
+	}
+
+	/**
+	 * Reconstructs a persisted repair task without running state transitions.
+	 * Used by the PostgreSQL repository.
+	 */
+	public static RepairTask restore(String repairId, String taskId, String workspaceId,
+			FailureContext failureContext, RepairStatus status, int retryCount,
+			String lastResult, Instant createdAt, Instant updatedAt) {
+		return new RepairTask(repairId, taskId, workspaceId, failureContext, status,
+			retryCount, lastResult, createdAt, updatedAt);
+	}
+
 	public String getRepairId() {
 		return repairId;
 	}

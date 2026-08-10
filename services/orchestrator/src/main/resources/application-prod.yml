@@ -1,0 +1,32 @@
+# Production profile for the orchestrator service. Persistence is always
+# PostgreSQL; the connection settings come from environment variables so no
+# credentials are stored in the repository.
+spring:
+  application:
+    name: orchestrator
+  datasource:
+    url: ${POSTGRES_URL:${AI_DEV_OS_POSTGRES_URL:jdbc:postgresql://localhost:5432/ai_dev_os}}
+    username: ${POSTGRES_USER:${AI_DEV_OS_POSTGRES_USER:ai_dev_os}}
+    password: ${POSTGRES_PASSWORD:${AI_DEV_OS_POSTGRES_PASSWORD:}}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  health:
+    db:
+      enabled: true
+
+aidevos:
+  persistence:
+    type: postgresql
+    postgresql:
+      url: ${POSTGRES_URL:${AI_DEV_OS_POSTGRES_URL:jdbc:postgresql://localhost:5432/ai_dev_os}}
+      username: ${POSTGRES_USER:${AI_DEV_OS_POSTGRES_USER:ai_dev_os}}
+      password: ${POSTGRES_PASSWORD:${AI_DEV_OS_POSTGRES_PASSWORD:}}

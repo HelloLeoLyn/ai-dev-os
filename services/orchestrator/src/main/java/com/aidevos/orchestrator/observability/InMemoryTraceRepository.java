@@ -6,12 +6,15 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Repository;
 
 /**
  * In-memory trace store, sorted newest first for the trace views.
  */
 @Repository
+@ConditionalOnProperty(prefix = "aidevos.persistence", name = "type", havingValue = "in-memory",
+	matchIfMissing = true)
 public class InMemoryTraceRepository implements TraceRepository {
 
 	private final Map<String, TraceRecord> traces = new LinkedHashMap<>();

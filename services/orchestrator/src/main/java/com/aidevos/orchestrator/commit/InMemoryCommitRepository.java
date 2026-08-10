@@ -14,7 +14,8 @@ import org.springframework.stereotype.Repository;
  * can be added in a later phase without touching the service.
  */
 @Repository
-@ConditionalOnProperty(prefix = "aidevos.persistence", name = "type", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "aidevos.persistence", name = "type", havingValue = "in-memory",
+	matchIfMissing = true)
 public class InMemoryCommitRepository implements CommitRepository {
 
 	private final Map<String, CommitRecord> commits = new LinkedHashMap<>();

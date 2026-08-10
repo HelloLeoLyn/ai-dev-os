@@ -69,6 +69,33 @@ public class CiRunRecord {
 		}
 	}
 
+	private CiRunRecord(String ciRunId, String taskId, String pullRequestId, String provider,
+			String pipelineId, CiStatus status, String branch, String commitHash,
+			String reportUrl, Instant startedAt, Instant finishedAt) {
+		this.ciRunId = ciRunId;
+		this.taskId = taskId;
+		this.pullRequestId = pullRequestId;
+		this.provider = provider == null ? "" : provider;
+		this.pipelineId = pipelineId == null ? "" : pipelineId;
+		this.status = status == null ? CiStatus.PENDING : status;
+		this.branch = branch == null ? "" : branch;
+		this.commitHash = commitHash == null ? "" : commitHash;
+		this.reportUrl = reportUrl == null ? "" : reportUrl;
+		this.startedAt = startedAt;
+		this.finishedAt = finishedAt;
+	}
+
+	/**
+	 * Reconstructs a persisted CI run without running state transitions. Used
+	 * by the PostgreSQL repository.
+	 */
+	public static CiRunRecord restore(String ciRunId, String taskId, String pullRequestId,
+			String provider, String pipelineId, CiStatus status, String branch,
+			String commitHash, String reportUrl, Instant startedAt, Instant finishedAt) {
+		return new CiRunRecord(ciRunId, taskId, pullRequestId, provider, pipelineId, status,
+			branch, commitHash, reportUrl, startedAt, finishedAt);
+	}
+
 	public String getCiRunId() {
 		return ciRunId;
 	}
