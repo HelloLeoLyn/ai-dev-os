@@ -376,6 +376,79 @@ public class AuditService {
 			type + ":tool:" + value(toolId) + ":" + UUID.randomUUID()));
 	}
 
+	/**
+	 * Records a security layer event (SECURITY_CHECK, PERMISSION_GRANTED,
+	 * PERMISSION_DENIED) with the agentType and permission metadata.
+	 */
+	public void securityEvent(EventType type, String taskId, String agentType,
+			String permission, String status, String summary, Map<String, Object> metadata) {
+		Map<String, Object> enriched = new java.util.LinkedHashMap<>();
+		if (taskId != null) {
+			enriched.put("taskId", taskId);
+		}
+		if (agentType != null) {
+			enriched.put("agentType", agentType);
+		}
+		if (permission != null) {
+			enriched.put("permission", permission);
+		}
+		if (metadata != null) {
+			enriched.putAll(metadata);
+		}
+		record(event(type, "security", "security-" + UUID.randomUUID(), null, status,
+			taskId, null, null, null, null, null, null, null, null, null, null,
+			"SYSTEM", agentType == null ? "security" : agentType, summary,
+			Map.copyOf(enriched),
+			type + ":security:" + value(taskId) + ":" + UUID.randomUUID()));
+	}
+
+	/**
+	 * Records a sandbox lifecycle event (SANDBOX_CREATED / SANDBOX_DESTROYED)
+	 * with the sandboxId metadata.
+	 */
+	public void sandboxEvent(EventType type, String sandboxId, String taskId,
+			String agentType, String summary, Map<String, Object> metadata) {
+		Map<String, Object> enriched = new java.util.LinkedHashMap<>();
+		enriched.put("sandboxId", value(sandboxId));
+		if (taskId != null) {
+			enriched.put("taskId", taskId);
+		}
+		if (agentType != null) {
+			enriched.put("agentType", agentType);
+		}
+		if (metadata != null) {
+			enriched.putAll(metadata);
+		}
+		record(event(type, "sandbox", sandboxId, null, null, taskId, null, null, null,
+			null, null, null, null, null, null, null, "SYSTEM",
+			agentType == null ? "sandbox" : agentType, summary, Map.copyOf(enriched),
+			type + ":sandbox:" + value(sandboxId) + ":" + UUID.randomUUID()));
+	}
+
+	/**
+	 * Records a secret access event (SECRET_ACCESSED / SECRET_DENIED). The raw
+	 * secret value is never part of the audit trail.
+	 */
+	public void secretEvent(EventType type, String key, String agentType, String taskId,
+			String summary, Map<String, Object> metadata) {
+		Map<String, Object> enriched = new java.util.LinkedHashMap<>();
+		enriched.put("key", value(key));
+		if (agentType != null) {
+			enriched.put("agentType", agentType);
+		}
+		if (taskId != null) {
+			enriched.put("taskId", taskId);
+		}
+		if (metadata != null) {
+			enriched.putAll(metadata);
+		}
+		record(event(type, "secret", "secret-" + value(key), null, null, taskId, null,
+			null, null, null, null, null, null, null, null, null, "SYSTEM",
+			agentType == null ? "secret-manager" : agentType, summary,
+			Map.copyOf(enriched),
+			type + ":secret:" + value(key) + ":" + UUID.randomUUID()));
+	}
+
 	public void graphEvent(EventType type, String graphId, String taskId, String nodeId,
 			String agentType, String status, String summary,
 			Map<String, Object> metadata) {

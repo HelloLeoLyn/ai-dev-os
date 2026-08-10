@@ -9,6 +9,12 @@ import java.util.Objects;
 import com.aidevos.orchestrator.agent.AgentType;
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
+import com.aidevos.orchestrator.security.ApprovalService;
+import com.aidevos.orchestrator.security.SecurityPermission;
+import com.aidevos.orchestrator.security.SecurityPolicy;
+import com.aidevos.orchestrator.security.SecurityPolicyRegistry;
+import com.aidevos.orchestrator.security.sandbox.SandboxContext;
+import com.aidevos.orchestrator.security.sandbox.SandboxManager;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -24,15 +30,27 @@ public class McpToolRouter {
 
 	private final ToolRegistry registry;
 	private final AuditService auditService;
+	private final SecurityPolicyRegistry securityPolicyRegistry;
+	private final SandboxManager sandboxManager;
+	private final ApprovalService approvalService;
 
 	public McpToolRouter(ToolRegistry registry) {
 		this(registry, AuditService.noop());
 	}
 
-	@Autowired
 	public McpToolRouter(ToolRegistry registry, AuditService auditService) {
+		this(registry, auditService, null, null, null);
+	}
+
+	@Autowired
+	public McpToolRouter(ToolRegistry registry, AuditService auditService,
+			SecurityPolicyRegistry securityPolicyRegistry, SandboxManager sandboxManager,
+			ApprovalService approvalService) {
 		this.registry = registry;
 		this.auditService = auditService;
+		this.securityPolicyRegistry = securityPolicyRegistry;
+		this.sandboxManager = sandboxManager;
+		this.approvalService = approvalService;
 	}
 
 	/**
@@ -60,6 +78,13 @@ public class McpToolRouter {
 		if (tool == null || executor == null) {
 			return failure(request.toolId(), request.agentType(), request.taskId(),
 				"Tool not found: " + request.toolId(), started);
+		}
+		SecurityDenial denial = securityCheck(request, tool);
+		if (denial != null) {
+			audit(EventType.TOOL_DENIED, request.toolId(), request.agentType(),
+				request.taskId(), "DENIED", denial.message(), toolMetadata(request, 0));
+			return failure(request.toolId(), request.agentType(), request.taskId(),
+				denial.message(), started);
 		}
 		ToolPermission requested = requestedPermission(request);
 		if (requested != null && !tool.permits(requested)) {
@@ -123,6 +148,87 @@ public class McpToolRouter {
 		return tool.permission().contains(ToolPermission.DANGEROUS)
 			&& tool.permission().stream().noneMatch(
 				permission -> permission != ToolPermission.DANGEROUS);
+	}
+
+	/**
+	 * Security & sandbox gate: resolves the task sandbox, evaluates the agent
+	 * security policy for the tool's required permission and checks the
+	 * sandbox scope. Returns null when the request is allowed, otherwise the
+	 * denial message. No-op when the security layer is not wired.
+	 */
+	private SecurityDenial securityCheck(ToolExecutionRequest request,
+			ToolDefinition tool) {
+		if (securityPolicyRegistry == null || sandboxManager == null
+			|| request.agentType() == null) {
+			return null;
+		}
+		SecurityPermission required = requiredPermission(tool);
+		SecurityPolicy policy = securityPolicyRegistry.getPolicy(request.agentType());
+		if (policy == null) {
+			return new SecurityDenial("No security policy for agent: "
+				+ request.agentType());
+		}
+		SandboxContext sandbox = sandboxManager.getSandbox(request.taskId())
+			.orElseGet(() -> sandboxManager.createSandbox(request.taskId(),
+				stringParameter(request, "workspaceId"), request.agentType(),
+				toolsFor(request.agentType()), policy.allowedPermissions()));
+		auditService.securityEvent(EventType.SECURITY_CHECK, request.taskId(),
+			request.agentType().name(), required == null ? null : required.name(),
+			"CHECK", "Security check for tool " + request.toolId(),
+			Map.of("toolId", request.toolId(), "permission",
+				required == null ? "" : required.name(), "sandboxId", sandbox.sandboxId()));
+		if (!sandbox.allowsTool(request.toolId())) {
+			return new SecurityDenial("Tool " + request.toolId()
+				+ " is outside the task sandbox scope");
+		}
+		if (!policy.allows(required)) {
+			auditService.securityEvent(EventType.PERMISSION_DENIED, request.taskId(),
+				request.agentType().name(), required == null ? null : required.name(),
+				"DENIED", "Permission denied for agent " + request.agentType(),
+				Map.of("toolId", request.toolId(), "permission",
+					required == null ? "" : required.name()));
+			return new SecurityDenial("Agent " + request.agentType() + " is not allowed "
+				+ (required == null ? "this tool" : required.name()) + " for tool "
+				+ request.toolId());
+		}
+		if (policy.requiresApproval(required)
+			&& (approvalService == null
+				|| !approvalService.isApproved(request.taskId(), required))) {
+			auditService.securityEvent(EventType.PERMISSION_DENIED, request.taskId(),
+				request.agentType().name(), required == null ? null : required.name(),
+				"APPROVAL_REQUIRED", "Permission requires human approval",
+				Map.of("toolId", request.toolId(), "permission",
+					required == null ? "" : required.name()));
+			return new SecurityDenial("Permission " + (required == null ? "" : required.name())
+				+ " requires a human approval for task " + request.taskId());
+		}
+		auditService.securityEvent(EventType.PERMISSION_GRANTED, request.taskId(),
+			request.agentType().name(), required == null ? null : required.name(),
+			"GRANTED", "Permission granted for agent " + request.agentType(),
+			Map.of("toolId", request.toolId(), "permission",
+				required == null ? "" : required.name(), "sandboxId", sandbox.sandboxId()));
+		return null;
+	}
+
+	private SecurityPermission requiredPermission(ToolDefinition tool) {
+		if (tool == null || tool.type() == null) {
+			return null;
+		}
+		return switch (tool.type()) {
+			case FILESYSTEM -> SecurityPermission.READ_FILE;
+			case GIT -> SecurityPermission.GIT_WRITE;
+			case BROWSER -> SecurityPermission.BROWSER_EXECUTE;
+			case DOCKER, TERMINAL -> SecurityPermission.EXECUTE_COMMAND;
+			case DATABASE -> SecurityPermission.NETWORK_ACCESS;
+		};
+	}
+
+	private String stringParameter(ToolExecutionRequest request, String key) {
+		Object value = request.parameters().get(key);
+		return value == null ? null : String.valueOf(value);
+	}
+
+	private record SecurityDenial(String message) {
 	}
 
 	private ToolPermission requestedPermission(ToolExecutionRequest request) {
