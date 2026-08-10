@@ -270,6 +270,19 @@ public class AuditService {
 	}
 
 	/**
+	 * Records a pull request lifecycle event (PR_CREATED / OPENED / CLOSED /
+	 * MERGED / FAILED) carrying the taskId so it appears on the task
+	 * timeline alongside commit, push and change events.
+	 */
+	public void prEvent(EventType type, String taskId, String pullRequestId, String commitId,
+			String fromStatus, String toStatus, String summary, Map<String, Object> metadata) {
+		record(event(type, "pull-request", pullRequestId, fromStatus, toStatus, taskId, null,
+			null, null, null, null, null, null, null, null, null, "SYSTEM", "pr-service",
+			summary, metadata == null ? Map.of() : Map.copyOf(metadata),
+			type + ":pr:" + pullRequestId + ":" + value(fromStatus) + ":" + value(toStatus)));
+	}
+
+	/**
 	 * Records a codex execution lifecycle event (CODEX_EXEC_STARTED /
 	 * COMPLETED / FAILED) carrying the taskId so it appears on the task
 	 * timeline alongside the agent plan events.
