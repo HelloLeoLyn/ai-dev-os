@@ -6,9 +6,12 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.aidevos.orchestrator.audit.AuditService;
+import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.workspace.git.GitCommandExecutor;
 import com.aidevos.orchestrator.workspace.git.GitDiff;
@@ -26,14 +29,32 @@ public class WorkspaceService {
 
 	private final WorkspaceRepository repository;
 	private final GitCommandExecutor gitCommandExecutor;
+	private final AuditService auditService;
 
 	public WorkspaceService(WorkspaceRepository repository,
 			GitCommandExecutor gitCommandExecutor) {
+		this(repository, gitCommandExecutor, AuditService.noop());
+	}
+
+	@org.springframework.beans.factory.annotation.Autowired
+	public WorkspaceService(WorkspaceRepository repository,
+			GitCommandExecutor gitCommandExecutor, AuditService auditService) {
 		this.repository = repository;
 		this.gitCommandExecutor = gitCommandExecutor;
+		this.auditService = auditService;
 	}
 
 	public Workspace createWorkspace(String projectId, String path) {
+		return createProjectWorkspace(projectId, path, null);
+	}
+
+	/**
+	 * Creates a workspace bound to an existing project. The projectId is
+	 * mandatory; the repositoryUrl is optional metadata for the multi-project
+	 * model.
+	 */
+	public Workspace createProjectWorkspace(String projectId, String path,
+			String repositoryUrl) {
 		if (projectId == null || projectId.isBlank()) {
 			throw new IllegalArgumentException("projectId is required");
 		}
@@ -45,10 +66,34 @@ public class WorkspaceService {
 			throw new IllegalArgumentException("Workspace path is not a directory: " + path);
 		}
 		String workspaceId = "workspace-" + UUID.randomUUID();
-		Workspace workspace = new Workspace(workspaceId, projectId.trim(), path.trim(),
-			null, WorkspaceStatus.READY, Instant.now(), Instant.now());
+		String normalizedProjectId = projectId.trim();
+		Workspace workspace = new Workspace(workspaceId, normalizedProjectId, path.trim(),
+			null, WorkspaceStatus.READY, Instant.now(), Instant.now(), repositoryUrl);
 		repository.save(workspace);
+		auditService.projectEvent(EventType.PROJECT_WORKSPACE_CREATED, normalizedProjectId,
+			"Workspace created for project: " + normalizedProjectId,
+			Map.of("projectId", normalizedProjectId, "workspaceId", workspaceId));
 		return workspace;
+	}
+
+	public List<Workspace> getProjectWorkspaces(String projectId) {
+		if (projectId == null || projectId.isBlank()) {
+			return List.of();
+		}
+		return repository.listByProjectId(projectId.trim());
+	}
+
+	/**
+	 * Verifies that the workspace belongs to the given project. Returns false
+	 * for unknown workspaces.
+	 */
+	public boolean checkProjectOwnership(String projectId, String workspaceId) {
+		if (projectId == null || workspaceId == null) {
+			return false;
+		}
+		return getWorkspace(workspaceId)
+			.map(workspace -> projectId.equals(workspace.getProjectId()))
+			.orElse(false);
 	}
 
 	public Optional<Workspace> getWorkspace(String workspaceId) {

@@ -449,6 +449,24 @@ public class AuditService {
 			type + ":secret:" + value(key) + ":" + UUID.randomUUID()));
 	}
 
+	/**
+	 * Records a project lifecycle event (PROJECT_CREATED, PROJECT_ARCHIVED,
+	 * PROJECT_AGENT_BOUND, PROJECT_WORKSPACE_CREATED) with the projectId and
+	 * workspaceId metadata.
+	 */
+	public void projectEvent(EventType type, String projectId, String summary,
+			Map<String, Object> metadata) {
+		Map<String, Object> enriched = new java.util.LinkedHashMap<>();
+		enriched.put("projectId", value(projectId));
+		if (metadata != null) {
+			enriched.putAll(metadata);
+		}
+		record(event(type, "project", projectId, null, null, null, null, null, null,
+			null, null, null, null, null, null, null, "SYSTEM", "project", summary,
+			Map.copyOf(enriched),
+			type + ":project:" + value(projectId) + ":" + UUID.randomUUID()));
+	}
+
 	public void graphEvent(EventType type, String graphId, String taskId, String nodeId,
 			String agentType, String status, String summary,
 			Map<String, Object> metadata) {

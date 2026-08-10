@@ -41,8 +41,14 @@ public class ProjectService {
 		}
 		String projectId = "project-" + UUID.randomUUID();
 		Project project = new Project(projectId, request.name().trim(), request.path().trim(),
-			request.description(), ProjectStatus.ACTIVE, Instant.now(), Instant.now());
+			request.description(), ProjectStatus.ACTIVE, Instant.now(), Instant.now(),
+			request.repositoryUrl(), request.defaultBranch());
 		repository.save(project);
+		auditService.projectEvent(EventType.PROJECT_CREATED, projectId,
+			"Project created: " + project.getName(),
+			Map.of("path", project.getPath() == null ? "" : project.getPath(),
+				"repositoryUrl", project.getRepositoryUrl() == null ? ""
+					: project.getRepositoryUrl()));
 		if (currentProjectId == null) {
 			currentProjectId = projectId;
 		}
@@ -80,6 +86,8 @@ public class ProjectService {
 		project.ifPresent(value -> {
 			value.markArchived();
 			repository.save(value);
+			auditService.projectEvent(EventType.PROJECT_ARCHIVED, projectId,
+				"Project archived: " + value.getName(), Map.of());
 			if (projectId.equals(currentProjectId)) {
 				currentProjectId = null;
 			}

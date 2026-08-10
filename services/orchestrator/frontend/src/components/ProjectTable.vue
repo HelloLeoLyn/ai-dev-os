@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { RouterLink } from 'vue-router'
+
 import type { Project, ProjectStatus } from '../types/project'
 
 defineProps<{
@@ -51,6 +53,11 @@ function formatDate(value: string): string {
       </template>
     </el-table-column>
     <el-table-column prop="path" label="路径" min-width="200" show-overflow-tooltip />
+    <el-table-column label="仓库地址" min-width="200" show-overflow-tooltip>
+      <template #default="{ row }: { row: Project }">
+        <code>{{ row.repositoryUrl || '—' }}</code>
+      </template>
+    </el-table-column>
     <el-table-column label="状态" min-width="90">
       <template #default="{ row }: { row: Project }">
         <el-tag :type="statusTone(row.status)" effect="dark" size="small">
@@ -61,6 +68,11 @@ function formatDate(value: string): string {
     <el-table-column label="创建时间" min-width="150">
       <template #default="{ row }: { row: Project }">
         {{ formatDate(row.createdAt) }}
+      </template>
+    </el-table-column>
+    <el-table-column label="操作" min-width="90" fixed="right">
+      <template #default="{ row }: { row: Project }">
+        <RouterLink :to="`/projects/${row.projectId}`">详情</RouterLink>
       </template>
     </el-table-column>
   </el-table>

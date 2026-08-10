@@ -42,6 +42,17 @@ public class InMemoryWorkspaceRepository implements WorkspaceRepository {
 	}
 
 	@Override
+	public synchronized List<Workspace> listByProjectId(String projectId) {
+		if (projectId == null) {
+			return List.of();
+		}
+		return workspaces.values().stream()
+			.filter(workspace -> projectId.equals(workspace.getProjectId()))
+			.sorted(java.util.Comparator.comparing(Workspace::getCreatedAt).reversed())
+			.toList();
+	}
+
+	@Override
 	public synchronized List<Workspace> list() {
 		return new ArrayList<>(workspaces.values());
 	}

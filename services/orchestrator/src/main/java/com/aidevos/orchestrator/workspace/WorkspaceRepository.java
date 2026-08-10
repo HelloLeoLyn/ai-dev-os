@@ -15,6 +15,8 @@ public interface WorkspaceRepository {
 
 	Optional<Workspace> getByProjectId(String projectId);
 
+	List<Workspace> listByProjectId(String projectId);
+
 	List<Workspace> list();
 
 	boolean delete(String workspaceId);

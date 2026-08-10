@@ -58,8 +58,32 @@ public class AgentMetricsService {
 
 	/** Agent ranking by execution count (descending). */
 	public List<AgentMetrics> listAgentMetrics() {
+		return aggregate(executionRecordManager.getAll());
+	}
+
+	/**
+	 * Agent ranking restricted to the executions of one project. Records are
+	 * filtered through the task's projectId so projects never mix metrics.
+	 */
+	public List<AgentMetrics> listProjectAgentMetrics(String projectId) {
+		if (projectId == null || projectId.isBlank()) {
+			return List.of();
+		}
+		List<ExecutionRecord> records = executionRecordManager.getAll().stream()
+			.filter(record -> belongsToProject(record, projectId))
+			.toList();
+		return aggregate(records);
+	}
+
+	private boolean belongsToProject(ExecutionRecord record, String projectId) {
+		return record.getTaskId() != null && !record.getTaskId().isBlank()
+			&& taskCenterService.getTask(record.getTaskId())
+				.map(task -> projectId.equals(task.getProjectId()))
+				.orElse(false);
+	}
+
+	private List<AgentMetrics> aggregate(List<ExecutionRecord> records) {
 		Map<String, AgentAggregate> aggregates = seedAgents();
-		List<ExecutionRecord> records = executionRecordManager.getAll();
 		Map<String, String> taskAgent = taskToAgent(records);
 		for (ExecutionRecord record : records) {
 			aggregate(agentName(record), aggregates).add(record);

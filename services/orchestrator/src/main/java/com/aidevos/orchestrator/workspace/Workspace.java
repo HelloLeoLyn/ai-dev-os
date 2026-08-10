@@ -13,16 +13,24 @@ public class Workspace {
 	private final String projectId;
 	private final String path;
 	private final String branch;
+	private final String repositoryUrl;
 	private final Instant createdAt;
 	private volatile WorkspaceStatus status;
 	private volatile Instant updatedAt;
 
 	public Workspace(String workspaceId, String projectId, String path, String branch,
 			WorkspaceStatus status, Instant createdAt, Instant updatedAt) {
+		this(workspaceId, projectId, path, branch, status, createdAt, updatedAt, null);
+	}
+
+	public Workspace(String workspaceId, String projectId, String path, String branch,
+			WorkspaceStatus status, Instant createdAt, Instant updatedAt,
+			String repositoryUrl) {
 		this.workspaceId = workspaceId;
 		this.projectId = projectId;
 		this.path = path;
 		this.branch = branch;
+		this.repositoryUrl = repositoryUrl;
 		this.status = status == null ? WorkspaceStatus.READY : status;
 		this.createdAt = createdAt == null ? Instant.now() : createdAt;
 		this.updatedAt = updatedAt == null ? this.createdAt : updatedAt;
@@ -65,6 +73,10 @@ public class Workspace {
 
 	public String getBranch() {
 		return branch;
+	}
+
+	public String getRepositoryUrl() {
+		return repositoryUrl;
 	}
 
 	public WorkspaceStatus getStatus() {
