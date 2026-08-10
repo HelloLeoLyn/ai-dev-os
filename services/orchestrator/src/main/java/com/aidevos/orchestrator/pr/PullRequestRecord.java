@@ -20,6 +20,7 @@ public class PullRequestRecord {
 	private final Instant createdAt;
 	private volatile PullRequestStatus status = PullRequestStatus.CREATED;
 	private volatile String url;
+	private volatile String externalId;
 	private volatile Instant updatedAt;
 
 	public PullRequestRecord(String pullRequestId, String taskId, String commitId,
@@ -69,6 +70,11 @@ public class PullRequestRecord {
 		this.updatedAt = Instant.now();
 	}
 
+	public synchronized void updateExternalId(String externalId) {
+		this.externalId = externalId;
+		this.updatedAt = Instant.now();
+	}
+
 	private void requireStatus(PullRequestStatus expected, String message) {
 		if (this.status != expected) {
 			throw new IllegalStateException(message + " (current: " + this.status + ")");
@@ -109,6 +115,10 @@ public class PullRequestRecord {
 
 	public String getUrl() {
 		return url;
+	}
+
+	public String getExternalId() {
+		return externalId;
 	}
 
 	public PullRequestStatus getStatus() {

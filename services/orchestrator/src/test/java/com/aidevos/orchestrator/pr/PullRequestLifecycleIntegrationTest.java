@@ -59,6 +59,7 @@ import com.aidevos.orchestrator.plan.run.PlanRunRepository;
 import com.aidevos.orchestrator.planner.PlannerService;
 import com.aidevos.orchestrator.planner.PlanningRequest;
 import com.aidevos.orchestrator.planner.PlanningResult;
+import com.aidevos.orchestrator.pr.provider.GitProviderProperties;
 import com.aidevos.orchestrator.remote.InMemoryRemoteRepository;
 import com.aidevos.orchestrator.remote.RemoteBranchRecord;
 import com.aidevos.orchestrator.remote.RemoteGitService;
@@ -178,7 +179,8 @@ class PullRequestLifecycleIntegrationTest {
 		remoteGitService = new RemoteGitService(new InMemoryRemoteRepository(), commitService,
 			workspaceService, new ProcessGitCommandExecutor(commandExecutor), auditService);
 		pullRequestService = new PullRequestService(new InMemoryPullRequestRepository(),
-			commitService, remoteGitService, new MockPullRequestProvider(), auditService);
+			commitService, remoteGitService, new MockPullRequestProvider(),
+			new GitProviderProperties(), auditService);
 		taskCenterService = new TaskCenterService(plannerService, approvalService,
 			planRunRepository);
 		TestAgentService testAgentService = new TestAgentService(new FakeRunner(),
@@ -223,6 +225,7 @@ class PullRequestLifecycleIntegrationTest {
 		assertEquals(PullRequestStatus.OPEN, pullRequest.getStatus());
 		assertEquals("https://mock.dev/pr/" + pullRequest.getPullRequestId(),
 			pullRequest.getUrl());
+		assertEquals(pullRequest.getPullRequestId(), pullRequest.getExternalId());
 		assertEquals("main", pullRequest.getBranch());
 		assertEquals("main", pullRequest.getTargetBranch());
 		assertEquals(commit.getCommitId(), pullRequest.getCommitId());

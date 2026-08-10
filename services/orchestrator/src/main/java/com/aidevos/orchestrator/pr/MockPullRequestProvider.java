@@ -1,39 +1,44 @@
 package com.aidevos.orchestrator.pr;
 
+import com.aidevos.orchestrator.pr.provider.GitProvider;
+import com.aidevos.orchestrator.pr.provider.GitPullRequestRequest;
+import com.aidevos.orchestrator.pr.provider.GitPullRequestResult;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
- * Test/mock pull request provider used until a real remote host is wired in.
- * It never talks to a real API: create returns a deterministic mock URL and
- * close/merge are no-ops that return the same URL.
+ * Default pull request provider (aidevos.git.provider=mock) used when no real
+ * remote host is wired in. It never talks to a real API: create returns a
+ * deterministic mock URL and close/merge are no-ops that return the same URL.
  */
 @Component
-public class MockPullRequestProvider implements PullRequestProvider {
+@ConditionalOnProperty(prefix = "aidevos.git", name = "provider", havingValue = "mock",
+	matchIfMissing = true)
+public class MockPullRequestProvider implements GitProvider {
 
 	private static final String BASE_URL = "https://mock.dev/pr/";
 
 	@Override
-	public String create(String pullRequestId, String branch, String targetBranch,
-			String title, String description) {
-		return url(pullRequestId);
+	public GitPullRequestResult createPullRequest(GitPullRequestRequest request) {
+		return result(request.pullRequestId(), "open");
 	}
 
 	@Override
-	public String get(String pullRequestId) {
-		return url(pullRequestId);
+	public GitPullRequestResult getPullRequest(String externalId) {
+		return result(externalId, "open");
 	}
 
 	@Override
-	public String close(String pullRequestId) {
-		return url(pullRequestId);
+	public GitPullRequestResult closePullRequest(String externalId) {
+		return result(externalId, "closed");
 	}
 
 	@Override
-	public String merge(String pullRequestId) {
-		return url(pullRequestId);
+	public GitPullRequestResult mergePullRequest(String externalId) {
+		return result(externalId, "merged");
 	}
 
-	private String url(String pullRequestId) {
-		return BASE_URL + pullRequestId;
+	private GitPullRequestResult result(String externalId, String state) {
+		return new GitPullRequestResult(externalId, BASE_URL + externalId, state);
 	}
 }

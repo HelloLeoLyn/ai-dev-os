@@ -14,6 +14,10 @@ import com.aidevos.orchestrator.commit.CommitRecord;
 import com.aidevos.orchestrator.commit.CommitService;
 import com.aidevos.orchestrator.commit.CommitStatus;
 import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
+import com.aidevos.orchestrator.pr.provider.GitProvider;
+import com.aidevos.orchestrator.pr.provider.GitProviderProperties;
+import com.aidevos.orchestrator.pr.provider.GitPullRequestRequest;
+import com.aidevos.orchestrator.pr.provider.GitPullRequestResult;
 import com.aidevos.orchestrator.remote.RemoteBranchRecord;
 import com.aidevos.orchestrator.remote.RemoteGitService;
 import com.aidevos.orchestrator.remote.RemoteStatus;
@@ -21,9 +25,9 @@ import org.springframework.stereotype.Service;
 
 /**
  * Pull request management for pushed commits: CommitRecord SUCCESS + remote
- * push SUCCESS -> PR record OPEN -> MERGED | CLOSED via the provider
- * abstraction. This phase only manages state; it never merges, pulls or
- * modifies code.
+ * push SUCCESS -> PR record OPEN -> MERGED | CLOSED via the configured git
+ * provider (mock/github/gitlab). This phase only manages state; it never
+ * merges, pulls or modifies code.
  */
 @Service
 public class PullRequestService {
@@ -33,23 +37,26 @@ public class PullRequestService {
 	private final PullRequestRepository repository;
 	private final CommitService commitService;
 	private final RemoteGitService remoteGitService;
-	private final PullRequestProvider provider;
+	private final GitProvider provider;
+	private final GitProviderProperties properties;
 	private final AuditService auditService;
 
 	public PullRequestService(PullRequestRepository repository, CommitService commitService,
-			RemoteGitService remoteGitService, PullRequestProvider provider,
-			AuditService auditService) {
+			RemoteGitService remoteGitService, GitProvider provider,
+			GitProviderProperties properties, AuditService auditService) {
 		this.repository = repository;
 		this.commitService = commitService;
 		this.remoteGitService = remoteGitService;
 		this.provider = provider;
+		this.properties = properties;
 		this.auditService = auditService;
 	}
 
 	/**
 	 * Opens a pull request for a commit that was both committed and pushed
-	 * successfully. The provider URL is stored on the record; on failure the
-	 * record moves to FAILED and a PR_FAILED audit event is emitted.
+	 * successfully. The provider URL and external id are stored on the
+	 * record; on failure the record moves to FAILED and a PR_FAILED audit
+	 * event is emitted.
 	 */
 	public PullRequestRecord createPullRequest(String commitId,
 			PullRequestCreateRequest request) {
@@ -72,6 +79,7 @@ public class PullRequestService {
 		String description = request == null || request.description() == null
 			|| request.description().isBlank()
 			? "Auto-generated pull request by AI Dev OS" : request.description();
+		String remoteUrl = value(push.getUrl());
 		PullRequestRecord record = new PullRequestRecord("pr-" + UUID.randomUUID(),
 			commit.getTaskId(), commitId, push.getRemoteId(), push.getBranch(), targetBranch,
 			title, description, null, Instant.now());
@@ -79,16 +87,21 @@ public class PullRequestService {
 		auditService.prEvent(EventType.PR_CREATED, record.getTaskId(),
 			record.getPullRequestId(), commitId, PullRequestStatus.CREATED.name(),
 			PullRequestStatus.CREATED.name(), "Pull request record created",
-			Map.of("branch", record.getBranch(), "targetBranch", targetBranch));
+			Map.of("provider", providerName(), "remoteUrl", remoteUrl,
+				"branch", record.getBranch(), "targetBranch", targetBranch));
 		try {
-			String url = provider.create(record.getPullRequestId(), record.getBranch(),
-				targetBranch, title, description);
-			record.updateUrl(url);
+			GitPullRequestResult result = provider.createPullRequest(
+				new GitPullRequestRequest(record.getPullRequestId(), record.getBranch(),
+					targetBranch, title, description));
+			record.updateUrl(result.url());
+			record.updateExternalId(result.externalId());
 			record.markOpened();
 			auditService.prEvent(EventType.PR_OPENED, record.getTaskId(),
 				record.getPullRequestId(), commitId, PullRequestStatus.CREATED.name(),
-				PullRequestStatus.OPEN.name(), "Pull request opened: " + url,
-				Map.of("url", url, "branch", record.getBranch(), "targetBranch", targetBranch));
+				PullRequestStatus.OPEN.name(), "Pull request opened: " + result.url(),
+				Map.of("provider", providerName(), "remoteUrl", remoteUrl,
+					"externalId", value(result.externalId()), "url", value(result.url()),
+					"branch", record.getBranch(), "targetBranch", targetBranch));
 			return record;
 		}
 		catch (RuntimeException exception) {
@@ -96,7 +109,9 @@ public class PullRequestService {
 			auditService.prEvent(EventType.PR_FAILED, record.getTaskId(),
 				record.getPullRequestId(), commitId, PullRequestStatus.CREATED.name(),
 				PullRequestStatus.FAILED.name(),
-				"Pull request creation failed: " + message(exception), Map.of());
+				"Pull request creation failed: " + message(exception),
+				Map.of("provider", providerName(), "remoteUrl", remoteUrl,
+					"externalId", value(record.getExternalId())));
 			throw exception;
 		}
 	}
@@ -109,12 +124,13 @@ public class PullRequestService {
 		PullRequestRecord record = requireRecord(pullRequestId);
 		String from = record.getStatus().name();
 		try {
-			provider.close(record.getPullRequestId());
+			provider.closePullRequest(value(record.getExternalId()));
 			record.markClosed();
 			auditService.prEvent(EventType.PR_CLOSED, record.getTaskId(),
 				record.getPullRequestId(), record.getCommitId(), from,
 				PullRequestStatus.CLOSED.name(), "Pull request closed",
-				Map.of("url", value(record.getUrl())));
+				Map.of("provider", providerName(), "remoteUrl", remoteUrl(record),
+					"externalId", value(record.getExternalId()), "url", value(record.getUrl())));
 			return record;
 		}
 		catch (RuntimeException exception) {
@@ -122,7 +138,9 @@ public class PullRequestService {
 			auditService.prEvent(EventType.PR_FAILED, record.getTaskId(),
 				record.getPullRequestId(), record.getCommitId(), from,
 				PullRequestStatus.FAILED.name(),
-				"Pull request close failed: " + message(exception), Map.of());
+				"Pull request close failed: " + message(exception),
+				Map.of("provider", providerName(), "remoteUrl", remoteUrl(record),
+					"externalId", value(record.getExternalId())));
 			throw exception;
 		}
 	}
@@ -135,12 +153,13 @@ public class PullRequestService {
 		PullRequestRecord record = requireRecord(pullRequestId);
 		String from = record.getStatus().name();
 		try {
-			provider.merge(record.getPullRequestId());
+			provider.mergePullRequest(value(record.getExternalId()));
 			record.markMerged();
 			auditService.prEvent(EventType.PR_MERGED, record.getTaskId(),
 				record.getPullRequestId(), record.getCommitId(), from,
 				PullRequestStatus.MERGED.name(), "Pull request merged",
-				Map.of("url", value(record.getUrl())));
+				Map.of("provider", providerName(), "remoteUrl", remoteUrl(record),
+					"externalId", value(record.getExternalId()), "url", value(record.getUrl())));
 			return record;
 		}
 		catch (RuntimeException exception) {
@@ -148,7 +167,9 @@ public class PullRequestService {
 			auditService.prEvent(EventType.PR_FAILED, record.getTaskId(),
 				record.getPullRequestId(), record.getCommitId(), from,
 				PullRequestStatus.FAILED.name(),
-				"Pull request merge failed: " + message(exception), Map.of());
+				"Pull request merge failed: " + message(exception),
+				Map.of("provider", providerName(), "remoteUrl", remoteUrl(record),
+					"externalId", value(record.getExternalId())));
 			throw exception;
 		}
 	}
@@ -180,6 +201,19 @@ public class PullRequestService {
 	private PullRequestRecord requireRecord(String pullRequestId) {
 		return get(pullRequestId).orElseThrow(
 			() -> new ResourceNotFoundException("PullRequest", pullRequestId));
+	}
+
+	private String providerName() {
+		String name = properties == null ? null : properties.getProvider();
+		return name == null || name.isBlank() ? "mock" : name;
+	}
+
+	private String remoteUrl(PullRequestRecord record) {
+		Optional<RemoteBranchRecord> push = remoteGitService.get(record.getRemoteId());
+		if (push == null || push.isEmpty()) {
+			return "";
+		}
+		return value(push.get().getUrl());
 	}
 
 	private String value(String value) {
