@@ -3,6 +3,8 @@ package com.aidevos.orchestrator.agent;
 import java.util.List;
 
 import com.aidevos.orchestrator.manager.AgentManager;
+import com.aidevos.orchestrator.mcp.tool.McpToolRouter;
+import com.aidevos.orchestrator.mcp.tool.ToolDefinition;
 import com.aidevos.orchestrator.model.AgentDefinition;
 import com.aidevos.orchestrator.modelrouter.TaskType;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,15 +22,31 @@ public class AgentSelector {
 
 	private final AgentManager agentManager;
 	private final AgentRegistry registry;
+	private final McpToolRouter toolRouter;
 
 	public AgentSelector(AgentManager agentManager) {
-		this(agentManager, null);
+		this(agentManager, null, null);
+	}
+
+	public AgentSelector(AgentManager agentManager, AgentRegistry registry) {
+		this(agentManager, registry, null);
 	}
 
 	@Autowired
-	public AgentSelector(AgentManager agentManager, AgentRegistry registry) {
+	public AgentSelector(AgentManager agentManager, AgentRegistry registry,
+			McpToolRouter toolRouter) {
 		this.agentManager = agentManager;
 		this.registry = registry;
+		this.toolRouter = toolRouter;
+	}
+
+	/**
+	 * Binds the tool capability of an agent type (CODEX -> git + filesystem,
+	 * OPENCLAW -> browser, TEST_AGENT -> terminal, REPAIR_AGENT -> git +
+	 * filesystem). Returns an empty list when no tool router is configured.
+	 */
+	public List<ToolDefinition> selectTools(AgentType agentType) {
+		return toolRouter == null ? List.of() : toolRouter.toolsFor(agentType);
 	}
 
 	/**

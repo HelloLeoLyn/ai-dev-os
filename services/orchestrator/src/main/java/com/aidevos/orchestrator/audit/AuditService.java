@@ -351,6 +351,31 @@ public class AuditService {
 			type + ":memory:" + value(taskId) + ":" + UUID.randomUUID()));
 	}
 
+	/**
+	 * Records an MCP tool layer event (TOOL_REGISTERED, TOOL_SELECTED,
+	 * TOOL_STARTED, TOOL_COMPLETED, TOOL_FAILED, TOOL_DENIED) with the
+	 * toolId, agentType, taskId and duration metadata.
+	 */
+	public void toolExecutionEvent(EventType type, String toolId, String agentType,
+			String taskId, String status, String summary, Map<String, Object> metadata) {
+		String aggregateId = toolId == null || toolId.isBlank() ? "mcp-tool" : toolId;
+		Map<String, Object> enriched = new java.util.LinkedHashMap<>();
+		enriched.put("toolId", value(toolId));
+		if (agentType != null) {
+			enriched.put("agentType", agentType);
+		}
+		if (taskId != null) {
+			enriched.put("taskId", taskId);
+		}
+		if (metadata != null) {
+			enriched.putAll(metadata);
+		}
+		record(event(type, "mcp-tool", aggregateId, null, status, taskId, null, null, null,
+			null, null, null, null, null, null, null, "SYSTEM",
+			agentType == null ? "mcp-router" : agentType, summary, Map.copyOf(enriched),
+			type + ":tool:" + value(toolId) + ":" + UUID.randomUUID()));
+	}
+
 	public void graphEvent(EventType type, String graphId, String taskId, String nodeId,
 			String agentType, String status, String summary,
 			Map<String, Object> metadata) {

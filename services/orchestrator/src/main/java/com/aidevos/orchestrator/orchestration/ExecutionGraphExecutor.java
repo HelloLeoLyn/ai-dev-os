@@ -8,9 +8,12 @@ import java.util.Map;
 import com.aidevos.orchestrator.agent.AgentType;
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
+import com.aidevos.orchestrator.mcp.tool.McpToolRouter;
+import com.aidevos.orchestrator.mcp.tool.ToolDefinition;
 import com.aidevos.orchestrator.taskcenter.TaskCenterService;
 import com.aidevos.orchestrator.taskcenter.TaskRecord;
 import com.aidevos.orchestrator.taskcenter.TaskStatus;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -28,9 +31,17 @@ public class ExecutionGraphExecutor {
 	private final Map<AgentType, AgentExecutor> executors = new LinkedHashMap<>();
 	private final AuditService auditService;
 	private final TaskCenterService taskCenterService;
+	private final McpToolRouter toolRouter;
 
 	public ExecutionGraphExecutor(List<AgentExecutor> agentExecutors,
 			AuditService auditService, TaskCenterService taskCenterService) {
+		this(agentExecutors, auditService, taskCenterService, null);
+	}
+
+	@Autowired
+	public ExecutionGraphExecutor(List<AgentExecutor> agentExecutors,
+			AuditService auditService, TaskCenterService taskCenterService,
+			McpToolRouter toolRouter) {
 		if (agentExecutors != null) {
 			for (AgentExecutor executor : agentExecutors) {
 				if (executor != null && executor.type() != null) {
@@ -40,6 +51,7 @@ public class ExecutionGraphExecutor {
 		}
 		this.auditService = auditService;
 		this.taskCenterService = taskCenterService;
+		this.toolRouter = toolRouter;
 	}
 
 	/**
@@ -156,6 +168,19 @@ public class ExecutionGraphExecutor {
 		copy.setInput(base.getInput());
 		copy.setPlanningResult(base.getPlanningResult());
 		copy.setMemoryHints(base.getMemoryHints());
+		if (toolRouter != null) {
+			List<ToolDefinition> tools = toolRouter.toolsFor(node.getAgentType());
+			copy.setAvailableTools(tools);
+			copy.setToolRouter(toolRouter);
+			if (!tools.isEmpty()) {
+				auditService.toolExecutionEvent(EventType.TOOL_SELECTED, null,
+					node.getAgentType().name(), base.getTaskId(), "SELECTED",
+					"Tools loaded for agent " + node.getAgentType().name(),
+					Map.of("toolIds", tools.stream().map(ToolDefinition::toolId).toList(),
+						"agentType", node.getAgentType().name(),
+						"nodeId", node.getNodeId()));
+			}
+		}
 		return copy;
 	}
 

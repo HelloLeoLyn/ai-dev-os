@@ -1,6 +1,10 @@
 package com.aidevos.orchestrator.orchestration;
 
+import java.util.List;
+
 import com.aidevos.orchestrator.agent.AgentType;
+import com.aidevos.orchestrator.mcp.tool.McpToolRouter;
+import com.aidevos.orchestrator.mcp.tool.ToolDefinition;
 import com.aidevos.orchestrator.memory.MemoryContext;
 import com.aidevos.orchestrator.planner.PlanningResult;
 import com.aidevos.orchestrator.taskcenter.TaskRecord;
@@ -22,6 +26,8 @@ public class AgentExecutionContext {
 	private String input;
 	private PlanningResult planningResult;
 	private MemoryContext memoryHints;
+	private List<ToolDefinition> availableTools = List.of();
+	private McpToolRouter toolRouter;
 
 	public String getTaskId() {
 		return taskId;
@@ -101,5 +107,21 @@ public class AgentExecutionContext {
 
 	public void setMemoryHints(MemoryContext memoryHints) {
 		this.memoryHints = memoryHints;
+	}
+
+	public List<ToolDefinition> getAvailableTools() {
+		return availableTools;
+	}
+
+	public void setAvailableTools(List<ToolDefinition> availableTools) {
+		this.availableTools = availableTools == null ? List.of() : List.copyOf(availableTools);
+	}
+
+	public McpToolRouter getToolRouter() {
+		return toolRouter;
+	}
+
+	public void setToolRouter(McpToolRouter toolRouter) {
+		this.toolRouter = toolRouter;
 	}
 }
