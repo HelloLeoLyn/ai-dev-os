@@ -283,6 +283,19 @@ public class AuditService {
 	}
 
 	/**
+	 * Records a CI run lifecycle event (CI_STARTED / CI_RUNNING / CI_SUCCESS /
+	 * CI_FAILED / CI_CANCELLED) carrying the taskId so it appears on the task
+	 * timeline alongside pull request and commit events.
+	 */
+	public void ciEvent(EventType type, String taskId, String ciRunId, String pullRequestId,
+			String fromStatus, String toStatus, String summary, Map<String, Object> metadata) {
+		record(event(type, "ci-run", ciRunId, fromStatus, toStatus, taskId, null, null,
+			null, null, null, null, null, null, null, null, "SYSTEM", "ci-service",
+			summary, metadata == null ? Map.of() : Map.copyOf(metadata),
+			type + ":ci:" + ciRunId + ":" + value(fromStatus) + ":" + value(toStatus)));
+	}
+
+	/**
 	 * Records a codex execution lifecycle event (CODEX_EXEC_STARTED /
 	 * COMPLETED / FAILED) carrying the taskId so it appears on the task
 	 * timeline alongside the agent plan events.

@@ -45,6 +45,7 @@ public class RepairCoordinator {
 	private static final int LOG_LIMIT = 2000;
 
 	private final Map<String, RepairTask> repairs = new ConcurrentHashMap<>();
+	private final Map<String, FailureContext> pendingFailures = new ConcurrentHashMap<>();
 	private final TaskCenterService taskCenterService;
 	private final TestAgentService testAgentService;
 	private final PlannerService plannerService;
@@ -90,6 +91,31 @@ public class RepairCoordinator {
 			return Optional.empty();
 		}
 		return Optional.ofNullable(repairs.get(taskId));
+	}
+
+	/**
+	 * Registers a failure context (for example from a failed CI run) without
+	 * starting a repair. A later repair loop can pick it up via
+	 * getFailureContext.
+	 */
+	public void registerFailure(FailureContext failureContext) {
+		if (failureContext == null || failureContext.taskId() == null
+			|| failureContext.taskId().isBlank()) {
+			return;
+		}
+		pendingFailures.put(failureContext.taskId(), failureContext);
+	}
+
+	public Optional<FailureContext> getFailureContext(String taskId) {
+		if (taskId == null || taskId.isBlank()) {
+			return Optional.empty();
+		}
+		return Optional.ofNullable(pendingFailures.get(taskId));
+	}
+
+	/** Read-only snapshot of all registered failure contexts. */
+	public List<FailureContext> listFailureContexts() {
+		return List.copyOf(pendingFailures.values());
 	}
 
 	/** Read-only snapshot of all tracked repair tasks (for observability). */

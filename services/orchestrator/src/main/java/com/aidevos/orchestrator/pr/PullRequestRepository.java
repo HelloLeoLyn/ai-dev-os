@@ -12,6 +12,8 @@ public interface PullRequestRepository {
 
 	PullRequestRecord get(String pullRequestId);
 
+	PullRequestRecord getByCommitId(String commitId);
+
 	List<PullRequestRecord> getByTaskId(String taskId);
 
 	List<PullRequestRecord> list();

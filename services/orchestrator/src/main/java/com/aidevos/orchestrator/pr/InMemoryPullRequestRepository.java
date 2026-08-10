@@ -30,6 +30,16 @@ public class InMemoryPullRequestRepository implements PullRequestRepository {
 	}
 
 	@Override
+	public synchronized PullRequestRecord getByCommitId(String commitId) {
+		for (PullRequestRecord record : records.values()) {
+			if (commitId != null && commitId.equals(record.getCommitId())) {
+				return record;
+			}
+		}
+		return null;
+	}
+
+	@Override
 	public synchronized List<PullRequestRecord> getByTaskId(String taskId) {
 		List<PullRequestRecord> result = new ArrayList<>();
 		for (PullRequestRecord record : records.values()) {

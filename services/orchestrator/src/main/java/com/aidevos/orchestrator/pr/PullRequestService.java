@@ -181,6 +181,17 @@ public class PullRequestService {
 		return Optional.ofNullable(repository.get(pullRequestId));
 	}
 
+	/**
+	 * Looks up the pull request opened for a commit: the association used by
+	 * the CI module to attach a CiRunRecord to a pull request.
+	 */
+	public Optional<PullRequestRecord> getByCommit(String commitId) {
+		if (commitId == null || commitId.isBlank()) {
+			return Optional.empty();
+		}
+		return Optional.ofNullable(repository.getByCommitId(commitId));
+	}
+
 	public List<PullRequestRecord> getByTask(String taskId) {
 		if (taskId == null || taskId.isBlank()) {
 			return List.of();
