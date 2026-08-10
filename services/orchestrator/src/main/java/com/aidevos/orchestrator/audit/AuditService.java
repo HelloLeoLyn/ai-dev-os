@@ -467,6 +467,44 @@ public class AuditService {
 			type + ":project:" + value(projectId) + ":" + UUID.randomUUID()));
 	}
 
+	/**
+	 * Records a trace lifecycle event (TRACE_STARTED / TRACE_COMPLETED /
+	 * TRACE_FAILED) with the traceId metadata.
+	 */
+	public void traceEvent(EventType type, String traceId, String taskId, String status,
+			String summary, Map<String, Object> metadata) {
+		Map<String, Object> enriched = new java.util.LinkedHashMap<>();
+		enriched.put("traceId", value(traceId));
+		if (taskId != null) {
+			enriched.put("taskId", taskId);
+		}
+		if (metadata != null) {
+			enriched.putAll(metadata);
+		}
+		record(event(type, "trace", traceId, null, status, taskId, null, null, null,
+			null, null, null, null, null, null, null, "SYSTEM", "observability", summary,
+			Map.copyOf(enriched),
+			type + ":trace:" + value(traceId) + ":" + UUID.randomUUID()));
+	}
+
+	/**
+	 * Records a usage event (USAGE_RECORDED) with the token and cost metadata.
+	 */
+	public void usageEvent(EventType type, String usageId, String taskId, String projectId,
+			String agentType, long inputTokens, long outputTokens, long totalTokens,
+			double estimatedCost, String summary) {
+		Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+		metadata.put("usageId", value(usageId));
+		metadata.put("inputTokens", inputTokens);
+		metadata.put("outputTokens", outputTokens);
+		metadata.put("totalTokens", totalTokens);
+		metadata.put("estimatedCost", estimatedCost);
+		record(event(type, "usage", usageId, null, null, taskId, null, null, null,
+			null, null, null, null, null, null, null, "SYSTEM",
+			agentType == null ? "usage" : agentType, summary, Map.copyOf(metadata),
+			type + ":usage:" + value(usageId) + ":" + UUID.randomUUID()));
+	}
+
 	public void graphEvent(EventType type, String graphId, String taskId, String nodeId,
 			String agentType, String status, String summary,
 			Map<String, Object> metadata) {

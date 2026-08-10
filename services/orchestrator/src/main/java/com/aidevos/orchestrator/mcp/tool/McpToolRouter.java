@@ -9,6 +9,8 @@ import java.util.Objects;
 import com.aidevos.orchestrator.agent.AgentType;
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
+import com.aidevos.orchestrator.observability.ExecutionTraceService;
+import com.aidevos.orchestrator.observability.TraceRecord;
 import com.aidevos.orchestrator.security.ApprovalService;
 import com.aidevos.orchestrator.security.SecurityPermission;
 import com.aidevos.orchestrator.security.SecurityPolicy;
@@ -33,24 +35,33 @@ public class McpToolRouter {
 	private final SecurityPolicyRegistry securityPolicyRegistry;
 	private final SandboxManager sandboxManager;
 	private final ApprovalService approvalService;
+	private final ExecutionTraceService traceService;
 
 	public McpToolRouter(ToolRegistry registry) {
 		this(registry, AuditService.noop());
 	}
 
 	public McpToolRouter(ToolRegistry registry, AuditService auditService) {
-		this(registry, auditService, null, null, null);
+		this(registry, auditService, null, null, null, null);
+	}
+
+	public McpToolRouter(ToolRegistry registry, AuditService auditService,
+			SecurityPolicyRegistry securityPolicyRegistry, SandboxManager sandboxManager,
+			ApprovalService approvalService) {
+		this(registry, auditService, securityPolicyRegistry, sandboxManager, approvalService,
+			null);
 	}
 
 	@Autowired
 	public McpToolRouter(ToolRegistry registry, AuditService auditService,
 			SecurityPolicyRegistry securityPolicyRegistry, SandboxManager sandboxManager,
-			ApprovalService approvalService) {
+			ApprovalService approvalService, ExecutionTraceService traceService) {
 		this.registry = registry;
 		this.auditService = auditService;
 		this.securityPolicyRegistry = securityPolicyRegistry;
 		this.sandboxManager = sandboxManager;
 		this.approvalService = approvalService;
+		this.traceService = traceService;
 	}
 
 	/**
@@ -103,6 +114,7 @@ public class McpToolRouter {
 				"Dangerous tool " + request.toolId() + " requires an explicit DANGEROUS permission",
 				started);
 		}
+		String traceId = startToolTrace(request);
 		audit(EventType.TOOL_STARTED, request.toolId(), request.agentType(),
 			request.taskId(), "STARTED", "Tool started: " + request.toolId(),
 			toolMetadata(request, 0));
@@ -118,6 +130,12 @@ public class McpToolRouter {
 				timed.success() ? "Tool completed: " + request.toolId()
 					: "Tool failed: " + request.toolId(),
 				toolMetadata(request, duration));
+			if (timed.success()) {
+				completeToolTrace(traceId);
+			}
+			else {
+				failToolTrace(traceId, timed.error());
+			}
 			return timed;
 		}
 		catch (RuntimeException exception) {
@@ -125,8 +143,31 @@ public class McpToolRouter {
 			audit(EventType.TOOL_FAILED, request.toolId(), request.agentType(),
 				request.taskId(), "FAILED", "Tool failed: " + exception.getMessage(),
 				toolMetadata(request, duration));
+			failToolTrace(traceId, exception.getMessage());
 			return failure(request.toolId(), request.agentType(), request.taskId(),
 				exception.getMessage(), started);
+		}
+	}
+
+	private String startToolTrace(ToolExecutionRequest request) {
+		if (traceService == null) {
+			return null;
+		}
+		TraceRecord trace = traceService.startTool(request.taskId(),
+			stringParameter(request, "projectId"), request.toolId(),
+			request.agentType() == null ? null : request.agentType().name());
+		return trace == null ? null : trace.getTraceId();
+	}
+
+	private void completeToolTrace(String traceId) {
+		if (traceId != null) {
+			traceService.completeNode(traceId);
+		}
+	}
+
+	private void failToolTrace(String traceId, String error) {
+		if (traceId != null) {
+			traceService.failNode(traceId, error);
 		}
 	}
 

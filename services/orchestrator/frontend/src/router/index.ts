@@ -17,6 +17,7 @@ const JobsView = () => import('../views/JobsView.vue')
 const MemoryView = () => import('../views/MemoryView.vue')
 const McpPluginsView = () => import('../views/McpPluginsView.vue')
 const ModelsView = () => import('../views/ModelsView.vue')
+const ObservabilityView = () => import('../views/ObservabilityView.vue')
 const ProjectsView = () => import('../views/ProjectsView.vue')
 const ProjectDetailView = () => import('../views/ProjectDetailView.vue')
 const SchedulesView = () => import('../views/SchedulesView.vue')
@@ -89,6 +90,7 @@ const routes: RouteRecordRaw[] = [
   },
   { path: '/models', component: ModelsView, meta: { title: 'Models' } },
   { path: '/memory', component: MemoryView, meta: { title: 'Memory' } },
+  { path: '/observability', component: ObservabilityView, meta: { title: 'Observability' } },
   { path: '/mcp/plugins', component: McpPluginsView, meta: { title: 'MCP Plugins' } },
   { path: '/tests', component: TestsView, meta: { title: 'Tests' } },
 ]

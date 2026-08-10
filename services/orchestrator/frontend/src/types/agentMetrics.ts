@@ -9,6 +9,9 @@ export interface AgentMetrics {
   lastExecutedAt: string | null
   repairCount: number
   changeCount: number
+  tokenCount: number
+  estimatedCost: number
+  successCost: number
 }
 
 export interface AgentExecutionMetric {

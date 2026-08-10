@@ -5,8 +5,10 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -22,10 +24,13 @@ import com.aidevos.orchestrator.execution.ExecutionRecordManager;
 import com.aidevos.orchestrator.manager.AgentManager;
 import com.aidevos.orchestrator.model.AgentDefinition;
 import com.aidevos.orchestrator.model.ExecutionRecord;
+import com.aidevos.orchestrator.observability.usage.UsageRecord;
+import com.aidevos.orchestrator.observability.usage.UsageService;
 import com.aidevos.orchestrator.repair.RepairCoordinator;
 import com.aidevos.orchestrator.repair.RepairTask;
 import com.aidevos.orchestrator.taskcenter.TaskCenterService;
 import com.aidevos.orchestrator.taskcenter.TaskRecord;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -43,17 +48,28 @@ public class AgentMetricsService {
 	private final RepairCoordinator repairCoordinator;
 	private final ChangeService changeService;
 	private final TaskCenterService taskCenterService;
+	private final UsageService usageService;
 
 	public AgentMetricsService(ExecutionRecordManager executionRecordManager,
 			AgentManager agentManager, AuditService auditService,
 			RepairCoordinator repairCoordinator, ChangeService changeService,
 			TaskCenterService taskCenterService) {
+		this(executionRecordManager, agentManager, auditService, repairCoordinator,
+			changeService, taskCenterService, null);
+	}
+
+	@Autowired
+	public AgentMetricsService(ExecutionRecordManager executionRecordManager,
+			AgentManager agentManager, AuditService auditService,
+			RepairCoordinator repairCoordinator, ChangeService changeService,
+			TaskCenterService taskCenterService, UsageService usageService) {
 		this.executionRecordManager = executionRecordManager;
 		this.agentManager = agentManager;
 		this.auditService = auditService;
 		this.repairCoordinator = repairCoordinator;
 		this.changeService = changeService;
 		this.taskCenterService = taskCenterService;
+		this.usageService = usageService;
 	}
 
 	/** Agent ranking by execution count (descending). */
@@ -91,6 +107,7 @@ public class AgentMetricsService {
 		applyRepairCounts(aggregates, taskAgent);
 		applyRetryCounts(aggregates, taskAgent);
 		applyChangeCounts(aggregates, taskAgent);
+		applyUsage(aggregates, records);
 		List<AgentMetrics> result = new ArrayList<>();
 		for (AgentAggregate aggregate : aggregates.values()) {
 			result.add(aggregate.toMetrics());
@@ -210,6 +227,40 @@ public class AgentMetricsService {
 		}
 	}
 
+	/**
+	 * Attributes model usage (tokens + estimated cost) to the agent that
+	 * consumed it. The success cost only counts usage tied to a task with at
+	 * least one successful execution by that agent.
+	 */
+	private void applyUsage(Map<String, AgentAggregate> aggregates,
+			List<ExecutionRecord> records) {
+		if (usageService == null) {
+			return;
+		}
+		Set<String> successKeys = new HashSet<>();
+		for (ExecutionRecord record : records) {
+			if (isSuccess(record) && record.getTaskId() != null) {
+				successKeys.add(record.getTaskId() + "|"
+					+ agentName(record).toLowerCase(Locale.ROOT));
+			}
+		}
+		for (UsageRecord usage : usageService.listUsage()) {
+			if (usage.agentType() == null) {
+				continue;
+			}
+			AgentAggregate aggregate = aggregates.get(usage.agentType());
+			if (aggregate == null) {
+				continue;
+			}
+			aggregate.tokenCount += usage.totalTokens();
+			aggregate.estimatedCost += usage.estimatedCost();
+			if (usage.taskId() != null && successKeys.contains(
+					usage.taskId() + "|" + usage.agentType().toLowerCase(Locale.ROOT))) {
+				aggregate.successCost += usage.estimatedCost();
+			}
+		}
+	}
+
 	private List<EventRecord> repairEvents() {
 		return auditService.query(new EventQuery(null, null, null, null, null, null, null,
 			null, null, null, Set.of(EventType.REPAIR_STARTED), null, null, 0,
@@ -265,6 +316,9 @@ public class AgentMetricsService {
 		private Instant lastExecutedAt;
 		private int repairCount;
 		private int changeCount;
+		private long tokenCount;
+		private double estimatedCost;
+		private double successCost;
 
 		private AgentAggregate(String name) {
 			this.name = name;
@@ -296,7 +350,8 @@ public class AgentMetricsService {
 			long average = measurableDurationCount == 0 ? 0
 				: totalDuration / measurableDurationCount;
 			return new AgentMetrics(name, name, taskCount, successCount, failedCount,
-				retryCount, average, lastExecutedAt, repairCount, changeCount);
+				retryCount, average, lastExecutedAt, repairCount, changeCount,
+				tokenCount, estimatedCost, successCost);
 		}
 	}
 }

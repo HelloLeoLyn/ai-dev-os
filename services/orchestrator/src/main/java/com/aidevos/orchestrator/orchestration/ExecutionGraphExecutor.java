@@ -10,6 +10,8 @@ import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.mcp.tool.McpToolRouter;
 import com.aidevos.orchestrator.mcp.tool.ToolDefinition;
+import com.aidevos.orchestrator.observability.ExecutionTraceService;
+import com.aidevos.orchestrator.observability.TraceRecord;
 import com.aidevos.orchestrator.taskcenter.TaskCenterService;
 import com.aidevos.orchestrator.taskcenter.TaskRecord;
 import com.aidevos.orchestrator.taskcenter.TaskStatus;
@@ -32,16 +34,23 @@ public class ExecutionGraphExecutor {
 	private final AuditService auditService;
 	private final TaskCenterService taskCenterService;
 	private final McpToolRouter toolRouter;
+	private final ExecutionTraceService traceService;
 
 	public ExecutionGraphExecutor(List<AgentExecutor> agentExecutors,
 			AuditService auditService, TaskCenterService taskCenterService) {
-		this(agentExecutors, auditService, taskCenterService, null);
+		this(agentExecutors, auditService, taskCenterService, null, null);
+	}
+
+	public ExecutionGraphExecutor(List<AgentExecutor> agentExecutors,
+			AuditService auditService, TaskCenterService taskCenterService,
+			McpToolRouter toolRouter) {
+		this(agentExecutors, auditService, taskCenterService, toolRouter, null);
 	}
 
 	@Autowired
 	public ExecutionGraphExecutor(List<AgentExecutor> agentExecutors,
 			AuditService auditService, TaskCenterService taskCenterService,
-			McpToolRouter toolRouter) {
+			McpToolRouter toolRouter, ExecutionTraceService traceService) {
 		if (agentExecutors != null) {
 			for (AgentExecutor executor : agentExecutors) {
 				if (executor != null && executor.type() != null) {
@@ -52,6 +61,7 @@ public class ExecutionGraphExecutor {
 		this.auditService = auditService;
 		this.taskCenterService = taskCenterService;
 		this.toolRouter = toolRouter;
+		this.traceService = traceService;
 	}
 
 	/**
@@ -86,6 +96,7 @@ public class ExecutionGraphExecutor {
 				continue;
 			}
 			node.markRunning();
+			String traceId = startNodeTrace(graph, context, node);
 			auditService.graphEvent(EventType.NODE_STARTED, graph.getGraphId(),
 				graph.getTaskId(), node.getNodeId(), node.getAgentType().name(),
 				ExecutionNodeStatus.RUNNING.name(), "Node started",
@@ -93,6 +104,8 @@ public class ExecutionGraphExecutor {
 					"agentType", node.getAgentType().name()));
 			AgentExecutor executor = executors.get(node.getAgentType());
 			if (executor == null) {
+				failNodeTrace(traceId, "No executor registered for agent: "
+					+ node.getAgentType());
 				return fail(graph, node, "No executor registered for agent: "
 					+ node.getAgentType());
 			}
@@ -105,19 +118,51 @@ public class ExecutionGraphExecutor {
 					"executor", executor.getClass().getSimpleName()));
 			markTaskProgress(node, context.getTask());
 			AgentExecutionContext nodeContext = contextFor(node, context);
-			AgentExecutionResult result = executor.execute(nodeContext);
+			AgentExecutionResult result;
+			try {
+				result = executor.execute(nodeContext);
+			}
+			catch (RuntimeException exception) {
+				failNodeTrace(traceId, exception.getMessage());
+				throw exception;
+			}
 			if (result.status() == ExecutionNodeStatus.COMPLETED) {
 				node.markCompleted(result.output());
+				completeNodeTrace(traceId);
 				auditService.graphEvent(EventType.NODE_COMPLETED, graph.getGraphId(),
 					graph.getTaskId(), node.getNodeId(), node.getAgentType().name(),
 					ExecutionNodeStatus.COMPLETED.name(), "Node completed",
 					nodeMetadata(graph, node));
 			}
 			else {
+				failNodeTrace(traceId, result.error());
 				return fail(graph, node, result.error());
 			}
 		}
 		return null;
+	}
+
+	private String startNodeTrace(ExecutionGraph graph, AgentExecutionContext context,
+			ExecutionNode node) {
+		if (traceService == null) {
+			return null;
+		}
+		TraceRecord trace = traceService.startNode(graph.getTaskId(),
+			context.getTask() == null ? null : context.getTask().getProjectId(),
+			graph.getGraphId(), node.getNodeId(), node.getAgentType().name());
+		return trace == null ? null : trace.getTraceId();
+	}
+
+	private void completeNodeTrace(String traceId) {
+		if (traceId != null) {
+			traceService.completeNode(traceId);
+		}
+	}
+
+	private void failNodeTrace(String traceId, String error) {
+		if (traceId != null) {
+			traceService.failNode(traceId, error);
+		}
 	}
 
 	private NodeFailure fail(ExecutionGraph graph, ExecutionNode node, String error) {
