@@ -323,6 +323,32 @@ public class AuditService {
 			type + ":execution:" + executionId + ":" + UUID.randomUUID()));
 	}
 
+	/**
+	 * Records an execution graph lifecycle event (GRAPH_CREATED /
+	 * NODE_STARTED / NODE_COMPLETED / NODE_FAILED) carrying the taskId so
+	 * the graph and its node statuses appear on the task timeline.
+	 */
+	public void graphEvent(EventType type, String graphId, String taskId, String nodeId,
+			String agentType, String status, String summary,
+			Map<String, Object> metadata) {
+		Map<String, Object> enriched = new java.util.LinkedHashMap<>();
+		enriched.put("graphId", value(graphId));
+		if (nodeId != null) {
+			enriched.put("nodeId", nodeId);
+		}
+		if (agentType != null) {
+			enriched.put("agentType", agentType);
+		}
+		if (metadata != null) {
+			enriched.putAll(metadata);
+		}
+		record(event(type, "execution-graph", graphId, null, status, taskId, null, null, null,
+			null, null, null, null, null, null, null, "SYSTEM",
+			agentType == null ? "graph-executor" : agentType, summary,
+			Map.copyOf(enriched),
+			type + ":graph:" + graphId + ":" + value(nodeId) + ":" + UUID.randomUUID()));
+	}
+
 	public void taskEvent(EventType type, String taskId, String fromStatus, String toStatus,
 			String summary, Map<String, Object> metadata) {
 		record(event(type, "task", taskId, fromStatus, toStatus, taskId, null, null, null,

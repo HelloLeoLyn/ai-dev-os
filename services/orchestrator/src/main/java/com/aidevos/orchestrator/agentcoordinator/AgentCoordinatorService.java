@@ -41,6 +41,12 @@ import com.aidevos.orchestrator.workspace.Workspace;
 import com.aidevos.orchestrator.workspace.WorkspaceService;
 import com.aidevos.orchestrator.workspace.git.GitDiff;
 import com.aidevos.orchestrator.workspace.git.GitStatus;
+import com.aidevos.orchestrator.orchestration.AgentExecutionContext;
+import com.aidevos.orchestrator.orchestration.ExecutionGraph;
+import com.aidevos.orchestrator.orchestration.ExecutionGraphBuilder;
+import com.aidevos.orchestrator.orchestration.ExecutionGraphExecutor;
+import com.aidevos.orchestrator.orchestration.ExecutionNode;
+import com.aidevos.orchestrator.orchestration.ExecutionNodeStatus;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -65,6 +71,7 @@ public class AgentCoordinatorService {
 	private static final int LOG_LIMIT = 2000;
 
 	private final Map<String, List<AgentExecutionPlan>> plans = new ConcurrentHashMap<>();
+	private final Map<String, ExecutionGraph> graphs = new ConcurrentHashMap<>();
 	private final TaskCenterService taskCenterService;
 	private final ModelRouterService modelRouterService;
 	private final PlannerService plannerService;
@@ -76,6 +83,8 @@ public class AgentCoordinatorService {
 	private final ExecutionRecordManager executionRecordManager;
 	private WorkspaceService workspaceService;
 	private final ChangeService changeService;
+	private final ExecutionGraphBuilder graphBuilder;
+	private final ExecutionGraphExecutor graphExecutor;
 
 	public AgentCoordinatorService(TaskCenterService taskCenterService,
 			ModelRouterService modelRouterService, PlannerService plannerService,
@@ -98,13 +107,25 @@ public class AgentCoordinatorService {
 			executionRecordManager, workspaceService, null);
 	}
 
-	@Autowired
 	public AgentCoordinatorService(TaskCenterService taskCenterService,
 			ModelRouterService modelRouterService, PlannerService plannerService,
 			ExecutorManager executorManager, TestAgentService testAgentService,
 			AuditService auditService, AgentCapabilityResolver capabilityResolver,
 			MemoryService memoryService, ExecutionRecordManager executionRecordManager,
 			WorkspaceService workspaceService, ChangeService changeService) {
+		this(taskCenterService, modelRouterService, plannerService, executorManager,
+			testAgentService, auditService, capabilityResolver, memoryService,
+			executionRecordManager, workspaceService, changeService, null, null);
+	}
+
+	@Autowired
+	public AgentCoordinatorService(TaskCenterService taskCenterService,
+			ModelRouterService modelRouterService, PlannerService plannerService,
+			ExecutorManager executorManager, TestAgentService testAgentService,
+			AuditService auditService, AgentCapabilityResolver capabilityResolver,
+			MemoryService memoryService, ExecutionRecordManager executionRecordManager,
+			WorkspaceService workspaceService, ChangeService changeService,
+			ExecutionGraphBuilder graphBuilder, ExecutionGraphExecutor graphExecutor) {
 		this.taskCenterService = taskCenterService;
 		this.modelRouterService = modelRouterService;
 		this.plannerService = plannerService;
@@ -116,6 +137,8 @@ public class AgentCoordinatorService {
 		this.executionRecordManager = executionRecordManager;
 		this.workspaceService = workspaceService;
 		this.changeService = changeService;
+		this.graphBuilder = graphBuilder;
+		this.graphExecutor = graphExecutor;
 	}
 
 	/**
@@ -152,6 +175,135 @@ public class AgentCoordinatorService {
 		execute(steps, task, model);
 		finalizeOutcome(steps, task);
 		return List.copyOf(steps);
+	}
+
+	/**
+	 * Unified graph-based execution entry: builds an ExecutionGraph for the
+	 * task, executes it in topology order through the graph executor and
+	 * writes back the closed-loop outcome (task status + project memory).
+	 * The legacy collaboration-plan path stays available and unchanged.
+	 */
+	public ExecutionGraph executeGraph(String taskId) {
+		return executeGraph(taskId, TaskType.GENERAL);
+	}
+
+	public ExecutionGraph executeGraph(String taskId, TaskType taskType) {
+		TaskRecord task = taskCenterService.getTask(taskId)
+			.orElseThrow(() -> new IllegalArgumentException("Task not found: " + taskId));
+		if (graphBuilder == null || graphExecutor == null) {
+			throw new IllegalStateException(
+				"Execution graph components are not configured");
+		}
+		TaskType type = taskType == null ? TaskType.GENERAL : taskType;
+		String category = graphCategory(type);
+		ExecutionGraph graph = graphBuilder.build(taskId, category);
+		graphs.put(taskId, graph);
+		auditService.graphEvent(EventType.GRAPH_CREATED, graph.getGraphId(), taskId, null,
+			null, "CREATED", "Execution graph created",
+			Map.of("graphId", graph.getGraphId(), "taskType", type.name(),
+				"category", category));
+		AgentExecutionContext context = new AgentExecutionContext();
+		context.setTaskId(taskId);
+		context.setTask(task);
+		context.setWorkspaceId(task.getWorkspaceId());
+		context.setWorkspacePath(resolveWorkspacePath(task.getWorkspaceId()));
+		context.setGraphId(graph.getGraphId());
+		context.setInput(task.getDescription() == null || task.getDescription().isBlank()
+			? task.getName() : task.getDescription());
+		graphExecutor.execute(graph, context);
+		finalizeGraphOutcome(graph, task);
+		return graph;
+	}
+
+	public Optional<ExecutionGraph> getGraph(String taskId) {
+		if (taskId == null || taskId.isBlank()) {
+			return Optional.empty();
+		}
+		return Optional.ofNullable(graphs.get(taskId));
+	}
+
+	private String graphCategory(TaskType taskType) {
+		return switch (taskType == null ? TaskType.GENERAL : taskType) {
+			case BROWSER_TEST -> "BROWSER_TASK";
+			case TEST_VERIFY -> "TEST_TASK";
+			default -> "CODE_TASK";
+		};
+	}
+
+	/**
+	 * Writes back the graph outcome: task status and project memory
+	 * (HISTORY_TASK on success, BUG_RECORD on failure). Mirrors the legacy
+	 * collaboration-plan finalization.
+	 */
+	private void finalizeGraphOutcome(ExecutionGraph graph, TaskRecord task) {
+		boolean succeeded = graph.getNodes().stream()
+			.allMatch(node -> node.getStatus() == ExecutionNodeStatus.COMPLETED);
+		if (succeeded) {
+			String from = task.getStatus().name();
+			task.markCompleted();
+			auditService.taskEvent(EventType.USER_OPERATION, task.getTaskId(), from,
+				TaskStatus.COMPLETED.name(), "Task completed (graph)",
+				Map.of("graphId", graph.getGraphId(), "nodes", graph.getNodes().size()));
+			saveGraphHistory(task, graph);
+		}
+		else {
+			String from = task.getStatus().name();
+			String error = graph.getNodes().stream()
+				.filter(node -> node.getStatus() == ExecutionNodeStatus.FAILED)
+				.map(ExecutionNode::getResult)
+				.findFirst()
+				.orElse("Execution graph failed");
+			task.markFailed(error);
+			auditService.taskEvent(EventType.USER_OPERATION, task.getTaskId(), from,
+				TaskStatus.FAILED.name(), "Task failed (graph): " + error,
+				Map.of("graphId", graph.getGraphId()));
+			saveGraphBugRecord(task, error);
+		}
+	}
+
+	private void saveGraphHistory(TaskRecord task, ExecutionGraph graph) {
+		try {
+			MemoryRecord record = new MemoryRecord();
+			record.setProjectId(task.getProjectId());
+			record.setType(MemoryType.HISTORY_TASK);
+			record.setKey("history:task:" + task.getTaskId());
+			record.setContent(graphHistoryContent(task, graph));
+			memoryService.create(record);
+		}
+		catch (RuntimeException exception) {
+			// Memory must not break the task flow; the failure is already audited.
+		}
+	}
+
+	private void saveGraphBugRecord(TaskRecord task, String error) {
+		try {
+			MemoryRecord record = new MemoryRecord();
+			record.setProjectId(task.getProjectId());
+			record.setType(MemoryType.BUG_RECORD);
+			record.setKey("bug:task:" + task.getTaskId());
+			record.setContent("错误信息: " + error + System.lineSeparator()
+				+ "任务: " + task.getTaskId() + System.lineSeparator()
+				+ "项目: " + task.getProjectId());
+			memoryService.create(record);
+		}
+		catch (RuntimeException exception) {
+			// Memory must not break the task flow; the failure is already audited.
+		}
+	}
+
+	private String graphHistoryContent(TaskRecord task, ExecutionGraph graph) {
+		StringBuilder builder = new StringBuilder();
+		builder.append("任务: ").append(task.getTaskId()).append(System.lineSeparator())
+			.append("名称: ").append(task.getName()).append(System.lineSeparator())
+			.append("项目: ").append(task.getProjectId()).append(System.lineSeparator())
+			.append("执行图: ").append(graph.getGraphId()).append(System.lineSeparator())
+			.append("节点:").append(System.lineSeparator());
+		for (ExecutionNode node : graph.getNodes()) {
+			builder.append("  ").append(node.getNodeId()).append(" -> ")
+				.append(node.getAgentType()).append(" [").append(node.getStatus()).append("]")
+				.append(System.lineSeparator());
+		}
+		return builder.toString();
 	}
 
 	public Optional<List<AgentExecutionPlan>> getCollaborationPlan(String taskId) {

@@ -1,12 +1,14 @@
 package com.aidevos.orchestrator.agent;
 
 import com.aidevos.orchestrator.manager.AgentManager;
+import com.aidevos.orchestrator.modelrouter.TaskType;
 import com.aidevos.orchestrator.model.AgentDefinition;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
@@ -56,5 +58,49 @@ class AgentSelectorTest {
 		agentDefinition.setName(name);
 		agentDefinition.setCapabilities(capabilities);
 		return agentDefinition;
+	}
+
+	// --- Orchestration selection (agent registry) ---
+
+	@Test
+	void shouldMapCodeTaskToCodex() {
+		AgentSelector selector = new AgentSelector(new AgentManager(),
+			new InMemoryAgentRegistry());
+		assertEquals(AgentType.CODEX, selector.selectType("CODE_TASK"));
+		assertEquals(AgentType.CODEX, selector.selectType(TaskType.CODE_GENERATION));
+		assertEquals("codex", selector.selectAgent("CODE_TASK").getAgentId());
+	}
+
+	@Test
+	void shouldMapBrowserTaskToOpenClaw() {
+		AgentSelector selector = new AgentSelector(new AgentManager(),
+			new InMemoryAgentRegistry());
+		assertEquals(AgentType.OPENCLAW, selector.selectType("BROWSER_TASK"));
+		assertEquals(AgentType.OPENCLAW, selector.selectType(TaskType.BROWSER_TEST));
+		assertEquals("openclaw", selector.selectAgent("BROWSER_TASK").getAgentId());
+	}
+
+	@Test
+	void shouldMapTestTaskToTestAgent() {
+		AgentSelector selector = new AgentSelector(new AgentManager(),
+			new InMemoryAgentRegistry());
+		assertEquals(AgentType.TEST_AGENT, selector.selectType("TEST_TASK"));
+		assertEquals(AgentType.TEST_AGENT, selector.selectType(TaskType.TEST_VERIFY));
+		assertEquals("test-agent", selector.selectAgent("TEST_TASK").getAgentId());
+	}
+
+	@Test
+	void shouldMapRepairTaskToRepairAgent() {
+		AgentSelector selector = new AgentSelector(new AgentManager(),
+			new InMemoryAgentRegistry());
+		assertEquals(AgentType.REPAIR_AGENT, selector.selectType("REPAIR_TASK"));
+		assertEquals("repair-agent", selector.selectAgent("REPAIR_TASK").getAgentId());
+	}
+
+	@Test
+	void shouldFallBackToHermesForUnknownCategory() {
+		AgentSelector selector = new AgentSelector(new AgentManager(),
+			new InMemoryAgentRegistry());
+		assertEquals(AgentType.HERMES, selector.selectType("UNKNOWN"));
 	}
 }

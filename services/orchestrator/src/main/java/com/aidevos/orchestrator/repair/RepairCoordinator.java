@@ -182,6 +182,21 @@ public class RepairCoordinator {
 	}
 
 	/**
+	 * Produces a repair plan for a failure through the existing Hermes
+	 * planning path. Shared with the repair graph node (RepairAgentExecutor);
+	 * the full repair loop in {@link #repair} is not duplicated.
+	 */
+	public PlanningResult analyzeFailure(String taskId, String error) {
+		TaskRecord task = taskCenterService.getTask(taskId)
+			.orElseThrow(() -> new IllegalArgumentException("Task not found: " + taskId));
+		String goal = "修复任务 " + taskId + " 的测试失败。" + System.lineSeparator()
+			+ "错误: " + value(error) + System.lineSeparator()
+			+ "任务: " + task.getName();
+		return plannerService.createPlan(new PlanningRequest(taskId, goal, HERMES_PLANNER,
+			null, null, null, null, null));
+	}
+
+	/**
 	 * Registers a failure context (for example from a failed CI run) without
 	 * starting a repair. A later repair loop can pick it up via
 	 * getFailureContext.
