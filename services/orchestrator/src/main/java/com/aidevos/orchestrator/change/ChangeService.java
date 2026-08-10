@@ -11,10 +11,13 @@ import java.util.UUID;
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
+import com.aidevos.orchestrator.feedback.PrFeedbackService;
 import com.aidevos.orchestrator.workspace.Workspace;
 import com.aidevos.orchestrator.workspace.WorkspaceService;
 import com.aidevos.orchestrator.workspace.git.GitDiff;
 import com.aidevos.orchestrator.workspace.git.GitStatus;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 /**
@@ -31,12 +34,19 @@ public class ChangeService {
 	private final ChangeRepository repository;
 	private final WorkspaceService workspaceService;
 	private final AuditService auditService;
+	private volatile PrFeedbackService feedbackService;
 
 	public ChangeService(ChangeRepository repository, WorkspaceService workspaceService,
 			AuditService auditService) {
 		this.repository = repository;
 		this.workspaceService = workspaceService;
 		this.auditService = auditService;
+	}
+
+	@Autowired(required = false)
+	@Lazy
+	public void setFeedbackService(PrFeedbackService feedbackService) {
+		this.feedbackService = feedbackService;
 	}
 
 	/**
@@ -109,6 +119,9 @@ public class ChangeService {
 		auditService.changeEvent(EventType.CHANGE_APPROVED, changeSet.getTaskId(),
 			changeSet.getChangeId(), from, ChangeStatus.APPROVED.name(),
 			"Change approved", Map.of("reviewedBy", reviewer(reviewer)));
+		if (feedbackService != null) {
+			feedbackService.onChangeApproved(changeId, changeSet.getTaskId());
+		}
 		return changeSet;
 	}
 

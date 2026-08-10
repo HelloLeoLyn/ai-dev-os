@@ -296,6 +296,21 @@ public class AuditService {
 	}
 
 	/**
+	 * Records a pull request feedback loop event (FEEDBACK_CREATED /
+	 * REPAIRING / WAITING_REVIEW / PUSHED / RECHECKING / SUCCESS / FAILED)
+	 * carrying the taskId so it appears on the task timeline.
+	 */
+	public void feedbackEvent(EventType type, String taskId, String feedbackId,
+			String fromStatus, String toStatus, String summary,
+			Map<String, Object> metadata) {
+		record(event(type, "feedback", feedbackId, fromStatus, toStatus, taskId, null, null,
+			null, null, null, null, null, null, null, null, "SYSTEM", "pr-feedback-service",
+			summary, metadata == null ? Map.of() : Map.copyOf(metadata),
+			type + ":feedback:" + feedbackId + ":" + value(fromStatus) + ":"
+				+ value(toStatus)));
+	}
+
+	/**
 	 * Records a codex execution lifecycle event (CODEX_EXEC_STARTED /
 	 * COMPLETED / FAILED) carrying the taskId so it appears on the task
 	 * timeline alongside the agent plan events.

@@ -13,11 +13,15 @@ import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.commit.CommitRecord;
 import com.aidevos.orchestrator.commit.CommitService;
 import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
+import com.aidevos.orchestrator.feedback.PrFeedbackService;
 import com.aidevos.orchestrator.pr.PullRequestRecord;
 import com.aidevos.orchestrator.pr.PullRequestService;
 import com.aidevos.orchestrator.repair.CiFailureAnalyzer;
 import com.aidevos.orchestrator.repair.FailureContext;
 import com.aidevos.orchestrator.repair.RepairCoordinator;
+import com.aidevos.orchestrator.repair.RepairTask;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 /**
@@ -40,6 +44,7 @@ public class CiService {
 	private final RepairCoordinator repairCoordinator;
 	private final CiFailureAnalyzer ciFailureAnalyzer;
 	private final AuditService auditService;
+	private volatile PrFeedbackService feedbackService;
 
 	public CiService(CiRepository repository, CiProvider provider,
 			CiProviderProperties properties, PullRequestService pullRequestService,
@@ -55,6 +60,12 @@ public class CiService {
 		this.auditService = auditService;
 	}
 
+	@Autowired(required = false)
+	@Lazy
+	public void setFeedbackService(PrFeedbackService feedbackService) {
+		this.feedbackService = feedbackService;
+	}
+
 	/**
 	 * Checks the CI status of a pull request: creates a CiRunRecord and
 	 * triggers the provider on first check, then polls the provider status
@@ -62,27 +73,62 @@ public class CiService {
 	 * FailureContext and starts the repair loop.
 	 */
 	public CiRunRecord check(String pullRequestId) {
-		PullRequestRecord pr = pullRequestService.get(pullRequestId)
-			.orElseThrow(() -> new ResourceNotFoundException("PullRequest", pullRequestId));
-		String commitHash = commitHash(pr);
+		PullRequestRecord pr = requirePullRequest(pullRequestId);
+		return checkInternal(pullRequestId, commitHash(pr), pr.getTaskId(), pr.getBranch());
+	}
+
+	/**
+	 * Checks the CI status of a pull request for a specific commit (used by
+	 * the feedback loop after a repaired commit is pushed). A new commit
+	 * starts a fresh CI run.
+	 */
+	public CiRunRecord check(String pullRequestId, String commitHash) {
+		PullRequestRecord pr = requirePullRequest(pullRequestId);
+		return checkInternal(pullRequestId, value(commitHash), pr.getTaskId(),
+			pr.getBranch());
+	}
+
+	/**
+	 * Re-runs the repair loop for a previously failed CI run (feedback retry):
+	 * rebuilds the failure context from the stored run and restarts the
+	 * bounded repair.
+	 */
+	public RepairTask retryRepairFromCiRun(String ciRunId) {
+		CiRunRecord run = repository.get(ciRunId);
+		if (run == null) {
+			throw new ResourceNotFoundException("CiRun", ciRunId);
+		}
+		FailureContext context = ciFailureAnalyzer.analyze(run, workspaceIdFor(run),
+			provider.getReport(run.getPipelineId()));
+		return repairCoordinator.startRepairFromCiFailure(context);
+	}
+
+	private CiRunRecord checkInternal(String pullRequestId, String commitHash, String taskId,
+			String branch) {
 		CiRunRecord run = latestByPullRequest(pullRequestId).orElse(null);
-		boolean created = run == null;
+		boolean created = run == null
+			|| !value(commitHash).equals(value(run.getCommitHash()));
 		if (created) {
-			run = new CiRunRecord("ci-" + UUID.randomUUID(), pr.getTaskId(), pullRequestId,
-				providerName(), pr.getBranch(), commitHash, Instant.now());
+			run = new CiRunRecord("ci-" + UUID.randomUUID(), taskId, pullRequestId,
+				providerName(), branch, commitHash, Instant.now());
 			repository.save(run);
 			CiTriggerResult trigger = provider.trigger(
-				new CiTriggerRequest(pullRequestId, pr.getBranch(), commitHash));
+				new CiTriggerRequest(pullRequestId, branch, commitHash));
 			run.updatePipelineId(trigger.pipelineId());
 			run.updateReportUrl(trigger.reportUrl());
 			run.markRunning();
-			auditService.ciEvent(EventType.CI_STARTED, run.getTaskId(), run.getCiRunId(),
+			auditService.ciEvent(EventType.CI_STARTED, taskId, run.getCiRunId(),
 				pullRequestId, CiStatus.PENDING.name(), CiStatus.RUNNING.name(),
 				"CI run started: " + value(trigger.pipelineId()), metadata(run));
 		}
 		CiRunResult result = provider.getStatus(run.getPipelineId());
 		applyStatus(run, result, created);
 		return run;
+	}
+
+	private PullRequestRecord requirePullRequest(String pullRequestId) {
+		return pullRequestService.get(pullRequestId)
+			.orElseThrow(() -> new ResourceNotFoundException("PullRequest", pullRequestId));
 	}
 
 	public Optional<CiRunRecord> get(String ciRunId) {
@@ -104,8 +150,12 @@ public class CiService {
 	private void applyStatus(CiRunRecord run, CiRunResult result, boolean freshlyCreated) {
 		CiStatus next = result.status() == null ? CiStatus.RUNNING : result.status();
 		switch (next) {
-			case SUCCESS -> transition(run, CiStatus.SUCCESS, EventType.CI_SUCCESS,
-				"CI run succeeded");
+			case SUCCESS -> {
+				if (transition(run, CiStatus.SUCCESS, EventType.CI_SUCCESS,
+					"CI run succeeded") && feedbackService != null) {
+					feedbackService.onCiSucceeded(run);
+				}
+			}
 			case FAILED -> {
 				if (transition(run, CiStatus.FAILED, EventType.CI_FAILED, "CI run failed")) {
 					startRepair(run);
@@ -141,13 +191,16 @@ public class CiService {
 	}
 
 	private void startRepair(CiRunRecord run) {
-		String workspaceId = pullRequestService.get(run.getPullRequestId())
+		FailureContext context = ciFailureAnalyzer.analyze(run, workspaceIdFor(run),
+			provider.getReport(run.getPipelineId()));
+		repairCoordinator.startRepairFromCiFailure(context);
+	}
+
+	private String workspaceIdFor(CiRunRecord run) {
+		return pullRequestService.get(run.getPullRequestId())
 			.flatMap(pr -> commitService.getCommit(pr.getCommitId()))
 			.map(CommitRecord::getWorkspaceId)
 			.orElse("");
-		CiReport report = provider.getReport(run.getPipelineId());
-		FailureContext context = ciFailureAnalyzer.analyze(run, workspaceId, report);
-		repairCoordinator.startRepairFromCiFailure(context);
 	}
 
 	private String commitHash(PullRequestRecord pr) {

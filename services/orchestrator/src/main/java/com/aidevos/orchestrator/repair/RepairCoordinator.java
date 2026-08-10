@@ -12,6 +12,7 @@ import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.change.ChangeService;
 import com.aidevos.orchestrator.execution.ExecutionContext;
+import com.aidevos.orchestrator.feedback.PrFeedbackService;
 import com.aidevos.orchestrator.execution.ExecutionResult;
 import com.aidevos.orchestrator.executor.codex.CodexExecutor;
 import com.aidevos.orchestrator.memory.MemoryRecord;
@@ -30,6 +31,8 @@ import com.aidevos.orchestrator.testagent.TestType;
 import com.aidevos.orchestrator.workspace.Workspace;
 import com.aidevos.orchestrator.workspace.WorkspaceService;
 import com.aidevos.orchestrator.workspace.git.GitDiff;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 /**
@@ -55,6 +58,7 @@ public class RepairCoordinator {
 	private final MemoryService memoryService;
 	private final AuditService auditService;
 	private final ChangeService changeService;
+	private volatile PrFeedbackService feedbackService;
 
 	public RepairCoordinator(TaskCenterService taskCenterService,
 			TestAgentService testAgentService, PlannerService plannerService,
@@ -69,6 +73,12 @@ public class RepairCoordinator {
 		this.memoryService = memoryService;
 		this.auditService = auditService;
 		this.changeService = changeService;
+	}
+
+	@Autowired(required = false)
+	@Lazy
+	public void setFeedbackService(PrFeedbackService feedbackService) {
+		this.feedbackService = feedbackService;
 	}
 
 	public RepairTask start(String taskId) {
@@ -130,17 +140,26 @@ public class RepairCoordinator {
 		auditService.repairEvent(EventType.REPAIR_STARTED, failureContext.taskId(),
 			repairTask.getRepairId(), null, RepairStatus.PENDING.name(),
 			"Repair started from CI failure", metadata);
+		if (feedbackService != null) {
+			feedbackService.onRepairStarted(failureContext, repairTask);
+		}
 		repair(repairTask, task);
 		if (repairTask.getStatus() == RepairStatus.SUCCESS) {
 			auditService.repairEvent(EventType.CI_REPAIR_SUCCESS, failureContext.taskId(),
 				repairTask.getRepairId(), RepairStatus.VERIFYING.name(),
 				RepairStatus.SUCCESS.name(), "CI failure repair succeeded", metadata);
 			snapshotChangeSet(repairTask, task);
+			if (feedbackService != null) {
+				feedbackService.onRepairSucceeded(failureContext, repairTask);
+			}
 		}
 		else {
 			auditService.repairEvent(EventType.CI_REPAIR_FAILED, failureContext.taskId(),
 				repairTask.getRepairId(), RepairStatus.VERIFYING.name(),
 				RepairStatus.FAILED.name(), "CI failure repair failed", metadata);
+			if (feedbackService != null) {
+				feedbackService.onRepairFailed(failureContext, repairTask);
+			}
 		}
 		return repairTask;
 	}
