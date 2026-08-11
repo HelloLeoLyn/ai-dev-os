@@ -5,6 +5,7 @@ import java.util.List;
 import com.aidevos.orchestrator.metrics.tool.ToolMetrics;
 import com.aidevos.orchestrator.metrics.tool.ToolMetricsService;
 import com.aidevos.orchestrator.observability.AgentObservability;
+import com.aidevos.orchestrator.observability.GoalObservability;
 import com.aidevos.orchestrator.observability.ObservabilityService;
 import com.aidevos.orchestrator.observability.ProjectObservability;
 import com.aidevos.orchestrator.observability.TaskObservability;
@@ -39,6 +40,11 @@ public class ObservabilityController {
 	@GetMapping("/projects/{projectId}")
 	public ResponseEntity<ProjectObservability> project(@PathVariable String projectId) {
 		return ResponseEntity.ok(observabilityService.projectObservability(projectId));
+	}
+
+	@GetMapping("/goals/{goalId}")
+	public ResponseEntity<GoalObservability> goal(@PathVariable String goalId) {
+		return ResponseEntity.ok(observabilityService.goalObservability(goalId));
 	}
 
 	@GetMapping("/agents/{agentType}")

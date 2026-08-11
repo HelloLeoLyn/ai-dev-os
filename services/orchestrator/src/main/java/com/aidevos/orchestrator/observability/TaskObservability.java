@@ -2,6 +2,8 @@ package com.aidevos.orchestrator.observability;
 
 import java.util.List;
 
+import com.aidevos.orchestrator.adaptive.AdaptationDecision;
+import com.aidevos.orchestrator.adaptive.ExecutionFeedback;
 import com.aidevos.orchestrator.collaboration.AgentMessage;
 import com.aidevos.orchestrator.human.HumanApproval;
 import com.aidevos.orchestrator.human.HumanFeedback;
@@ -15,8 +17,8 @@ import com.aidevos.orchestrator.timeline.UnifiedTimeline;
  * Task-level observability bundle: unified timeline, execution traces, agent
  * execution statistics, tool traces, runtime sessions, the agent
  * collaboration team (agents / messages / handoffs), human approvals and
- * feedback, optimization records and recommendation text, and token/cost
- * usage.
+ * feedback, optimization records and recommendation text, orchestrator
+ * priority / assigned agents / orchestration status, and token/cost usage.
  */
 public record TaskObservability(
 		String taskId,
@@ -34,7 +36,18 @@ public record TaskObservability(
 		List<HumanApproval> approvals,
 		List<HumanFeedback> humanFeedback,
 		List<OptimizationRecord> optimizations,
-		List<String> recommendations) {
+		List<String> recommendations,
+		String priority,
+		List<String> assignedAgents,
+		String orchestrationStatus,
+		String planId,
+		String riskLevel,
+		Double estimatedCost,
+		List<ExecutionFeedback> feedback,
+		List<AdaptationDecision> adaptations,
+		List<String> replans,
+		String goalId,
+		String milestoneId) {
 
 	public TaskObservability {
 		traces = List.copyOf(traces);
@@ -47,5 +60,9 @@ public record TaskObservability(
 		humanFeedback = humanFeedback == null ? List.of() : List.copyOf(humanFeedback);
 		optimizations = optimizations == null ? List.of() : List.copyOf(optimizations);
 		recommendations = recommendations == null ? List.of() : List.copyOf(recommendations);
+		assignedAgents = assignedAgents == null ? List.of() : List.copyOf(assignedAgents);
+		feedback = feedback == null ? List.of() : List.copyOf(feedback);
+		adaptations = adaptations == null ? List.of() : List.copyOf(adaptations);
+		replans = replans == null ? List.of() : List.copyOf(replans);
 	}
 }

@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.aidevos.orchestrator.adaptive.AdaptiveExecutionService;
 import com.aidevos.orchestrator.agent.AgentType;
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
@@ -44,6 +45,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class ExecutionGraphExecutor {
 
+	/** Bound on the adaptive retries before a session is failed. */
+	static final int MAX_ADAPTATIONS = 3;
+
 	private final Map<AgentType, AgentExecutor> executors = new LinkedHashMap<>();
 	private final AuditService auditService;
 	private final TaskCenterService taskCenterService;
@@ -52,6 +56,7 @@ public class ExecutionGraphExecutor {
 	private final ObjectProvider<AgentRuntimeService> runtimeServiceProvider;
 	private final AgentCollaborationService collaborationService;
 	private final ObjectProvider<HumanCollaborationService> humanCollaborationServiceProvider;
+	private final ObjectProvider<AdaptiveExecutionService> adaptiveServiceProvider;
 
 	public ExecutionGraphExecutor(List<AgentExecutor> agentExecutors,
 			AuditService auditService, TaskCenterService taskCenterService) {
@@ -87,13 +92,25 @@ public class ExecutionGraphExecutor {
 			runtimeServiceProvider, collaborationService, null);
 	}
 
-	@Autowired
 	public ExecutionGraphExecutor(List<AgentExecutor> agentExecutors,
 			AuditService auditService, TaskCenterService taskCenterService,
 			McpToolRouter toolRouter, ExecutionTraceService traceService,
 			ObjectProvider<AgentRuntimeService> runtimeServiceProvider,
 			AgentCollaborationService collaborationService,
 			ObjectProvider<HumanCollaborationService> humanCollaborationServiceProvider) {
+		this(agentExecutors, auditService, taskCenterService, toolRouter, traceService,
+			runtimeServiceProvider, collaborationService, humanCollaborationServiceProvider,
+			null);
+	}
+
+	@Autowired
+	public ExecutionGraphExecutor(List<AgentExecutor> agentExecutors,
+			AuditService auditService, TaskCenterService taskCenterService,
+			McpToolRouter toolRouter, ExecutionTraceService traceService,
+			ObjectProvider<AgentRuntimeService> runtimeServiceProvider,
+			AgentCollaborationService collaborationService,
+			ObjectProvider<HumanCollaborationService> humanCollaborationServiceProvider,
+			ObjectProvider<AdaptiveExecutionService> adaptiveServiceProvider) {
 		if (agentExecutors != null) {
 			for (AgentExecutor executor : agentExecutors) {
 				if (executor != null && executor.type() != null) {
@@ -108,6 +125,7 @@ public class ExecutionGraphExecutor {
 		this.runtimeServiceProvider = runtimeServiceProvider;
 		this.collaborationService = collaborationService;
 		this.humanCollaborationServiceProvider = humanCollaborationServiceProvider;
+		this.adaptiveServiceProvider = adaptiveServiceProvider;
 	}
 
 	/**
@@ -139,9 +157,11 @@ public class ExecutionGraphExecutor {
 		MemoryContext memory = memoryHints(context, graph);
 		int attempts = 0;
 		NodeFailure lastFailure = null;
-		while (attempts < graph.getMaxAttempts()) {
+		ExecutionGraph activeGraph = graph;
+		int adaptations = 0;
+		while (attempts < activeGraph.getMaxAttempts()) {
 			attempts++;
-			NodeFailure failure = runPass(graph, context, runtime, session, team, memory);
+			NodeFailure failure = runPass(activeGraph, context, runtime, session, team, memory);
 			if (failure == null) {
 				if (session != null) {
 					runtime.completeSession(session.getSessionId());
@@ -149,18 +169,42 @@ public class ExecutionGraphExecutor {
 				if (team != null) {
 					collaborationService.completeTeam(team.getTeamId());
 				}
-				return graph;
+				return activeGraph;
 			}
 			if (failure.paused) {
 				// Human gate: the session stays PAUSED until the approval
 				// resumes it; nothing is finalized here.
-				return graph;
+				return activeGraph;
 			}
 			lastFailure = failure;
-			if (graph.hasLoop() && graph.getLoopEndNodeId().equals(failure.nodeId)
-				&& attempts < graph.getMaxAttempts()) {
-				graph.resetLoop();
+			if (activeGraph.hasLoop() && activeGraph.getLoopEndNodeId().equals(failure.nodeId)
+				&& attempts < activeGraph.getMaxAttempts()) {
+				activeGraph.resetLoop();
 				continue;
+			}
+			// Adaptive execution: give the running task one shot to adapt
+			// (retry / switch agent / modify graph / replan) before the
+			// session is failed. The adaptation budget keeps the loop bound.
+			if (adaptiveService() != null && session != null
+					&& adaptations < MAX_ADAPTATIONS) {
+				ExecutionNode failedNode = activeGraph.getNode(failure.nodeId);
+				ExecutionGraph adapted = adaptiveService().adapt(activeGraph, session,
+					failure.nodeId, failedNode == null ? null
+						: failedNode.getAgentType().name(),
+					failure.error, durationOf(failedNode), adaptations);
+				if (adapted != null) {
+					adaptations++;
+					if (adapted != activeGraph) {
+						activeGraph = adapted;
+						if (runtime != null) {
+							runtime.registerGraph(session.getSessionId(), activeGraph,
+								context);
+						}
+					}
+					attempts = 0;
+					lastFailure = null;
+					continue;
+				}
 			}
 			break;
 		}
@@ -170,7 +214,14 @@ public class ExecutionGraphExecutor {
 		if (team != null && lastFailure != null) {
 			collaborationService.failTeam(team.getTeamId(), lastFailure.error);
 		}
-		return graph;
+		return activeGraph;
+	}
+
+	private long durationOf(ExecutionNode node) {
+		if (node == null || node.getStartedAt() == null || node.getFinishedAt() == null) {
+			return 0L;
+		}
+		return Duration.between(node.getStartedAt(), node.getFinishedAt()).toMillis();
 	}
 
 	private NodeFailure runPass(ExecutionGraph graph, AgentExecutionContext context,
@@ -399,6 +450,11 @@ public class ExecutionGraphExecutor {
 
 	private AgentRuntimeService runtimeService() {
 		return runtimeServiceProvider == null ? null : runtimeServiceProvider.getIfAvailable();
+	}
+
+	private AdaptiveExecutionService adaptiveService() {
+		return adaptiveServiceProvider == null ? null
+			: adaptiveServiceProvider.getIfAvailable();
 	}
 
 	private HumanCollaborationService humanService() {

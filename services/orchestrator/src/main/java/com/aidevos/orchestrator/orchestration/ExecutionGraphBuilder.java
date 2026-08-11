@@ -1,10 +1,13 @@
 package com.aidevos.orchestrator.orchestration;
 
+import java.util.List;
 import java.util.UUID;
 
 import com.aidevos.orchestrator.agent.AgentType;
 import com.aidevos.orchestrator.memory.MemoryContext;
 import com.aidevos.orchestrator.modelrouter.TaskType;
+import com.aidevos.orchestrator.optimization.OptimizationRecord;
+import com.aidevos.orchestrator.optimization.OptimizationType;
 import com.aidevos.orchestrator.repair.RepairPolicy;
 import com.aidevos.orchestrator.taskcenter.TaskRecord;
 import org.springframework.stereotype.Component;
@@ -51,10 +54,77 @@ public class ExecutionGraphBuilder {
 		return graph;
 	}
 
+	/**
+	 * Dynamic graph planning for the autonomous orchestrator: the topology is
+	 * chosen from the task type plus the optimization recommendations. A code
+	 * task with FAILURE_PATTERN / GRAPH_FLOW recommendations becomes a repair
+	 * graph (analyze -> repair -> fix -> verify with a bounded loop) instead
+	 * of the plain code flow, so learned failure patterns change the graph.
+	 * Browser and test topologies keep their category shape. Memory hints are
+	 * attached to the graph; nothing is persisted.
+	 */
+	public ExecutionGraph buildDynamic(TaskRecord task, TaskType taskType,
+			MemoryContext memoryHints, List<OptimizationRecord> recommendations) {
+		String taskId = task == null ? "task-unknown" : task.getTaskId();
+		String category = categoryFor(taskType);
+		boolean repairHints = contains(recommendations, OptimizationType.FAILURE_PATTERN)
+			|| contains(recommendations, OptimizationType.GRAPH_FLOW);
+		ExecutionGraph graph;
+		if ("BROWSER_TASK".equals(category)) {
+			graph = browserGraph("graph-" + UUID.randomUUID(), taskId);
+		}
+		else if ("TEST_TASK".equals(category)) {
+			graph = testGraph("graph-" + UUID.randomUUID(), taskId);
+		}
+		else if ("REPAIR_TASK".equals(category) || repairHints) {
+			graph = repairGraph("graph-" + UUID.randomUUID(), taskId);
+		}
+		else {
+			graph = codeGraph("graph-" + UUID.randomUUID(), taskId);
+		}
+		graph.setMemoryContext(memoryHints);
+		return graph;
+	}
+
+	private boolean contains(List<OptimizationRecord> recommendations,
+			OptimizationType type) {
+		if (recommendations == null) {
+			return false;
+		}
+		return recommendations.stream().anyMatch(record -> record != null
+			&& record.getType() == type);
+	}
+
 	public ExecutionGraph build(TaskRecord task, String taskCategory,
 			MemoryContext memoryHints) {
 		String taskId = task == null ? "task-unknown" : task.getTaskId();
 		ExecutionGraph graph = build(taskId, taskCategory);
+		graph.setMemoryContext(memoryHints);
+		return graph;
+	}
+
+	/**
+	 * Builds the execution graph from a dynamic plan: each plan step becomes
+	 * a node (step id as node id, agent type and dependencies from the step)
+	 * and the analyzed memory context is attached to the graph. The graph is
+	 * a plain acyclic flow; repair loops are only created by the repair
+	 * templates. Nothing is persisted.
+	 */
+	public ExecutionGraph buildFromPlan(com.aidevos.orchestrator.planner.Plan plan,
+			MemoryContext memoryHints) {
+		if (plan == null) {
+			throw new IllegalArgumentException("Plan is required");
+		}
+		String graphId = "graph-" + UUID.randomUUID();
+		java.util.List<ExecutionNode> nodes = new java.util.ArrayList<>();
+		for (com.aidevos.orchestrator.planner.PlanStep step : plan.steps()) {
+			ExecutionNode node = new ExecutionNode(step.stepId(), step.agentType());
+			for (String dependency : step.dependencies()) {
+				node.addDependency(dependency);
+			}
+			nodes.add(node);
+		}
+		ExecutionGraph graph = new ExecutionGraph(graphId, plan.taskId(), nodes, null, null, 1);
 		graph.setMemoryContext(memoryHints);
 		return graph;
 	}

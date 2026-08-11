@@ -152,6 +152,71 @@ export interface TaskObservability {
   humanFeedback: HumanFeedback[]
   optimizations: OptimizationRecord[]
   recommendations: string[]
+  priority: string | null
+  assignedAgents: string[]
+  orchestrationStatus: string | null
+  planId: string | null
+  riskLevel: string | null
+  estimatedCost: number | null
+  feedback: Array<{
+    feedbackId: string
+    taskId: string
+    sessionId: string
+    nodeId: string | null
+    agentType: string | null
+    status: string
+    error: string | null
+    duration: number
+    createdAt: string
+  }>
+  adaptations: Array<{
+    decisionId: string
+    taskId: string
+    nodeId: string | null
+    reason: string
+    action: string
+    confidence: number
+    targetAgent: string | null
+    toolId: string | null
+  }>
+  replans: string[]
+  goalId: string | null
+  milestoneId: string | null
+}
+
+export interface GoalMilestone {
+  milestoneId: string
+  goalId: string
+  title: string
+  description: string
+  status: string
+  progress: number
+  createdAt: string
+}
+
+export interface GoalTask {
+  goalId: string
+  taskId: string
+  relationType: string
+  createdAt: string
+}
+
+export interface GoalEvaluation {
+  goalId: string
+  completedTasks: number
+  totalTasks: number
+  progress: number
+  remainingWork: number
+  confidence: number
+}
+
+export interface GoalObservability {
+  goalId: string
+  status: string
+  progress: number
+  milestones: GoalMilestone[]
+  tasks: GoalTask[]
+  evaluation: GoalEvaluation
 }
 
 export interface ProjectObservability {

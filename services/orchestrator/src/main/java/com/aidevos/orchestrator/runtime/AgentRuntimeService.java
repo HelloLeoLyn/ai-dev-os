@@ -67,6 +67,22 @@ public class AgentRuntimeService {
 		TaskRecord task = taskCenterService.getTask(taskId)
 			.orElseThrow(() -> new IllegalArgumentException("Task not found: " + taskId));
 		ExecutionGraph graph = graphBuilder.build(task, TaskType.GENERAL, null);
+		return startSession(task, graph);
+	}
+
+	/**
+	 * Starts a runtime session for a pre-planned graph (used by the
+	 * autonomous orchestrator's dynamic graph planning): the given graph is
+	 * registered with the session and executed; everything else follows the
+	 * normal session lifecycle.
+	 */
+	public AgentSession startSession(String taskId, ExecutionGraph graph) {
+		TaskRecord task = taskCenterService.getTask(taskId)
+			.orElseThrow(() -> new IllegalArgumentException("Task not found: " + taskId));
+		return startSession(task, graph);
+	}
+
+	private AgentSession startSession(TaskRecord task, ExecutionGraph graph) {
 		AgentSession session = createSession(task, graph);
 		graphExecutor.execute(graph, sessionContexts.get(session.getSessionId()));
 		return session;

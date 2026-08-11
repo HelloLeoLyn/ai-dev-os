@@ -93,6 +93,23 @@ public class TaskCenterService {
 		return task;
 	}
 
+	/**
+	 * Registers a task record directly without the interactive planning and
+	 * approval flow. Used by the autonomous goal manager when it generates
+	 * tasks for a goal into the orchestrator task pool.
+	 */
+	public TaskRecord registerTask(TaskRecord task) {
+		if (task == null || task.getTaskId() == null || task.getTaskId().isBlank()) {
+			throw new IllegalArgumentException("Task is required");
+		}
+		tasks.putIfAbsent(task.getTaskId(), task);
+		auditService.adminEvent(EventType.USER_OPERATION, "task", task.getTaskId(), "SYSTEM",
+			"Autonomous goal generated task", Map.of("name",
+				task.getName() == null ? "" : task.getName(), "projectId",
+				task.getProjectId() == null ? "default" : task.getProjectId()));
+		return task;
+	}
+
 	public List<TaskRecord> listTasks() {
 		List<TaskRecord> result = new ArrayList<>(tasks.values());
 		result.forEach(this::refresh);

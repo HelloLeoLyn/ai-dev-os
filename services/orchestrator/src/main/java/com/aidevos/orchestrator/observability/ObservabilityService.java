@@ -4,7 +4,13 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 
+import com.aidevos.orchestrator.adaptive.AdaptiveExecutionService;
 import com.aidevos.orchestrator.collaboration.AgentCollaborationService;
+import com.aidevos.orchestrator.goal.Goal;
+import com.aidevos.orchestrator.goal.GoalEvaluation;
+import com.aidevos.orchestrator.goal.GoalManagementService;
+import com.aidevos.orchestrator.goal.GoalMilestone;
+import com.aidevos.orchestrator.goal.GoalTask;
 import com.aidevos.orchestrator.collaboration.AgentMessage;
 import com.aidevos.orchestrator.collaboration.AgentTeam;
 import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
@@ -20,6 +26,10 @@ import com.aidevos.orchestrator.observability.usage.UsageService;
 import com.aidevos.orchestrator.observability.usage.UsageSummary;
 import com.aidevos.orchestrator.optimization.OptimizationRecord;
 import com.aidevos.orchestrator.optimization.OptimizationService;
+import com.aidevos.orchestrator.orchestrator.OrchestrationTask;
+import com.aidevos.orchestrator.orchestrator.OrchestratorService;
+import com.aidevos.orchestrator.planner.Plan;
+import com.aidevos.orchestrator.planner.PlanningService;
 import com.aidevos.orchestrator.runtime.AgentRuntimeService;
 import com.aidevos.orchestrator.runtime.AgentSession;
 import com.aidevos.orchestrator.taskcenter.TaskCenterService;
@@ -48,6 +58,10 @@ public class ObservabilityService {
 	private final AgentCollaborationService collaborationService;
 	private final HumanCollaborationService humanCollaborationService;
 	private final OptimizationService optimizationService;
+	private final OrchestratorService orchestratorService;
+	private final PlanningService planningService;
+	private final AdaptiveExecutionService adaptiveService;
+	private final GoalManagementService goalManagementService;
 
 	public ObservabilityService(TaskCenterService taskCenterService,
 			ExecutionRecordManager executionRecordManager,
@@ -90,7 +104,6 @@ public class ObservabilityService {
 			collaborationService, humanCollaborationService, null);
 	}
 
-	@Autowired
 	public ObservabilityService(TaskCenterService taskCenterService,
 			ExecutionRecordManager executionRecordManager,
 			AgentMetricsService agentMetricsService, ExecutionTraceService traceService,
@@ -99,6 +112,72 @@ public class ObservabilityService {
 			AgentCollaborationService collaborationService,
 			HumanCollaborationService humanCollaborationService,
 			OptimizationService optimizationService) {
+		this(taskCenterService, executionRecordManager, agentMetricsService, traceService,
+			usageService, toolMetricsService, timelineService, runtimeService,
+			collaborationService, humanCollaborationService, optimizationService, null);
+	}
+
+	public ObservabilityService(TaskCenterService taskCenterService,
+			ExecutionRecordManager executionRecordManager,
+			AgentMetricsService agentMetricsService, ExecutionTraceService traceService,
+			UsageService usageService, ToolMetricsService toolMetricsService,
+			TimelineService timelineService, AgentRuntimeService runtimeService,
+			AgentCollaborationService collaborationService,
+			HumanCollaborationService humanCollaborationService,
+			OptimizationService optimizationService,
+			OrchestratorService orchestratorService) {
+		this(taskCenterService, executionRecordManager, agentMetricsService, traceService,
+			usageService, toolMetricsService, timelineService, runtimeService,
+			collaborationService, humanCollaborationService, optimizationService,
+			orchestratorService, null);
+	}
+
+	public ObservabilityService(TaskCenterService taskCenterService,
+			ExecutionRecordManager executionRecordManager,
+			AgentMetricsService agentMetricsService, ExecutionTraceService traceService,
+			UsageService usageService, ToolMetricsService toolMetricsService,
+			TimelineService timelineService, AgentRuntimeService runtimeService,
+			AgentCollaborationService collaborationService,
+			HumanCollaborationService humanCollaborationService,
+			OptimizationService optimizationService,
+			OrchestratorService orchestratorService,
+			PlanningService planningService) {
+		this(taskCenterService, executionRecordManager, agentMetricsService, traceService,
+			usageService, toolMetricsService, timelineService, runtimeService,
+			collaborationService, humanCollaborationService, optimizationService,
+			orchestratorService, planningService, null);
+	}
+
+	public ObservabilityService(TaskCenterService taskCenterService,
+			ExecutionRecordManager executionRecordManager,
+			AgentMetricsService agentMetricsService, ExecutionTraceService traceService,
+			UsageService usageService, ToolMetricsService toolMetricsService,
+			TimelineService timelineService, AgentRuntimeService runtimeService,
+			AgentCollaborationService collaborationService,
+			HumanCollaborationService humanCollaborationService,
+			OptimizationService optimizationService,
+			OrchestratorService orchestratorService,
+			PlanningService planningService,
+			AdaptiveExecutionService adaptiveService) {
+		this(taskCenterService, executionRecordManager, agentMetricsService, traceService,
+			usageService, toolMetricsService, timelineService, runtimeService,
+			collaborationService, humanCollaborationService, optimizationService,
+			orchestratorService, planningService, adaptiveService, null);
+	}
+
+	@Autowired
+	public ObservabilityService(TaskCenterService taskCenterService,
+			ExecutionRecordManager executionRecordManager,
+			AgentMetricsService agentMetricsService, ExecutionTraceService traceService,
+			UsageService usageService, ToolMetricsService toolMetricsService,
+			TimelineService timelineService, AgentRuntimeService runtimeService,
+			AgentCollaborationService collaborationService,
+			HumanCollaborationService humanCollaborationService,
+			OptimizationService optimizationService,
+			OrchestratorService orchestratorService,
+			PlanningService planningService,
+			AdaptiveExecutionService adaptiveService,
+			GoalManagementService goalManagementService) {
 		this.taskCenterService = taskCenterService;
 		this.executionRecordManager = executionRecordManager;
 		this.agentMetricsService = agentMetricsService;
@@ -110,6 +189,10 @@ public class ObservabilityService {
 		this.collaborationService = collaborationService;
 		this.humanCollaborationService = humanCollaborationService;
 		this.optimizationService = optimizationService;
+		this.orchestratorService = orchestratorService;
+		this.planningService = planningService;
+		this.adaptiveService = adaptiveService;
+		this.goalManagementService = goalManagementService;
 	}
 
 	public TaskObservability taskObservability(String taskId) {
@@ -148,10 +231,73 @@ public class ObservabilityService {
 		List<String> recommendations = optimizations.stream()
 			.map(OptimizationRecord::getRecommendation)
 			.toList();
+		String priority = null;
+		List<String> assignedAgents = List.of();
+		String orchestrationStatus = null;
+		if (orchestratorService != null) {
+			java.util.Optional<OrchestrationTask> orchestrated =
+				orchestratorService.getTask(taskId);
+			if (orchestrated.isPresent()) {
+				OrchestrationTask orchestrationTask = orchestrated.get();
+				priority = orchestrationTask.getPriority() == null ? null
+					: orchestrationTask.getPriority().name();
+				assignedAgents = orchestrationTask.getAssignedAgents();
+				orchestrationStatus = orchestrationTask.getStatus() == null ? null
+					: orchestrationTask.getStatus().name();
+			}
+		}
+		String planId = null;
+		String riskLevel = null;
+		Double estimatedCost = null;
+		if (planningService != null) {
+			java.util.Optional<Plan> planned = planningService.getPlanByTaskId(taskId);
+			if (planned.isPresent()) {
+				Plan plan = planned.get();
+				planId = plan.planId();
+				riskLevel = plan.riskLevel() == null ? null : plan.riskLevel().name();
+				estimatedCost = plan.estimatedCost();
+			}
+		}
+		java.util.List<com.aidevos.orchestrator.adaptive.ExecutionFeedback> feedback =
+			adaptiveService == null ? java.util.List.of()
+				: adaptiveService.feedbacksForTask(taskId);
+		java.util.List<com.aidevos.orchestrator.adaptive.AdaptationDecision> adaptations =
+			adaptiveService == null ? java.util.List.of()
+				: adaptiveService.decisionsForTask(taskId);
+		java.util.List<String> replans = adaptiveService == null
+			? java.util.List.of() : adaptiveService.replansForTask(taskId);
+		String goalId = goalManagementService == null ? null
+			: goalManagementService.goalIdForTask(taskId).orElse(null);
+		String milestoneId = goalManagementService == null ? null
+			: goalManagementService.milestoneIdForTask(taskId).orElse(null);
 		return new TaskObservability(taskId, task.getStatus().name(),
 			timelineService.timeline(taskId), traces, agent, toolTraces, usage, sessions,
 			teamId, agents, messages, handoffs, approvals, feedbacks, optimizations,
-			recommendations);
+			recommendations, priority, assignedAgents, orchestrationStatus, planId,
+			riskLevel, estimatedCost, feedback, adaptations, replans, goalId,
+			milestoneId);
+	}
+
+	/**
+	 * Goal-level observability: the goal status and progress with its
+	 * milestones, generated tasks and completion evaluation. Used by the
+	 * observability API for the Goal -> Milestone -> Task -> Runtime ->
+	 * Result -> Progress timeline.
+	 */
+	public GoalObservability goalObservability(String goalId) {
+		if (goalId == null || goalId.isBlank()) {
+			throw new IllegalArgumentException("Goal id is required");
+		}
+		if (goalManagementService == null) {
+			throw new IllegalStateException("Goal management is not available");
+		}
+		Goal goal = goalManagementService.getGoal(goalId)
+			.orElseThrow(() -> new ResourceNotFoundException("Goal", goalId));
+		List<GoalMilestone> milestones = goalManagementService.getMilestones(goalId);
+		List<GoalTask> tasks = goalManagementService.getTasks(goalId);
+		GoalEvaluation evaluation = goalManagementService.getEvaluation(goalId);
+		return new GoalObservability(goal.getGoalId(), goal.getStatus().name(),
+			goal.getProgress(), milestones, tasks, evaluation);
 	}
 
 	public ProjectObservability projectObservability(String projectId) {

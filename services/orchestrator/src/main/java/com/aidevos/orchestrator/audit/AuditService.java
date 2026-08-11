@@ -648,6 +648,104 @@ public class AuditService {
 			type + ":optimization:" + value(optimizationId) + ":" + UUID.randomUUID()));
 	}
 
+	/**
+	 * Records an autonomous orchestrator event (ORCHESTRATOR_STARTED /
+	 * TASK_QUEUED / TASK_PRIORITIZED / AGENT_AUTO_SELECTED /
+	 * DYNAMIC_GRAPH_CREATED) carrying the taskId and the pool / graph
+	 * metadata so the queue -> priority -> agent selection -> dynamic graph
+	 * trail appears on the task timeline before the runtime session events.
+	 */
+	public void orchestratorEvent(EventType type, String orchestrationId, String taskId,
+			String fromStatus, String toStatus, String summary,
+			Map<String, Object> metadata) {
+		String aggregateId = value(orchestrationId).isBlank()
+			? "orchestrator-" + UUID.randomUUID() : orchestrationId;
+		Map<String, Object> enriched = new java.util.LinkedHashMap<>();
+		enriched.put("orchestrationId", value(orchestrationId));
+		if (metadata != null) {
+			enriched.putAll(metadata);
+		}
+		record(event(type, "orchestrator", aggregateId, fromStatus, toStatus, taskId,
+			null, null, null, null, null, null, null, null, null, null, "SYSTEM",
+			"autonomous-orchestrator", summary, Map.copyOf(enriched),
+			type + ":orchestrator:" + value(orchestrationId) + ":" + UUID.randomUUID()));
+	}
+
+	/**
+	 * Records a dynamic planning event (PLAN_CREATED / PLAN_EVALUATED /
+	 * PLAN_OPTIMIZED / GRAPH_GENERATED) carrying the planId and the taskId so
+	 * the plan -> evaluation -> optimization -> graph trail appears on the
+	 * task timeline between the orchestrator selection and the runtime
+	 * session events.
+	 */
+	public void plannerEvent(EventType type, String planId, String taskId,
+			String fromStatus, String toStatus, String summary,
+			Map<String, Object> metadata) {
+		String aggregateId = value(planId).isBlank()
+			? "plan-" + UUID.randomUUID() : planId;
+		Map<String, Object> enriched = new java.util.LinkedHashMap<>();
+		enriched.put("planId", value(planId));
+		if (metadata != null) {
+			enriched.putAll(metadata);
+		}
+		record(event(type, "planner", aggregateId, fromStatus, toStatus, taskId,
+			null, null, null, null, null, null, null, null, null, null, "SYSTEM",
+			"dynamic-planner", summary, Map.copyOf(enriched),
+			type + ":planner:" + value(planId) + ":" + UUID.randomUUID()));
+	}
+
+	/**
+	 * Records an adaptive execution event (EXECUTION_FEEDBACK_RECEIVED /
+	 * ADAPTATION_STARTED / ADAPTATION_DECIDED / GRAPH_REPLANNED) carrying the
+	 * taskId, sessionId, nodeId and agentType so the feedback -> decision ->
+	 * replan trail appears on the task timeline after the runtime session
+	 * events.
+	 */
+	public void adaptiveEvent(EventType type, String adaptiveId, String taskId,
+			String sessionId, String nodeId, String agentType, String summary,
+			Map<String, Object> metadata) {
+		String aggregateId = value(adaptiveId).isBlank()
+			? "adaptive-" + UUID.randomUUID() : adaptiveId;
+		Map<String, Object> enriched = new java.util.LinkedHashMap<>();
+		enriched.put("adaptiveId", value(adaptiveId));
+		if (sessionId != null) {
+			enriched.put("sessionId", sessionId);
+		}
+		if (nodeId != null) {
+			enriched.put("nodeId", nodeId);
+		}
+		if (agentType != null) {
+			enriched.put("agentType", agentType);
+		}
+		if (metadata != null) {
+			enriched.putAll(metadata);
+		}
+		record(event(type, "adaptive", aggregateId, null, null, taskId,
+			null, null, null, null, null, null, null, null, null, null, "SYSTEM",
+			"adaptive-execution", summary, Map.copyOf(enriched),
+			type + ":adaptive:" + value(adaptiveId) + ":" + UUID.randomUUID()));
+	}
+
+	/**
+	 * Records an autonomous goal event (GOAL_CREATED / GOAL_PLANNING_STARTED /
+	 * GOAL_DECOMPOSED / GOAL_TASK_CREATED / GOAL_PROGRESS_UPDATED /
+	 * GOAL_COMPLETED / GOAL_FAILED) carrying the goal status transition and
+	 * the goal metadata so the goal -> milestone -> task -> progress trail is
+	 * visible on the goal aggregate.
+	 */
+	public void goalEvent(EventType type, String goalId, String fromStatus, String toStatus,
+			String summary, Map<String, Object> metadata) {
+		Map<String, Object> enriched = new java.util.LinkedHashMap<>();
+		enriched.put("goalId", value(goalId));
+		if (metadata != null) {
+			enriched.putAll(metadata);
+		}
+		record(event(type, "goal", goalId, fromStatus, toStatus, null,
+			null, null, null, null, null, null, null, null, null, null, "SYSTEM",
+			"goal-manager", summary, Map.copyOf(enriched),
+			type + ":goal:" + value(goalId) + ":" + UUID.randomUUID()));
+	}
+
 	public void planRunCreated(PlanRun run) {
 		planRunEvent(EventType.PLAN_RUN_CREATED, run, null, run.getStatus().name());
 	}
