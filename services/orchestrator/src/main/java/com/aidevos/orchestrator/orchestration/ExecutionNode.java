@@ -19,10 +19,24 @@ public class ExecutionNode {
 	private volatile String result;
 	private volatile Instant startedAt;
 	private volatile Instant finishedAt;
+	private volatile boolean humanGate;
 
 	public ExecutionNode(String nodeId, AgentType agentType) {
 		this.nodeId = nodeId;
 		this.agentType = agentType;
+	}
+
+	/**
+	 * Marks this node as a human gate: before the node executes, the runtime
+	 * requests human approval and pauses the session; the node itself is a
+	 * checkpoint that is passed when the approval resumes the session.
+	 */
+	public void setHumanGate(boolean humanGate) {
+		this.humanGate = humanGate;
+	}
+
+	public boolean isHumanGate() {
+		return humanGate;
 	}
 
 	public void addDependency(String dependencyNodeId) {

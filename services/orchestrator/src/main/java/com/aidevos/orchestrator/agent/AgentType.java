@@ -11,5 +11,6 @@ public enum AgentType {
 	CODEX,
 	OPENCLAW,
 	TEST_AGENT,
-	REPAIR_AGENT
+	REPAIR_AGENT,
+	HUMAN
 }

@@ -179,6 +179,23 @@ public class AgentRuntimeService {
 	}
 
 	/**
+	 * Registers the graph and base context of a session so a later resume
+	 * recovers the same topology instead of rebuilding a default graph. The
+	 * execution graph executor calls this before every run; a session created
+	 * through startSession already has its graph registered.
+	 */
+	public void registerGraph(String sessionId, ExecutionGraph graph,
+			AgentExecutionContext context) {
+		if (sessionId == null || graph == null) {
+			return;
+		}
+		sessionGraphs.put(sessionId, graph);
+		if (context != null) {
+			sessionContexts.put(sessionId, copyOf(context));
+		}
+	}
+
+	/**
 	 * Returns the reusable session for a task (CREATED/RUNNING/PAUSED/FAILED)
 	 * or creates a new RUNNING session before a graph run. Called by the
 	 * execution graph executor so every graph execution is wrapped in a

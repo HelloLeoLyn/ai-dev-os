@@ -1,5 +1,6 @@
 package com.aidevos.orchestrator.audit;
 
+import com.aidevos.orchestrator.collaboration.AgentMessageType;
 import com.aidevos.orchestrator.job.ExecutionJob;
 import com.aidevos.orchestrator.outbox.JdbcConnectionContext;
 import com.aidevos.orchestrator.model.ExecutionRecord;
@@ -547,12 +548,104 @@ public class AuditService {
 				+ value(toStatus) + ":" + UUID.randomUUID()));
 	}
 
+	/**
+	 * Records an agent collaboration event (AGENT_TEAM_CREATED /
+	 * AGENT_JOINED_TEAM / AGENT_MESSAGE_SENT / AGENT_HANDOFF /
+	 * AGENT_COLLABORATION_COMPLETED / AGENT_COLLABORATION_FAILED) carrying
+	 * the taskId and the team/from/to/messageType metadata so it appears on
+	 * the task timeline alongside the runtime session events.
+	 */
+	public void collaborationEvent(EventType type, String teamId, String taskId,
+			String sessionId, String fromAgent, String toAgent,
+			AgentMessageType messageType, String fromStatus, String toStatus,
+			String summary, Map<String, Object> metadata) {
+		Map<String, Object> enriched = new java.util.LinkedHashMap<>();
+		enriched.put("teamId", value(teamId));
+		if (sessionId != null) {
+			enriched.put("sessionId", sessionId);
+		}
+		if (fromAgent != null) {
+			enriched.put("fromAgent", fromAgent);
+		}
+		if (toAgent != null) {
+			enriched.put("toAgent", toAgent);
+		}
+		if (messageType != null) {
+			enriched.put("messageType", messageType.name());
+		}
+		if (metadata != null) {
+			enriched.putAll(metadata);
+		}
+		record(event(type, "agent-team", teamId, fromStatus, toStatus, taskId, null,
+			null, null, null, null, null, null, null, null, null, "SYSTEM",
+			"agent-collaboration", summary, Map.copyOf(enriched),
+			type + ":team:" + value(teamId) + ":" + value(fromAgent) + ":"
+				+ value(toAgent) + ":" + value(messageType == null ? null
+					: messageType.name()) + ":" + UUID.randomUUID()));
+	}
+
+	/**
+	 * Records a human collaboration event (HUMAN_APPROVAL_CREATED /
+	 * HUMAN_APPROVED / HUMAN_REJECTED / HUMAN_FEEDBACK_ADDED /
+	 * HUMAN_RESUMED) carrying the taskId, sessionId and agentType so the
+	 * approval and its resume appear on the task timeline between the agent
+	 * team events and the session result.
+	 */
+	public void humanEvent(EventType type, String humanId, String taskId, String sessionId,
+			String agentType, String fromStatus, String toStatus, String summary,
+			Map<String, Object> metadata) {
+		Map<String, Object> enriched = new java.util.LinkedHashMap<>();
+		enriched.put("humanId", value(humanId));
+		if (sessionId != null) {
+			enriched.put("sessionId", sessionId);
+		}
+		if (agentType != null) {
+			enriched.put("agentType", agentType);
+		}
+		if (metadata != null) {
+			enriched.putAll(metadata);
+		}
+		record(event(type, "human-collaboration", humanId, fromStatus, toStatus, taskId,
+			null, null, null, null, null, null, null, null, null, null, "SYSTEM",
+			"human-collaboration", summary, Map.copyOf(enriched),
+			type + ":human:" + value(humanId) + ":" + UUID.randomUUID()));
+	}
+
 	public void taskEvent(EventType type, String taskId, String fromStatus, String toStatus,
 			String summary, Map<String, Object> metadata) {
 		record(event(type, "task", taskId, fromStatus, toStatus, taskId, null, null, null,
 			null, null, null, null, null, null, null, "SYSTEM", "task-center", summary,
 			metadata == null ? Map.of() : Map.copyOf(metadata),
 			type + ":task:" + taskId + ":" + value(fromStatus) + ":" + value(toStatus)));
+	}
+
+	/**
+	 * Records an autonomous optimization event (OPTIMIZATION_STARTED /
+	 * OPTIMIZATION_COMPLETED / OPTIMIZATION_RECOMMENDED / AGENT_SCORE_UPDATED)
+	 * carrying the taskId, sessionId and optimization type so the analysis and
+	 * its recommendations appear on the task timeline after the human events
+	 * and before the learning (memory) writes.
+	 */
+	public void optimizationEvent(EventType type, String optimizationId, String taskId,
+			String sessionId, String optimizationType, String summary,
+			Map<String, Object> metadata) {
+		String aggregateId = value(optimizationId).isBlank()
+			? "optimization-" + UUID.randomUUID() : optimizationId;
+		Map<String, Object> enriched = new java.util.LinkedHashMap<>();
+		enriched.put("optimizationId", value(optimizationId));
+		if (sessionId != null) {
+			enriched.put("sessionId", sessionId);
+		}
+		if (optimizationType != null) {
+			enriched.put("optimizationType", optimizationType);
+		}
+		if (metadata != null) {
+			enriched.putAll(metadata);
+		}
+		record(event(type, "optimization", aggregateId, null, null, taskId, null,
+			null, null, null, null, null, null, null, null, null, "SYSTEM",
+			"agent-optimization", summary, Map.copyOf(enriched),
+			type + ":optimization:" + value(optimizationId) + ":" + UUID.randomUUID()));
 	}
 
 	public void planRunCreated(PlanRun run) {

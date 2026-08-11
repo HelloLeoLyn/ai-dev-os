@@ -59,6 +59,24 @@ public class ExecutionGraphBuilder {
 		return graph;
 	}
 
+	/**
+	 * Builds a code graph with a human gate between planning and coding:
+	 * HERMES_PLANNING -> HUMAN_GATE -> CODEX_IMPLEMENTATION ->
+	 * TEST_AGENT_VERIFY. The graph executor requests human approval at the
+	 * gate and pauses the runtime session until it is approved.
+	 */
+	public ExecutionGraph codeGraphWithHumanGate(String taskId) {
+		String graphId = "graph-" + UUID.randomUUID();
+		ExecutionNode planning = node("HERMES_PLANNING", AgentType.HERMES);
+		ExecutionNode gate = node("HUMAN_GATE", AgentType.HUMAN, "HERMES_PLANNING");
+		gate.setHumanGate(true);
+		ExecutionNode coding = node("CODEX_IMPLEMENTATION", AgentType.CODEX, "HUMAN_GATE");
+		ExecutionNode testing = node("TEST_AGENT_VERIFY", AgentType.TEST_AGENT,
+			"CODEX_IMPLEMENTATION");
+		return new ExecutionGraph(graphId, taskId,
+			java.util.List.of(planning, gate, coding, testing), null, null, 1);
+	}
+
 	private String categoryFor(TaskType taskType) {
 		return switch (taskType == null ? TaskType.GENERAL : taskType) {
 			case TASK_ANALYSIS, CODE_GENERATION -> "CODE_TASK";

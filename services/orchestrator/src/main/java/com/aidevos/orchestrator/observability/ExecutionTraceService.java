@@ -103,4 +103,8 @@ public class ExecutionTraceService {
 	public List<TraceRecord> listByProject(String projectId) {
 		return repository.listByProject(projectId);
 	}
+
+	public List<TraceRecord> listByAgent(String agentType) {
+		return repository.listByAgent(agentType);
+	}
 }

@@ -8,10 +8,15 @@ import java.util.Map;
 import com.aidevos.orchestrator.agent.AgentType;
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
+import com.aidevos.orchestrator.collaboration.AgentCollaborationService;
+import com.aidevos.orchestrator.collaboration.AgentMessageType;
+import com.aidevos.orchestrator.collaboration.AgentTeam;
 import com.aidevos.orchestrator.mcp.tool.McpToolRouter;
 import com.aidevos.orchestrator.mcp.tool.ToolDefinition;
+import com.aidevos.orchestrator.memory.MemoryContext;
 import com.aidevos.orchestrator.observability.ExecutionTraceService;
 import com.aidevos.orchestrator.observability.TraceRecord;
+import com.aidevos.orchestrator.human.HumanCollaborationService;
 import com.aidevos.orchestrator.runtime.AgentRuntimeService;
 import com.aidevos.orchestrator.runtime.AgentSession;
 import com.aidevos.orchestrator.runtime.AgentSessionStatus;
@@ -45,6 +50,8 @@ public class ExecutionGraphExecutor {
 	private final McpToolRouter toolRouter;
 	private final ExecutionTraceService traceService;
 	private final ObjectProvider<AgentRuntimeService> runtimeServiceProvider;
+	private final AgentCollaborationService collaborationService;
+	private final ObjectProvider<HumanCollaborationService> humanCollaborationServiceProvider;
 
 	public ExecutionGraphExecutor(List<AgentExecutor> agentExecutors,
 			AuditService auditService, TaskCenterService taskCenterService) {
@@ -63,11 +70,30 @@ public class ExecutionGraphExecutor {
 		this(agentExecutors, auditService, taskCenterService, toolRouter, traceService, null);
 	}
 
-	@Autowired
 	public ExecutionGraphExecutor(List<AgentExecutor> agentExecutors,
 			AuditService auditService, TaskCenterService taskCenterService,
 			McpToolRouter toolRouter, ExecutionTraceService traceService,
 			ObjectProvider<AgentRuntimeService> runtimeServiceProvider) {
+		this(agentExecutors, auditService, taskCenterService, toolRouter, traceService,
+			runtimeServiceProvider, null);
+	}
+
+	public ExecutionGraphExecutor(List<AgentExecutor> agentExecutors,
+			AuditService auditService, TaskCenterService taskCenterService,
+			McpToolRouter toolRouter, ExecutionTraceService traceService,
+			ObjectProvider<AgentRuntimeService> runtimeServiceProvider,
+			AgentCollaborationService collaborationService) {
+		this(agentExecutors, auditService, taskCenterService, toolRouter, traceService,
+			runtimeServiceProvider, collaborationService, null);
+	}
+
+	@Autowired
+	public ExecutionGraphExecutor(List<AgentExecutor> agentExecutors,
+			AuditService auditService, TaskCenterService taskCenterService,
+			McpToolRouter toolRouter, ExecutionTraceService traceService,
+			ObjectProvider<AgentRuntimeService> runtimeServiceProvider,
+			AgentCollaborationService collaborationService,
+			ObjectProvider<HumanCollaborationService> humanCollaborationServiceProvider) {
 		if (agentExecutors != null) {
 			for (AgentExecutor executor : agentExecutors) {
 				if (executor != null && executor.type() != null) {
@@ -80,6 +106,8 @@ public class ExecutionGraphExecutor {
 		this.toolRouter = toolRouter;
 		this.traceService = traceService;
 		this.runtimeServiceProvider = runtimeServiceProvider;
+		this.collaborationService = collaborationService;
+		this.humanCollaborationServiceProvider = humanCollaborationServiceProvider;
 	}
 
 	/**
@@ -95,22 +123,37 @@ public class ExecutionGraphExecutor {
 		}
 		AgentRuntimeService runtime = runtimeService();
 		AgentSession session = null;
+		AgentTeam team = null;
 		if (runtime != null) {
 			session = runtime.ensureSession(graph.getTaskId(), graph.getGraphId());
 			if (session != null) {
 				recover(graph, session);
 				runtime.markRunning(session.getSessionId());
+				runtime.registerGraph(session.getSessionId(), graph, context);
+				if (collaborationService != null) {
+					team = collaborationService.createTeam(graph.getTaskId(),
+						session.getSessionId());
+				}
 			}
 		}
+		MemoryContext memory = memoryHints(context, graph);
 		int attempts = 0;
 		NodeFailure lastFailure = null;
 		while (attempts < graph.getMaxAttempts()) {
 			attempts++;
-			NodeFailure failure = runPass(graph, context, runtime, session);
+			NodeFailure failure = runPass(graph, context, runtime, session, team, memory);
 			if (failure == null) {
 				if (session != null) {
 					runtime.completeSession(session.getSessionId());
 				}
+				if (team != null) {
+					collaborationService.completeTeam(team.getTeamId());
+				}
+				return graph;
+			}
+			if (failure.paused) {
+				// Human gate: the session stays PAUSED until the approval
+				// resumes it; nothing is finalized here.
 				return graph;
 			}
 			lastFailure = failure;
@@ -124,15 +167,26 @@ public class ExecutionGraphExecutor {
 		if (session != null && lastFailure != null) {
 			runtime.failSession(session.getSessionId(), lastFailure.nodeId);
 		}
+		if (team != null && lastFailure != null) {
+			collaborationService.failTeam(team.getTeamId(), lastFailure.error);
+		}
 		return graph;
 	}
 
 	private NodeFailure runPass(ExecutionGraph graph, AgentExecutionContext context,
-			AgentRuntimeService runtime, AgentSession session) {
-		for (String nodeId : graph.getTopologicalOrder()) {
+			AgentRuntimeService runtime, AgentSession session, AgentTeam team,
+			MemoryContext memory) {
+		List<String> order = graph.getTopologicalOrder();
+		for (int i = 0; i < order.size(); i++) {
+			String nodeId = order.get(i);
 			ExecutionNode node = graph.getNode(nodeId);
 			if (node.getStatus() != ExecutionNodeStatus.PENDING) {
 				continue;
+			}
+			String previousAgent = i == 0 ? null
+				: graph.getNode(order.get(i - 1)).getAgentType().name();
+			if (node.isHumanGate()) {
+				return pauseAtHumanGate(graph, node, previousAgent, session, team);
 			}
 			node.markRunning();
 			String traceId = startNodeTrace(graph, context, node);
@@ -141,12 +195,22 @@ public class ExecutionGraphExecutor {
 				ExecutionNodeStatus.RUNNING.name(), "Node started",
 				Map.of("graphId", graph.getGraphId(), "nodeId", node.getNodeId(),
 					"agentType", node.getAgentType().name()));
+			if (collaborationService != null && team != null) {
+				collaborationService.addAgent(team.getTeamId(), node.getAgentType().name());
+				if (previousAgent != null) {
+					collaborationService.sendMessage(team.getTeamId(), previousAgent,
+						node.getAgentType().name(), AgentMessageType.REQUEST,
+						"Requesting " + node.getNodeId() + " from " + previousAgent);
+					collaborationService.handoff(team.getTeamId(), previousAgent,
+						node.getAgentType().name(), memory);
+				}
+			}
 			AgentExecutor executor = executors.get(node.getAgentType());
 			if (executor == null) {
 				failNodeTrace(traceId, "No executor registered for agent: "
 					+ node.getAgentType());
 				return fail(graph, node, "No executor registered for agent: "
-					+ node.getAgentType(), runtime, session, context);
+					+ node.getAgentType(), runtime, session, team, memory, context);
 			}
 			auditService.graphEvent(EventType.AGENT_SELECTED, graph.getGraphId(),
 				graph.getTaskId(), node.getNodeId(), node.getAgentType().name(),
@@ -175,10 +239,19 @@ public class ExecutionGraphExecutor {
 				if (session != null && runtime != null) {
 					runtime.checkpoint(session.getSessionId(), node.getNodeId(), nodeContext);
 				}
+				if (collaborationService != null && team != null) {
+					String nextAgent = nextAgentAfter(order, i, graph);
+					if (nextAgent != null) {
+						collaborationService.sendMessage(team.getTeamId(),
+							node.getAgentType().name(), nextAgent,
+							AgentMessageType.RESULT, result.output());
+					}
+				}
 			}
 			else {
 				failNodeTrace(traceId, result.error());
-				return fail(graph, node, result.error(), runtime, session, nodeContext);
+				return fail(graph, node, result.error(), runtime, session, team, memory,
+					nodeContext);
 			}
 		}
 		return null;
@@ -209,6 +282,7 @@ public class ExecutionGraphExecutor {
 
 	private NodeFailure fail(ExecutionGraph graph, ExecutionNode node, String error,
 			AgentRuntimeService runtime, AgentSession session,
+			AgentTeam team, MemoryContext memory,
 			AgentExecutionContext nodeContext) {
 		node.markFailed(error == null ? "Node failed" : error);
 		auditService.graphEvent(EventType.NODE_FAILED, graph.getGraphId(), graph.getTaskId(),
@@ -217,7 +291,77 @@ public class ExecutionGraphExecutor {
 		if (session != null && runtime != null) {
 			runtime.failCheckpoint(session.getSessionId(), node.getNodeId(), nodeContext, error);
 		}
-		return new NodeFailure(node.getNodeId());
+		if (collaborationService != null && team != null) {
+			String fixAgent = fixAgent(graph, node);
+			collaborationService.sendMessage(team.getTeamId(), node.getAgentType().name(),
+				fixAgent, AgentMessageType.ERROR, error);
+		}
+		return NodeFailure.failed(node.getNodeId(), error);
+	}
+
+	/**
+	 * Human gate handling: requests human approval for the gate node, pauses
+	 * the runtime session at this node and tells the team that human input is
+	 * required. The gate node stays PENDING; an approved approval resumes the
+	 * session which then passes the gate (recover marks it completed) and
+	 * continues with the downstream nodes.
+	 */
+	private NodeFailure pauseAtHumanGate(ExecutionGraph graph, ExecutionNode node,
+			String previousAgent, AgentSession session, AgentTeam team) {
+		String requester = previousAgent != null ? previousAgent
+			: node.getAgentType().name();
+		AgentRuntimeService runtime = runtimeService();
+		HumanCollaborationService humanService = humanService();
+		if (humanService != null) {
+			humanService.requestApproval(graph.getTaskId(),
+				session == null ? null : session.getSessionId(),
+				team == null ? null : team.getTeamId(), node.getNodeId(), requester);
+		}
+		if (session != null && runtime != null) {
+			session.setCurrentNodeId(node.getNodeId());
+			runtime.pauseSession(session.getSessionId());
+		}
+		if (collaborationService != null && team != null) {
+			collaborationService.sendMessage(team.getTeamId(), requester, "HUMAN",
+				AgentMessageType.HUMAN_REQUEST,
+				"Human approval required at " + node.getNodeId());
+		}
+		return NodeFailure.paused(node.getNodeId());
+	}
+
+	/**
+	 * The agent that receives the ERROR message when a node fails: the next
+	 * non-completed agent in the topology, or the loop-start agent when the
+	 * failed node is the end of a repair loop (TEST_AGENT_VERIFY -> the
+	 * repair agent that will analyze the failure).
+	 */
+	private String fixAgent(ExecutionGraph graph, ExecutionNode node) {
+		if (graph.hasLoop() && graph.getLoopEndNodeId().equals(node.getNodeId())) {
+			ExecutionNode loopStart = graph.getNode(graph.getLoopStartNodeId());
+			if (loopStart != null) {
+				return loopStart.getAgentType().name();
+			}
+		}
+		List<String> order = graph.getTopologicalOrder();
+		int index = order.indexOf(node.getNodeId());
+		return index < 0 ? null : nextAgentAfter(order, index, graph);
+	}
+
+	private String nextAgentAfter(List<String> order, int index, ExecutionGraph graph) {
+		for (int i = index + 1; i < order.size(); i++) {
+			ExecutionNode next = graph.getNode(order.get(i));
+			if (next.getStatus() != ExecutionNodeStatus.COMPLETED) {
+				return next.getAgentType().name();
+			}
+		}
+		return null;
+	}
+
+	private MemoryContext memoryHints(AgentExecutionContext context, ExecutionGraph graph) {
+		if (context != null && context.getMemoryHints() != null) {
+			return context.getMemoryHints();
+		}
+		return graph.getMemoryContext();
 	}
 
 	/**
@@ -255,6 +399,11 @@ public class ExecutionGraphExecutor {
 
 	private AgentRuntimeService runtimeService() {
 		return runtimeServiceProvider == null ? null : runtimeServiceProvider.getIfAvailable();
+	}
+
+	private HumanCollaborationService humanService() {
+		return humanCollaborationServiceProvider == null
+			? null : humanCollaborationServiceProvider.getIfAvailable();
 	}
 
 	/**
@@ -329,6 +478,14 @@ public class ExecutionGraphExecutor {
 		return value == null ? "" : value;
 	}
 
-	private record NodeFailure(String nodeId) {
+	private record NodeFailure(String nodeId, String error, boolean paused) {
+
+		static NodeFailure failed(String nodeId, String error) {
+			return new NodeFailure(nodeId, error, false);
+		}
+
+		static NodeFailure paused(String nodeId) {
+			return new NodeFailure(nodeId, null, true);
+		}
 	}
 }

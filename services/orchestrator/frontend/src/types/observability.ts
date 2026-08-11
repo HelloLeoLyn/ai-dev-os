@@ -39,6 +39,80 @@ export interface UnifiedTimeline {
   events: TimelineEventDTO[]
 }
 
+export interface AgentSession {
+  sessionId: string
+  taskId: string
+  graphId: string
+  status: string
+  currentNodeId: string | null
+  startedAt: string
+  updatedAt: string
+}
+
+export interface AgentMessage {
+  messageId: string
+  teamId: string
+  fromAgent: string
+  toAgent: string | null
+  messageType: string
+  content: string
+  createdAt: string
+}
+
+export interface HumanApproval {
+  approvalId: string
+  taskId: string
+  sessionId: string | null
+  teamId: string | null
+  nodeId: string | null
+  status: string
+  requester: string
+  reviewer: string | null
+  comment: string | null
+  createdAt: string
+  reviewedAt: string | null
+}
+
+export interface HumanFeedback {
+  feedbackId: string
+  taskId: string
+  sessionId: string | null
+  agentType: string
+  content: string
+  createdAt: string
+}
+
+export interface OptimizationRecord {
+  id: string
+  taskId: string
+  sessionId: string | null
+  type: string
+  recommendation: string
+  confidence: number
+  createdAt: string
+}
+
+export interface AgentScore {
+  agentType: string
+  totalExecutions: number
+  successRate: number
+  avgDuration: number
+  failureRate: number
+  collaborationScore: number
+  humanApprovalRate: number
+}
+
+export interface GraphOptimizationSuggestion {
+  type: string
+  nodeId: string | null
+  currentAgent: string | null
+  recommendedAgent: string | null
+  currentTool: string | null
+  recommendedTool: string | null
+  reason: string
+  confidence: number
+}
+
 export interface TaskObservability {
   taskId: string
   taskStatus: string
@@ -69,6 +143,15 @@ export interface TaskObservability {
   }
   toolTraces: TraceRecord[]
   usage: UsageSummary
+  sessions: AgentSession[]
+  teamId: string | null
+  agents: string[]
+  messages: AgentMessage[]
+  handoffs: string[]
+  approvals: HumanApproval[]
+  humanFeedback: HumanFeedback[]
+  optimizations: OptimizationRecord[]
+  recommendations: string[]
 }
 
 export interface ProjectObservability {

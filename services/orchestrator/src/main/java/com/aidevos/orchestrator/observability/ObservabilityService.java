@@ -2,8 +2,15 @@ package com.aidevos.orchestrator.observability;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 
+import com.aidevos.orchestrator.collaboration.AgentCollaborationService;
+import com.aidevos.orchestrator.collaboration.AgentMessage;
+import com.aidevos.orchestrator.collaboration.AgentTeam;
 import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
+import com.aidevos.orchestrator.human.HumanApproval;
+import com.aidevos.orchestrator.human.HumanCollaborationService;
+import com.aidevos.orchestrator.human.HumanFeedback;
 import com.aidevos.orchestrator.execution.ExecutionRecordManager;
 import com.aidevos.orchestrator.metrics.agent.AgentMetricsService;
 import com.aidevos.orchestrator.metrics.agent.TaskExecutionMetrics;
@@ -11,6 +18,8 @@ import com.aidevos.orchestrator.metrics.tool.ToolMetricsService;
 import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.observability.usage.UsageService;
 import com.aidevos.orchestrator.observability.usage.UsageSummary;
+import com.aidevos.orchestrator.optimization.OptimizationRecord;
+import com.aidevos.orchestrator.optimization.OptimizationService;
 import com.aidevos.orchestrator.runtime.AgentRuntimeService;
 import com.aidevos.orchestrator.runtime.AgentSession;
 import com.aidevos.orchestrator.taskcenter.TaskCenterService;
@@ -36,6 +45,9 @@ public class ObservabilityService {
 	private final ToolMetricsService toolMetricsService;
 	private final TimelineService timelineService;
 	private final AgentRuntimeService runtimeService;
+	private final AgentCollaborationService collaborationService;
+	private final HumanCollaborationService humanCollaborationService;
+	private final OptimizationService optimizationService;
 
 	public ObservabilityService(TaskCenterService taskCenterService,
 			ExecutionRecordManager executionRecordManager,
@@ -46,12 +58,47 @@ public class ObservabilityService {
 			usageService, toolMetricsService, timelineService, null);
 	}
 
-	@Autowired
 	public ObservabilityService(TaskCenterService taskCenterService,
 			ExecutionRecordManager executionRecordManager,
 			AgentMetricsService agentMetricsService, ExecutionTraceService traceService,
 			UsageService usageService, ToolMetricsService toolMetricsService,
 			TimelineService timelineService, AgentRuntimeService runtimeService) {
+		this(taskCenterService, executionRecordManager, agentMetricsService, traceService,
+			usageService, toolMetricsService, timelineService, runtimeService, null);
+	}
+
+	public ObservabilityService(TaskCenterService taskCenterService,
+			ExecutionRecordManager executionRecordManager,
+			AgentMetricsService agentMetricsService, ExecutionTraceService traceService,
+			UsageService usageService, ToolMetricsService toolMetricsService,
+			TimelineService timelineService, AgentRuntimeService runtimeService,
+			AgentCollaborationService collaborationService) {
+		this(taskCenterService, executionRecordManager, agentMetricsService, traceService,
+			usageService, toolMetricsService, timelineService, runtimeService,
+			collaborationService, null);
+	}
+
+	public ObservabilityService(TaskCenterService taskCenterService,
+			ExecutionRecordManager executionRecordManager,
+			AgentMetricsService agentMetricsService, ExecutionTraceService traceService,
+			UsageService usageService, ToolMetricsService toolMetricsService,
+			TimelineService timelineService, AgentRuntimeService runtimeService,
+			AgentCollaborationService collaborationService,
+			HumanCollaborationService humanCollaborationService) {
+		this(taskCenterService, executionRecordManager, agentMetricsService, traceService,
+			usageService, toolMetricsService, timelineService, runtimeService,
+			collaborationService, humanCollaborationService, null);
+	}
+
+	@Autowired
+	public ObservabilityService(TaskCenterService taskCenterService,
+			ExecutionRecordManager executionRecordManager,
+			AgentMetricsService agentMetricsService, ExecutionTraceService traceService,
+			UsageService usageService, ToolMetricsService toolMetricsService,
+			TimelineService timelineService, AgentRuntimeService runtimeService,
+			AgentCollaborationService collaborationService,
+			HumanCollaborationService humanCollaborationService,
+			OptimizationService optimizationService) {
 		this.taskCenterService = taskCenterService;
 		this.executionRecordManager = executionRecordManager;
 		this.agentMetricsService = agentMetricsService;
@@ -60,6 +107,9 @@ public class ObservabilityService {
 		this.toolMetricsService = toolMetricsService;
 		this.timelineService = timelineService;
 		this.runtimeService = runtimeService;
+		this.collaborationService = collaborationService;
+		this.humanCollaborationService = humanCollaborationService;
+		this.optimizationService = optimizationService;
 	}
 
 	public TaskObservability taskObservability(String taskId) {
@@ -76,8 +126,32 @@ public class ObservabilityService {
 		UsageSummary usage = usageService.getTaskUsage(taskId);
 		List<AgentSession> sessions = runtimeService == null
 			? List.of() : runtimeService.sessionsForTask(taskId);
+		String teamId = null;
+		List<String> agents = List.of();
+		List<AgentMessage> messages = List.of();
+		List<String> handoffs = List.of();
+		if (collaborationService != null) {
+			Optional<AgentTeam> team = collaborationService.teamForTask(taskId);
+			if (team.isPresent()) {
+				teamId = team.get().getTeamId();
+				agents = team.get().getAgents();
+				messages = collaborationService.messages(teamId);
+				handoffs = collaborationService.handoffs(teamId);
+			}
+		}
+		List<HumanApproval> approvals = humanCollaborationService == null
+			? List.of() : humanCollaborationService.getTaskApprovals(taskId);
+		List<HumanFeedback> feedbacks = humanCollaborationService == null
+			? List.of() : humanCollaborationService.getFeedbacks(taskId);
+		List<OptimizationRecord> optimizations = optimizationService == null
+			? List.of() : optimizationService.getRecommendations(taskId);
+		List<String> recommendations = optimizations.stream()
+			.map(OptimizationRecord::getRecommendation)
+			.toList();
 		return new TaskObservability(taskId, task.getStatus().name(),
-			timelineService.timeline(taskId), traces, agent, toolTraces, usage, sessions);
+			timelineService.timeline(taskId), traces, agent, toolTraces, usage, sessions,
+			teamId, agents, messages, handoffs, approvals, feedbacks, optimizations,
+			recommendations);
 	}
 
 	public ProjectObservability projectObservability(String projectId) {
