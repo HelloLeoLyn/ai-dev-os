@@ -16,7 +16,13 @@ const approval = {
 
 describe('PlanApprovalDetail view rules', () => {
   it('marks the approved plan as read-only without assigned write risks', () => {
-    expect(planApprovalRisk(approval)).toEqual({ readOnly: true, hasWriteAgent: false, hasWriteTool: false })
+    expect(planApprovalRisk(approval)).toEqual({
+      readOnly: true,
+      hasWriteAgent: false,
+      hasWriteTool: false,
+      hasDangerousTool: false,
+      hasWorkspaceWritePermission: false,
+    })
   })
 
   it('shows no tool for an agent-only step', () => {

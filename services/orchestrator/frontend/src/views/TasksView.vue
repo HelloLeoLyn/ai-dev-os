@@ -227,8 +227,8 @@ onMounted(async () => Promise.all([loadTasks(), loadProjects()]))
       <p class="page-state page-state--error">{{ errorMessage }}</p>
     </el-card>
 
-    <el-row v-else :gutter="16" class="content-row">
-      <el-col :xs="24" :lg="15">
+    <div v-else class="tasks-layout">
+      <section class="tasks-layout__list" aria-label="Task list">
         <el-card shadow="never">
           <TaskTable
             :tasks="tasks"
@@ -237,14 +237,14 @@ onMounted(async () => Promise.all([loadTasks(), loadProjects()]))
             @select="selectedTask = $event"
           />
         </el-card>
-      </el-col>
-      <el-col :xs="24" :lg="9">
+      </section>
+      <section class="tasks-layout__detail" aria-label="Task detail">
         <TaskDetail :task="selectedTask" :approval="approval"
           :approval-loading="approvalLoading" :decision-busy="decisionBusy"
           @approve="(approver) => decide('approve', approver)"
           @reject="(approver, reason) => decide('reject', approver, reason)" />
-      </el-col>
-    </el-row>
+      </section>
+    </div>
   </section>
 </template>
 
@@ -269,5 +269,36 @@ onMounted(async () => Promise.all([loadTasks(), loadProjects()]))
 
 .page-state--error {
   color: var(--color-danger);
+}
+
+.tasks-layout {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(380px, 0.8fr) minmax(600px, 1.3fr);
+  gap: clamp(16px, 1.5vw, 28px);
+  align-items: start;
+}
+
+.tasks-layout__list,
+.tasks-layout__detail {
+  min-width: 0;
+}
+
+@media (min-width: 1600px) {
+  .tasks-layout {
+    grid-template-columns: minmax(380px, 0.8fr) minmax(600px, 1.7fr);
+  }
+}
+
+@media (min-width: 2200px) {
+  .tasks-layout {
+    grid-template-columns: minmax(380px, 0.7fr) minmax(600px, 1.8fr);
+  }
+}
+
+@media (max-width: 1199px) {
+  .tasks-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>

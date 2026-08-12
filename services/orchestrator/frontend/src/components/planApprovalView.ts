@@ -3,14 +3,17 @@ import type { PlanApprovalRequest, PlanStep } from '../types/planApproval'
 export function planApprovalRisk(approval: PlanApprovalRequest) {
   const assigned = new Set(approval.plan.steps.map((step) => step.assignment.agentName)
     .filter((name): name is string => Boolean(name)))
+  const assignedAgents = approval.plan.snapshot.agents.filter((agent) => assigned.has(agent.name))
+  const assignedTools = approval.plan.steps.flatMap((step) => approval.plan.snapshot.tools.filter((tool) =>
+    tool.providerId === step.toolProviderId && tool.name === step.toolName))
   return {
     readOnly: approval.plan.snapshot.plannerMetadata.executionMode === 'READ_ONLY',
-    hasWriteAgent: approval.plan.snapshot.agents.some((agent) => assigned.has(agent.name) &&
+    hasWriteAgent: assignedAgents.some((agent) =>
       (agent.permissionLevel === 'workspace-write' || agent.capabilities.some((item) =>
         ['coding', 'git', 'write'].includes(item.toLowerCase())))),
-    hasWriteTool: approval.plan.steps.some((step) => Boolean(step.toolName) &&
-      approval.plan.snapshot.tools.some((tool) => tool.providerId === step.toolProviderId &&
-        tool.name === step.toolName && tool.access === 'WORKSPACE_WRITE')),
+    hasWriteTool: assignedTools.some((tool) => tool.access === 'WORKSPACE_WRITE'),
+    hasDangerousTool: assignedTools.some((tool) => String(tool.access).toUpperCase().includes('DANGEROUS')),
+    hasWorkspaceWritePermission: assignedAgents.some((agent) => agent.permissionLevel === 'workspace-write'),
   }
 }
 

@@ -95,13 +95,21 @@ a {
 
 .app-main {
   width: 100%;
-  max-width: 90rem;
-  padding: 2.5rem;
+  max-width: none;
+  min-width: 0;
+  padding: clamp(16px, 2vw, 36px);
 }
 
 .page-stack {
   display: grid;
+  width: 100%;
+  min-width: 0;
   gap: 1.5rem;
+}
+
+.el-card,
+.el-card__body {
+  min-width: 0;
 }
 
 .page-header {

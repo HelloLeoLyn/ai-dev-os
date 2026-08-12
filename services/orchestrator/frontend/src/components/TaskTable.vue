@@ -44,34 +44,29 @@ function formatDate(value: string): string {
     row-key="taskId"
     @current-change="(row: TaskRecord | null) => row && emit('select', row)"
   >
-    <el-table-column prop="name" label="任务名称" min-width="160">
+    <el-table-column prop="name" label="Task Name" min-width="150">
       <template #default="{ row }: { row: TaskRecord }">
         <span class="task-name">{{ row.name || row.taskId }}</span>
       </template>
     </el-table-column>
-    <el-table-column label="描述" min-width="220">
-      <template #default="{ row }: { row: TaskRecord }">
-        {{ row.description || '—' }}
-      </template>
-    </el-table-column>
-    <el-table-column label="状态" min-width="110">
+    <el-table-column label="Status" width="112">
       <template #default="{ row }: { row: TaskRecord }">
         <el-tag :type="statusType(row.status)" effect="dark" size="small">
           {{ row.status }}
         </el-tag>
       </template>
     </el-table-column>
-    <el-table-column prop="projectId" label="Project" min-width="180" />
-    <el-table-column prop="workspaceId" label="Workspace" min-width="180" />
-    <el-table-column prop="executionMode" label="执行模式" min-width="120" />
-    <el-table-column label="创建时间" min-width="160">
+    <el-table-column prop="projectId" label="Project" min-width="130" show-overflow-tooltip />
+    <el-table-column label="Mode" width="112">
       <template #default="{ row }: { row: TaskRecord }">
-        {{ formatDate(row.createdAt) }}
+        <el-tag :type="row.executionMode === 'READ_ONLY' ? 'warning' : 'danger'" size="small">
+          {{ row.executionMode }}
+        </el-tag>
       </template>
     </el-table-column>
-    <el-table-column label="更新时间" min-width="160">
+    <el-table-column label="Created" min-width="150">
       <template #default="{ row }: { row: TaskRecord }">
-        {{ formatDate(row.updatedAt) }}
+        {{ formatDate(row.createdAt) }}
       </template>
     </el-table-column>
   </el-table>
@@ -80,5 +75,9 @@ function formatDate(value: string): string {
 <style scoped>
 .task-name {
   font-weight: 600;
+}
+
+:deep(.el-table) {
+  width: 100%;
 }
 </style>
