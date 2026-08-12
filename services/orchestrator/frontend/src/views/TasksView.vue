@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import { createTask, getTasks } from '../api/tasks'
 import { getProjects, getProjectWorkspaces } from '../api/projects'
@@ -9,7 +10,10 @@ import type { CreateTaskRequest, TaskRecord } from '../types/task'
 import type { Project } from '../types/project'
 import type { Workspace } from '../types/workspace'
 import type { PlanApprovalRequest } from '../types/planApproval'
-import { approveTask, getPlanApproval, rejectTask } from '../api/planApprovals'
+import { getTaskApproval } from '../composables/useTaskContext'
+
+const route = useRoute()
+const router = useRouter()
 
 const tasks = ref<TaskRecord[]>([])
 const selectedTask = ref<TaskRecord | null>(null)
@@ -22,7 +26,6 @@ const workspaces = ref<Workspace[]>([])
 const loadingWorkspaces = ref(false)
 const approval = ref<PlanApprovalRequest | null>(null)
 const approvalLoading = ref(false)
-const decisionBusy = ref(false)
 
 const form = reactive<CreateTaskRequest>({
   name: '',
@@ -42,9 +45,9 @@ async function loadTasks(): Promise<void> {
 
   try {
     tasks.value = await getTasks()
-    if (!selectedTask.value && tasks.value.length > 0) {
-      selectedTask.value = tasks.value[0]
-    }
+    const routeTaskId = typeof route.params.taskId === 'string' ? route.params.taskId : null
+    selectedTask.value = tasks.value.find((task) => task.taskId === routeTaskId)
+      ?? selectedTask.value ?? tasks.value[0] ?? null
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : 'Unable to load tasks.'
   } finally {
@@ -73,12 +76,12 @@ watch(() => form.projectId, async (projectId) => {
   }
 })
 
-watch(() => selectedTask.value?.approvalId, async (approvalId) => {
+watch(() => selectedTask.value, async (task) => {
   approval.value = null
-  if (!approvalId) return
+  if (!task?.approvalId) return
   approvalLoading.value = true
   try {
-    approval.value = await getPlanApproval(approvalId)
+    approval.value = await getTaskApproval(task)
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '无法加载 Plan Approval。'
   } finally {
@@ -86,23 +89,15 @@ watch(() => selectedTask.value?.approvalId, async (approvalId) => {
   }
 }, { immediate: true })
 
-async function decide(action: 'approve' | 'reject', approver: string, reason = ''): Promise<void> {
-  const task = selectedTask.value
-  if (!task || decisionBusy.value) return
-  decisionBusy.value = true
-  errorMessage.value = null
-  try {
-    const updated = action === 'approve'
-      ? await approveTask(task.taskId, approver)
-      : await rejectTask(task.taskId, approver, reason)
-    selectedTask.value = updated
-    if (updated.approvalId) approval.value = await getPlanApproval(updated.approvalId)
-    await loadTasks()
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '审批操作失败。'
-  } finally {
-    decisionBusy.value = false
-  }
+watch(() => route.params.taskId, (taskId) => {
+  if (typeof taskId !== 'string') return
+  const match = tasks.value.find((task) => task.taskId === taskId)
+  if (match) selectedTask.value = match
+})
+
+function selectTask(task: TaskRecord): void {
+  selectedTask.value = task
+  void router.push(`/tasks/${encodeURIComponent(task.taskId)}`)
 }
 
 async function handleCreate(): Promise<void> {
@@ -234,15 +229,12 @@ onMounted(async () => Promise.all([loadTasks(), loadProjects()]))
             :tasks="tasks"
             :loading="loading"
             :selected-task-id="selectedTask?.taskId ?? null"
-            @select="selectedTask = $event"
+            @select="selectTask"
           />
         </el-card>
       </section>
       <section class="tasks-layout__detail" aria-label="Task detail">
-        <TaskDetail :task="selectedTask" :approval="approval"
-          :approval-loading="approvalLoading" :decision-busy="decisionBusy"
-          @approve="(approver) => decide('approve', approver)"
-          @reject="(approver, reason) => decide('reject', approver, reason)" />
+        <TaskDetail :task="selectedTask" :approval="approval" :approval-loading="approvalLoading" />
       </section>
     </div>
   </section>
@@ -274,7 +266,7 @@ onMounted(async () => Promise.all([loadTasks(), loadProjects()]))
 .tasks-layout {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(380px, 0.8fr) minmax(600px, 1.3fr);
+  grid-template-columns: minmax(380px, .9fr) minmax(600px, 1.6fr);
   gap: clamp(16px, 1.5vw, 28px);
   align-items: start;
 }
@@ -286,13 +278,13 @@ onMounted(async () => Promise.all([loadTasks(), loadProjects()]))
 
 @media (min-width: 1600px) {
   .tasks-layout {
-    grid-template-columns: minmax(380px, 0.8fr) minmax(600px, 1.7fr);
+    grid-template-columns: minmax(380px, .9fr) minmax(600px, 1.6fr);
   }
 }
 
 @media (min-width: 2200px) {
   .tasks-layout {
-    grid-template-columns: minmax(380px, 0.7fr) minmax(600px, 1.8fr);
+    grid-template-columns: minmax(380px, .9fr) minmax(600px, 1.6fr);
   }
 }
 

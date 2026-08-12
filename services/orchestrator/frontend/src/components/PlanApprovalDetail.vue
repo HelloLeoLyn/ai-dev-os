@@ -14,6 +14,7 @@ const approver = ref('USER')
 const rejectReason = ref('')
 const rejectError = ref('')
 const approveDialogVisible = ref(false)
+const snapshotVisible = ref(false)
 const metadata = computed(() => props.approval.plan.snapshot.plannerMetadata)
 const risk = computed(() => planApprovalRisk(props.approval))
 const isSafeReadOnly = computed(() => risk.value.readOnly && !risk.value.hasWriteAgent &&
@@ -58,7 +59,7 @@ function confirmApprove(): void {
     <section class="risk-panel" :class="isSafeReadOnly ? 'risk-panel--safe' : 'risk-panel--warning'">
       <div class="risk-panel__heading">
         <div>
-          <p class="section-kicker">Risk Summary</p>
+          <p class="section-kicker">Risk Summary · Security Constraints</p>
           <h3>{{ isSafeReadOnly ? 'Read-only execution verified' : 'Execution risk requires review' }}</h3>
         </div>
         <el-tag :type="isSafeReadOnly ? 'success' : 'danger'" effect="dark">
@@ -111,8 +112,12 @@ function confirmApprove(): void {
       </div>
     </section>
 
-    <el-collapse class="snapshot-collapse">
-      <el-collapse-item title="Advanced Plan Snapshot" name="snapshot">
+    <div class="snapshot-trigger">
+      <div><p class="section-kicker">Advanced</p><strong>Plan Snapshot</strong></div>
+      <el-button @click="snapshotVisible = true">Open Snapshot</el-button>
+    </div>
+
+    <el-drawer v-model="snapshotVisible" title="Advanced Plan Snapshot" size="min(640px, 92vw)" append-to-body>
         <el-collapse accordion>
           <el-collapse-item title="Policy" name="policy">
             <dl class="snapshot-list"><div><dt>Policy Version</dt><dd><code>{{ approval.plan.snapshot.policyVersion }}</code></dd></div><div><dt>Snapshot Hash</dt><dd><code>{{ approval.planSnapshotHash }}</code></dd></div></dl>
@@ -125,8 +130,7 @@ function confirmApprove(): void {
           </el-collapse-item>
           <el-collapse-item title="Executors" name="executors"><p>{{ approval.plan.snapshot.executors.join(', ') || '无' }}</p></el-collapse-item>
         </el-collapse>
-      </el-collapse-item>
-    </el-collapse>
+    </el-drawer>
 
     <section class="approval-actions">
       <div class="approval-actions__status">
@@ -195,7 +199,7 @@ function confirmApprove(): void {
 .step-card__footer ul { display: grid; gap: .4rem; margin: .6rem 0 0; padding: 0; list-style: none; }
 .step-card__footer li { display: flex; flex-wrap: wrap; gap: .5rem; color: var(--color-text-muted); font-size: .8rem; }
 .step-card__footer p { margin: .6rem 0 0; }
-.snapshot-collapse { border: 1px solid var(--color-border); border-radius: var(--radius-small); padding: 0 1rem; }
+.snapshot-trigger { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-small); background: rgb(255 255 255 / 2%); }
 .snapshot-items { display: grid; gap: .5rem; }
 .snapshot-items article { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; padding: .65rem; border-radius: var(--radius-small); background: rgb(255 255 255 / 3%); }
 .snapshot-items article > span { color: var(--color-text-muted); }

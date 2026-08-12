@@ -2,17 +2,14 @@
 import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { getTimeline } from '../api/timeline'
 import TimelineDetail from '../components/TimelineDetail.vue'
-import type { UnifiedTimeline } from '../types/timeline'
+import { useTimeline } from '../composables/useTimeline'
 
 const route = useRoute()
 const timelineId = ref(
   typeof route.query.id === 'string' ? route.query.id : '',
 )
-const timeline = ref<UnifiedTimeline | null>(null)
-const loading = ref(false)
-const errorMessage = ref<string | null>(null)
+const { timeline, loading, errorMessage, load } = useTimeline()
 
 async function loadTimeline(): Promise<void> {
   const id = timelineId.value.trim()
@@ -21,17 +18,7 @@ async function loadTimeline(): Promise<void> {
     return
   }
 
-  loading.value = true
-  errorMessage.value = null
-
-  try {
-    timeline.value = await getTimeline(id)
-  } catch (error) {
-    timeline.value = null
-    errorMessage.value = error instanceof Error ? error.message : 'Unable to load timeline.'
-  } finally {
-    loading.value = false
-  }
+  await load(id)
 }
 
 onMounted(() => {
