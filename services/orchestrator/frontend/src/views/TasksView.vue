@@ -11,9 +11,11 @@ import type { Project } from '../types/project'
 import type { Workspace } from '../types/workspace'
 import type { PlanApprovalRequest } from '../types/planApproval'
 import { getTaskApproval } from '../composables/useTaskContext'
+import { useTaskNotifications } from '../composables/useTaskNotifications'
 
 const route = useRoute()
 const router = useRouter()
+const taskNotifications = useTaskNotifications()
 
 const tasks = ref<TaskRecord[]>([])
 const selectedTask = ref<TaskRecord | null>(null)
@@ -123,6 +125,7 @@ async function handleCreate(): Promise<void> {
     form.description = ''
     form.goal = ''
     selectedTask.value = task
+    taskNotifications.track(task)
     await loadTasks()
   } catch (error) {
     submitError.value = error instanceof Error ? error.message : 'Unable to create task.'
@@ -144,6 +147,7 @@ onMounted(async () => Promise.all([loadTasks(), loadProjects()]))
           User Request → Task → Plan → Approval → Execution → Result
         </p>
       </div>
+      <el-button :loading="loading" @click="loadTasks">Refresh</el-button>
     </header>
 
     <el-card shadow="never" class="create-card">

@@ -100,6 +100,35 @@ a {
   padding: clamp(16px, 2vw, 36px);
 }
 
+.app-content {
+  display: grid;
+  min-width: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.app-topbar {
+  position: sticky;
+  z-index: 20;
+  top: 0;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding: .75rem clamp(16px, 2vw, 36px);
+  border-bottom: 1px solid var(--color-border);
+  background: rgb(11 16 32 / 84%);
+  backdrop-filter: blur(18px);
+}
+
+.app-topbar__label {
+  color: var(--color-text-muted);
+  font-size: .78rem;
+}
+
+.task-terminal-toast p { margin: .45rem 0; white-space: pre-wrap; }
+.task-terminal-toast button { margin: .25rem .5rem 0 0; padding: .35rem .6rem; border: 1px solid var(--color-border); border-radius: .4rem; color: var(--color-primary-strong); background: transparent; cursor: pointer; }
+
 .page-stack {
   display: grid;
   width: 100%;

@@ -18,8 +18,10 @@ import type { MemoryRecord } from '../types/memory'
 import type { Project } from '../types/project'
 import type { TaskRecord } from '../types/task'
 import type { Workspace } from '../types/workspace'
+import { useTaskNotifications } from '../composables/useTaskNotifications'
 
 const route = useRoute()
+const taskNotifications = useTaskNotifications()
 const project = ref<Project | null>(null)
 const workspaces = ref<Workspace[]>([])
 const tasks = ref<TaskRecord[]>([])
@@ -115,6 +117,7 @@ async function createTask(): Promise<void> {
       executionMode: taskForm.executionMode,
     })
     tasks.value = [task, ...tasks.value]
+    taskNotifications.track(task)
     taskDialogVisible.value = false
     taskForm.name = ''; taskForm.description = ''; taskForm.goal = ''
   } catch (error) {

@@ -1,5 +1,12 @@
 <script setup lang="ts">
+import { onBeforeUnmount, onMounted } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
+import TaskNotificationCenter from '../components/TaskNotificationCenter.vue'
+import { useTaskNotifications } from '../composables/useTaskNotifications'
+
+const taskNotifications = useTaskNotifications()
+onMounted(taskNotifications.start)
+onBeforeUnmount(taskNotifications.stop)
 
 const navigation = [
   { to: '/dashboard', label: 'Dashboard' },
@@ -41,8 +48,12 @@ const navigation = [
       </nav>
     </aside>
 
-    <main class="app-main">
-      <RouterView />
-    </main>
+    <div class="app-content">
+      <header class="app-topbar">
+        <span class="app-topbar__label">Task activity</span>
+        <TaskNotificationCenter />
+      </header>
+      <main class="app-main"><RouterView /></main>
+    </div>
   </div>
 </template>

@@ -141,6 +141,26 @@ class CodexExecutorTest {
 	}
 
 	@Test
+	void shouldForceReadOnlySandboxForReadOnlyTask() {
+		CommandExecutor commandExecutor = mock(CommandExecutor.class);
+		CommandResult commandResult = new CommandResult();
+		commandResult.setSuccess(true);
+		when(commandExecutor.execute(any(CommandOptions.class))).thenReturn(commandResult);
+		ExecutionContext context = new ExecutionContext();
+		context.setDescription("Inspect repository");
+		context.getParameters().put("executionMode", "READ_ONLY");
+		context.getParameters().put("sandbox", "workspace-write");
+
+		ExecutionResult result = executor(commandExecutor, "/workspace/project").execute(context);
+
+		ArgumentCaptor<CommandOptions> optionsCaptor = ArgumentCaptor.forClass(CommandOptions.class);
+		verify(commandExecutor).execute(optionsCaptor.capture());
+		List<String> command = optionsCaptor.getValue().getCommand();
+		assertEquals("read-only", command.get(command.indexOf("--sandbox") + 1));
+		assertEquals("read-only", result.getMetadata().get("sandbox"));
+	}
+
+	@Test
 	void shouldUseConfiguredExecutableAndApprovalPolicy() {
 		CommandExecutor commandExecutor = mock(CommandExecutor.class);
 		CommandResult commandResult = new CommandResult();

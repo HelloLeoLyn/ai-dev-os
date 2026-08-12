@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { approveTask, rejectTask } from '../api/planApprovals'
 import PlanApprovalDetail from '../components/PlanApprovalDetail.vue'
 import { useTaskContext } from '../composables/useTaskContext'
+import { useTaskNotifications } from '../composables/useTaskNotifications'
 
 const route = useRoute()
+const taskNotifications = useTaskNotifications()
 const { task, approval, loading, errorMessage, load } = useTaskContext()
 const decisionBusy = ref(false)
 const taskId = String(route.params.taskId || '')
@@ -14,8 +17,15 @@ async function decide(action: 'approve' | 'reject', approver: string, reason = '
   if (!task.value || decisionBusy.value) return
   decisionBusy.value = true
   try {
-    if (action === 'approve') await approveTask(task.value.taskId, approver)
-    else await rejectTask(task.value.taskId, approver, reason)
+    if (action === 'approve') {
+      const approvedTask = await approveTask(task.value.taskId, approver)
+      taskNotifications.track(approvedTask)
+      ElMessage.success('Plan 已批准，任务开始执行')
+    } else {
+      const rejectedTask = await rejectTask(task.value.taskId, approver, reason)
+      taskNotifications.track(rejectedTask)
+      ElMessage.info('Plan 已拒绝')
+    }
     await load(task.value.taskId)
   } finally { decisionBusy.value = false }
 }

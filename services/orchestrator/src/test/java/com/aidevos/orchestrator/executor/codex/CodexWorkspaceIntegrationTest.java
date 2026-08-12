@@ -116,7 +116,7 @@ class CodexWorkspaceIntegrationTest {
 
 		CodingWorkspaceProperties workspaceProperties = new CodingWorkspaceProperties();
 		workspaceProperties.setAllowedRoots(List.of(tempDir.toString()));
-		WorkspaceResolver workspaceResolver = new WorkspaceResolver(workspaceProperties,
+		WorkspaceResolver workspaceResolver = com.aidevos.orchestrator.execution.workspace.TestWorkspaceResolvers.create(workspaceProperties,
 			new GitExecutor(commandExecutor));
 		CodexOutputSchemaProvider schemaProvider = mock(CodexOutputSchemaProvider.class);
 		when(schemaProvider.path()).thenReturn(tempDir.resolve("schema.json").toString());

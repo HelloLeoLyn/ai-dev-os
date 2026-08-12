@@ -174,7 +174,7 @@ class CiRepairIntegrationTest {
 		when(schemaProvider.path()).thenReturn(tempDir.resolve("schema.json").toString());
 		ArtifactContentLimiter limiter = new ArtifactContentLimiter(100_000);
 		CodexExecutor codexExecutor = new CodexExecutor(commandExecutor,
-			new WorkspaceResolver(workspaceProperties, new GitExecutor(commandExecutor)),
+			com.aidevos.orchestrator.execution.workspace.TestWorkspaceResolvers.create(workspaceProperties, new GitExecutor(commandExecutor)),
 			new GitInspector(new GitExecutor(commandExecutor)),
 			new CodexResultMapper(new ObjectMapper()), mock(CodingApprovalService.class), limiter,
 			codexProperties, new CodexCommandBuilder(codexProperties, new CoderPromptBuilder(),

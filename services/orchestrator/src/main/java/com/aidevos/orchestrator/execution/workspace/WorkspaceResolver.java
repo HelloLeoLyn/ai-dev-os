@@ -10,16 +10,25 @@ import com.aidevos.orchestrator.execution.ExecutionContext;
 import com.aidevos.orchestrator.executor.git.GitExecutor;
 import com.aidevos.orchestrator.executor.git.GitResult;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Component
 public class WorkspaceResolver {
 
 	private final CodingWorkspaceProperties properties;
 	private final GitExecutor gitExecutor;
+	private final TaskWorkspaceTrustService taskWorkspaceTrustService;
 
 	public WorkspaceResolver(CodingWorkspaceProperties properties, GitExecutor gitExecutor) {
+		this(properties, gitExecutor, null);
+	}
+
+	@Autowired
+	public WorkspaceResolver(CodingWorkspaceProperties properties, GitExecutor gitExecutor,
+			TaskWorkspaceTrustService taskWorkspaceTrustService) {
 		this.properties = properties;
 		this.gitExecutor = gitExecutor;
+		this.taskWorkspaceTrustService = taskWorkspaceTrustService;
 	}
 
 	public WorkspaceSnapshot resolve(ExecutionContext context) {
@@ -33,10 +42,35 @@ public class WorkspaceResolver {
 		}
 
 		Path workspace = realDirectory(candidate, "Coding workspace");
-		validateAllowed(workspace);
+		validateTrusted(context, workspace);
 		validateGitRepository(workspace);
 		Path name = workspace.getFileName();
 		return new WorkspaceSnapshot(workspace.toString(), name == null ? workspace.toString() : name.toString());
+	}
+
+	private void validateTrusted(ExecutionContext context, Path workspace) {
+		if (hasTaskIdentity(context)) {
+			if (taskWorkspaceTrustService == null) {
+				throw new IllegalStateException("Task workspace trust validation is not configured");
+			}
+			taskWorkspaceTrustService.requireTrustedWorkspace(context, workspace);
+			return;
+		}
+		validateAllowed(workspace);
+	}
+
+	private boolean hasTaskIdentity(ExecutionContext context) {
+		return notBlank(context.getTaskId()) || notBlank(context.getProjectId())
+			|| notBlank(metadataString(context, "workspaceId"));
+	}
+
+	private String metadataString(ExecutionContext context, String key) {
+		Object value = context.getMetadata().get(key);
+		return value instanceof String text ? text : null;
+	}
+
+	private boolean notBlank(String value) {
+		return value != null && !value.isBlank();
 	}
 
 	private void validateAllowed(Path workspace) {

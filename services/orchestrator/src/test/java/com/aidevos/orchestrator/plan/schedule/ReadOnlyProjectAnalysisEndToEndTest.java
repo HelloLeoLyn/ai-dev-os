@@ -97,7 +97,7 @@ class ReadOnlyProjectAnalysisEndToEndTest {
 		CodexOutputSchemaProvider schema = mock(CodexOutputSchemaProvider.class);
 		when(schema.path()).thenReturn(tempDir.resolve("schema.json").toString());
 		CodexExecutor codex = new CodexExecutor(commands,
-			new WorkspaceResolver(workspaceProperties, new GitExecutor(commands)),
+			com.aidevos.orchestrator.execution.workspace.TestWorkspaceResolvers.create(workspaceProperties, new GitExecutor(commands)),
 			new GitInspector(new GitExecutor(commands)), new CodexResultMapper(new ObjectMapper()),
 			mock(CodingApprovalService.class), limiter, properties,
 			new CodexCommandBuilder(properties, new CoderPromptBuilder(), schema),
