@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from 'vue'
+import { nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 
 import { createTask, getTasks } from '../api/tasks'
 import { getProjects, getProjectWorkspaces } from '../api/projects'
@@ -12,6 +13,7 @@ import type { Workspace } from '../types/workspace'
 import type { PlanApprovalRequest } from '../types/planApproval'
 import { getTaskApproval } from '../composables/useTaskContext'
 import { useTaskNotifications } from '../composables/useTaskNotifications'
+import { duplicateTaskDraft, rememberTaskCreateMetadata, taskCreateMetadata } from '../services/taskDuplicate'
 
 const route = useRoute()
 const router = useRouter()
@@ -28,6 +30,9 @@ const workspaces = ref<Workspace[]>([])
 const loadingWorkspaces = ref(false)
 const approval = ref<PlanApprovalRequest | null>(null)
 const approvalLoading = ref(false)
+const createSection = ref<HTMLElement | null>(null)
+const skipProjectWatchOnce = ref(false)
+const duplicateNotice = ref<string | null>(null)
 
 const form = reactive<CreateTaskRequest>({
   name: '',
@@ -61,7 +66,7 @@ async function loadProjects(): Promise<void> {
   projects.value = (await getProjects()).filter((project) => project.status === 'ACTIVE')
 }
 
-watch(() => form.projectId, async (projectId) => {
+async function loadWorkspaces(projectId?: string): Promise<void> {
   form.workspaceId = ''
   workspaces.value = []
   if (!projectId) return
@@ -76,6 +81,14 @@ watch(() => form.projectId, async (projectId) => {
   } finally {
     loadingWorkspaces.value = false
   }
+}
+
+watch(() => form.projectId, async (projectId) => {
+  if (skipProjectWatchOnce.value) {
+    skipProjectWatchOnce.value = false
+    return
+  }
+  await loadWorkspaces(projectId)
 })
 
 watch(() => selectedTask.value, async (task) => {
@@ -112,7 +125,7 @@ async function handleCreate(): Promise<void> {
   submitError.value = null
 
   try {
-    const task = await createTask({
+    const request = {
       name: form.name.trim(),
       description: form.description.trim(),
       goal: form.goal.trim(),
@@ -120,10 +133,13 @@ async function handleCreate(): Promise<void> {
       projectId: form.projectId,
       workspaceId: form.workspaceId,
       executionMode: form.executionMode,
-    })
+    }
+    const task = await createTask(request)
+    rememberTaskCreateMetadata(task.taskId, request)
     form.name = ''
     form.description = ''
     form.goal = ''
+    duplicateNotice.value = null
     selectedTask.value = task
     taskNotifications.track(task)
     await loadTasks()
@@ -131,6 +147,33 @@ async function handleCreate(): Promise<void> {
     submitError.value = error instanceof Error ? error.message : 'Unable to create task.'
   } finally {
     submitting.value = false
+  }
+}
+
+async function handleDuplicate(source: TaskRecord): Promise<void> {
+  submitError.value = null
+  duplicateNotice.value = null
+  try {
+    const sourceApproval = await getTaskApproval(source)
+    const duplicate = duplicateTaskDraft(source, sourceApproval, taskCreateMetadata(source.taskId))
+    if (!duplicate.request.goal) {
+      throw new Error('历史 Task 没有可用的 Plan Goal，无法完整预填。')
+    }
+    await loadWorkspaces(source.projectId)
+    if (!workspaces.value.some((workspace) => workspace.workspaceId === source.workspaceId)) {
+      throw new Error('原 Task 的 Workspace 已不属于该 Project，请重新选择 Workspace。')
+    }
+    skipProjectWatchOnce.value = true
+    Object.assign(form, duplicate.request)
+    duplicateNotice.value = duplicate.plannerWasRecovered
+      ? '已复制任务配置，请确认后创建。'
+      : '历史任务未保存 Planner，已使用默认 hermes，请确认后创建。'
+    await nextTick()
+    createSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    ElMessage.info(duplicateNotice.value)
+  } catch (error) {
+    submitError.value = error instanceof Error ? error.message : '无法复制 Task。'
+    ElMessage.error(submitError.value)
   }
 }
 
@@ -150,6 +193,7 @@ onMounted(async () => Promise.all([loadTasks(), loadProjects()]))
       <el-button :loading="loading" @click="loadTasks">Refresh</el-button>
     </header>
 
+    <div ref="createSection">
     <el-card shadow="never" class="create-card">
       <template #header>
         <span class="card-title">创建任务</span>
@@ -214,6 +258,7 @@ onMounted(async () => Promise.all([loadTasks(), loadProjects()]))
             placeholder="例如 Implement a login flow with tests"
           />
         </el-form-item>
+        <p v-if="duplicateNotice" class="duplicate-notice">{{ duplicateNotice }}</p>
         <p v-if="submitError" class="form-error">{{ submitError }}</p>
         <el-button type="primary" :loading="submitting" native-type="submit"
           :disabled="!form.projectId || !form.workspaceId">
@@ -221,6 +266,7 @@ onMounted(async () => Promise.all([loadTasks(), loadProjects()]))
         </el-button>
       </el-form>
     </el-card>
+    </div>
 
     <el-card v-if="errorMessage" shadow="never">
       <p class="page-state page-state--error">{{ errorMessage }}</p>
@@ -238,7 +284,7 @@ onMounted(async () => Promise.all([loadTasks(), loadProjects()]))
         </el-card>
       </section>
       <section class="tasks-layout__detail" aria-label="Task detail">
-        <TaskDetail :task="selectedTask" :approval="approval" :approval-loading="approvalLoading" />
+        <TaskDetail :task="selectedTask" :approval="approval" :approval-loading="approvalLoading" @duplicate="handleDuplicate" />
       </section>
     </div>
   </section>
@@ -257,6 +303,8 @@ onMounted(async () => Promise.all([loadTasks(), loadProjects()]))
   margin: 0 0 1rem;
   color: var(--color-danger);
 }
+
+.duplicate-notice { margin: 0 0 1rem; color: var(--color-warning); }
 
 .page-state {
   color: var(--color-text-muted);

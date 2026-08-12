@@ -21,6 +21,7 @@ interface TaskPollingMonitorOptions {
   fetchTask: (taskId: string) => Promise<TaskRecord>
   storage: MonitorStorage
   onTerminal: (task: TaskRecord, previousStatus: TaskStatus) => void | Promise<void>
+  onUpdate?: (task: TaskRecord) => void
   intervalMs?: number
   schedule?: (callback: () => void, delay: number) => ReturnType<typeof setTimeout>
   cancel?: (timer: ReturnType<typeof setTimeout>) => void
@@ -65,6 +66,7 @@ export class TaskPollingMonitor {
   }
 
   track(task: TaskRecord): void {
+    this.options.onUpdate?.(task)
     if (isTerminalTaskStatus(task.status)) {
       const key = terminalNotificationKey(task.taskId, task.status)
       if (!this.options.storage.hasTerminal(key)) {
@@ -96,6 +98,7 @@ export class TaskPollingMonitor {
     if (!current) return
     try {
       const task = await this.options.fetchTask(taskId)
+      this.options.onUpdate?.(task)
       if (isTerminalTaskStatus(task.status)) {
         this.tasks.delete(taskId)
         this.persist()

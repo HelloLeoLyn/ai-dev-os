@@ -19,6 +19,7 @@ import type { Project } from '../types/project'
 import type { TaskRecord } from '../types/task'
 import type { Workspace } from '../types/workspace'
 import { useTaskNotifications } from '../composables/useTaskNotifications'
+import { rememberTaskCreateMetadata } from '../services/taskDuplicate'
 
 const route = useRoute()
 const taskNotifications = useTaskNotifications()
@@ -110,12 +111,14 @@ async function createTask(): Promise<void> {
   creatingTask.value = true
   taskErrorMessage.value = null
   try {
-    const task = await createProjectTask(project.value.projectId, {
+    const request = {
       name: taskForm.name.trim(), description: taskForm.description.trim(),
       goal: taskForm.goal.trim(), plannerName: taskForm.plannerName,
       projectId: project.value.projectId, workspaceId: taskForm.workspaceId,
       executionMode: taskForm.executionMode,
-    })
+    }
+    const task = await createProjectTask(project.value.projectId, request)
+    rememberTaskCreateMetadata(task.taskId, request)
     tasks.value = [task, ...tasks.value]
     taskNotifications.track(task)
     taskDialogVisible.value = false

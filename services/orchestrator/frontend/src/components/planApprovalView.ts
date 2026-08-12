@@ -28,3 +28,7 @@ export function toolLabel(step: PlanStep): string {
 export function validRejectReason(reason: string): boolean {
   return reason.trim().length > 0
 }
+
+export function isLongPlanGoal(goal: string): boolean {
+  return goal.length > 320
+}

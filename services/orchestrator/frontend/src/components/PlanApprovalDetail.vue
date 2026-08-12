@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import type { PlanApprovalRequest } from '../types/planApproval'
 import type { TaskRecord } from '../types/task'
-import { canDecide, planApprovalRisk, toolLabel, validRejectReason } from './planApprovalView'
+import { canDecide, isLongPlanGoal, planApprovalRisk, toolLabel, validRejectReason } from './planApprovalView'
 
 const props = defineProps<{ approval: PlanApprovalRequest; task: TaskRecord; busy: boolean }>()
 const emit = defineEmits<{
@@ -15,12 +15,14 @@ const rejectReason = ref('')
 const rejectError = ref('')
 const approveDialogVisible = ref(false)
 const snapshotVisible = ref(false)
+const goalExpanded = ref(false)
 const metadata = computed(() => props.approval.plan.snapshot.plannerMetadata)
 const risk = computed(() => planApprovalRisk(props.approval))
 const isSafeReadOnly = computed(() => risk.value.readOnly && !risk.value.hasWriteAgent &&
   !risk.value.hasWriteTool && !risk.value.hasDangerousTool && !risk.value.hasWorkspaceWritePermission)
 const assignedAgents = computed(() => [...new Set(props.approval.plan.steps
   .map((step) => step.assignment.agentName).filter((name): name is string => Boolean(name)))])
+const goalIsLong = computed(() => isLongPlanGoal(props.approval.plan.goal))
 
 function dependencies(stepId: string): string[] {
   return props.approval.plan.dependencies
@@ -45,39 +47,40 @@ function confirmApprove(): void {
 
 <template>
   <section class="approval-detail">
+    <section class="plan-summary">
+      <div><span>Approval Status</span><strong>{{ approval.status }}</strong></div>
+      <div><span>Plan Version</span><strong>v{{ approval.planVersion }}</strong></div>
+      <div><span>Execution Mode</span><el-tag :type="metadata.executionMode === 'READ_ONLY' ? 'success' : 'danger'">{{ metadata.executionMode || task.executionMode }}</el-tag></div>
+      <div><span>Agent</span><strong>{{ assignedAgents.join(', ') || '无' }}</strong></div>
+      <div><span>Risk</span><el-tag :type="isSafeReadOnly ? 'success' : 'danger'" effect="dark">{{ isSafeReadOnly ? 'SAFE' : 'REVIEW' }}</el-tag></div>
+    </section>
+
     <section class="plan-goal">
-      <p class="section-kicker">Plan Goal</p>
-      <p>{{ approval.plan.goal }}</p>
-      <div class="plan-meta">
-        <span>Plan <code>{{ approval.planId }}</code> · v{{ approval.planVersion }}</span>
-        <el-tag :type="approval.status === 'PENDING' ? 'warning' : approval.status === 'REJECTED' ? 'danger' : 'success'">
-          {{ approval.status }}
-        </el-tag>
-      </div>
+      <p class="section-kicker">Goal · AI 准备做什么</p>
+      <p :class="{ 'goal-content--collapsed': goalIsLong && !goalExpanded }">{{ approval.plan.goal }}</p>
+      <el-button v-if="goalIsLong" text type="primary" @click="goalExpanded = !goalExpanded">{{ goalExpanded ? '收起 Goal' : '展开完整 Goal' }}</el-button>
     </section>
 
     <section class="risk-panel" :class="isSafeReadOnly ? 'risk-panel--safe' : 'risk-panel--warning'">
       <div class="risk-panel__heading">
         <div>
-          <p class="section-kicker">Risk Summary · Security Constraints</p>
+          <p class="section-kicker">Security · 是否安全</p>
           <h3>{{ isSafeReadOnly ? 'Read-only execution verified' : 'Execution risk requires review' }}</h3>
         </div>
         <el-tag :type="isSafeReadOnly ? 'success' : 'danger'" effect="dark">
           {{ metadata.executionMode || 'UNKNOWN' }}
         </el-tag>
       </div>
-      <ul class="risk-checks">
-        <li :class="{ unsafe: !risk.readOnly }"><span>{{ risk.readOnly ? '✓' : '!' }}</span> Execution Mode: {{ metadata.executionMode || 'UNKNOWN' }}</li>
-        <li :class="{ unsafe: risk.hasWriteAgent }"><span>{{ risk.hasWriteAgent ? '!' : '✓' }}</span> Agent: {{ risk.hasWriteAgent ? 'write capability detected' : 'read-only' }}</li>
-        <li :class="{ unsafe: risk.hasWriteTool }"><span>{{ risk.hasWriteTool ? '!' : '✓' }}</span> WRITE Tool: {{ risk.hasWriteTool ? 'detected' : 'none' }}</li>
-        <li :class="{ unsafe: risk.hasDangerousTool }"><span>{{ risk.hasDangerousTool ? '!' : '✓' }}</span> DANGEROUS Tool: {{ risk.hasDangerousTool ? 'detected' : 'none' }}</li>
-        <li :class="{ unsafe: risk.hasWorkspaceWritePermission }"><span>{{ risk.hasWorkspaceWritePermission ? '!' : '✓' }}</span> workspace-write: {{ risk.hasWorkspaceWritePermission ? 'granted' : 'denied' }}</li>
-      </ul>
+      <div class="security-rows">
+        <div><span>Mode</span><el-tag :type="risk.readOnly ? 'success' : 'danger'" size="small">{{ metadata.executionMode || 'UNKNOWN' }}</el-tag></div>
+        <div><span>Allowed</span><el-tag type="success" size="small">read workspace</el-tag><el-tag type="success" size="small">read-only agent</el-tag></div>
+        <div><span>Blocked</span><el-tag :type="risk.hasWriteTool ? 'danger' : 'info'" size="small">WRITE Tool: {{ risk.hasWriteTool ? 'detected' : 'none' }}</el-tag><el-tag :type="risk.hasDangerousTool ? 'danger' : 'info'" size="small">DANGEROUS: {{ risk.hasDangerousTool ? 'detected' : 'none' }}</el-tag><el-tag :type="risk.hasWorkspaceWritePermission ? 'danger' : 'info'" size="small">workspace-write: {{ risk.hasWorkspaceWritePermission ? 'granted' : 'denied' }}</el-tag></div>
+      </div>
     </section>
 
     <section class="steps-section">
       <div class="section-heading">
-        <div><p class="section-kicker">Workflow</p><h3>Plan Steps</h3></div>
+        <div><p class="section-kicker">Execution Plan · 如何执行</p><h3>Plan Steps</h3></div>
         <span class="step-count">{{ approval.plan.steps.length }} steps</span>
       </div>
       <div class="step-list">
@@ -129,6 +132,10 @@ function confirmApprove(): void {
             <div v-if="approval.plan.snapshot.tools.length" class="snapshot-items"><article v-for="tool in approval.plan.snapshot.tools" :key="`${tool.providerId}-${tool.name}`"><strong>{{ tool.providerId }}/{{ tool.name }}</strong><el-tag :type="tool.access === 'READ_ONLY' ? 'success' : 'danger'" size="small">{{ tool.access }}</el-tag></article></div><p v-else>无</p>
           </el-collapse-item>
           <el-collapse-item title="Executors" name="executors"><p>{{ approval.plan.snapshot.executors.join(', ') || '无' }}</p></el-collapse-item>
+          <el-collapse-item title="Technical IDs" name="ids">
+            <dl class="snapshot-list"><div><dt>Task ID</dt><dd><code>{{ task.taskId }}</code></dd></div><div><dt>Plan ID</dt><dd><code>{{ approval.planId }}</code></dd></div><div><dt>Approval ID</dt><dd><code>{{ approval.id }}</code></dd></div><div><dt>PlanRun ID</dt><dd><code>{{ task.planRunId || '—' }}</code></dd></div></dl>
+          </el-collapse-item>
+          <el-collapse-item title="Raw metadata" name="metadata"><pre class="raw-metadata">{{ JSON.stringify(metadata, null, 2) }}</pre></el-collapse-item>
         </el-collapse>
     </el-drawer>
 
@@ -172,18 +179,21 @@ function confirmApprove(): void {
 <style scoped>
 .approval-detail { display: grid; gap: 1.25rem; padding-top: .4rem; }
 .section-kicker { margin: 0 0 .35rem; color: var(--color-primary-strong); font-size: .72rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
-.plan-goal, .risk-panel, .step-card, .approval-actions { padding: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-small); background: rgb(255 255 255 / 2%); }
+.plan-summary, .plan-goal, .risk-panel, .step-card, .approval-actions { padding: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-small); background: rgb(255 255 255 / 2%); }
+.plan-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .75rem; }
+.plan-summary div { display: grid; min-width: 0; gap: .4rem; }
+.plan-summary span { color: var(--color-text-muted); font-size: .75rem; text-transform: uppercase; }
 .plan-goal > p:nth-child(2) { margin: 0; font-size: 1rem; line-height: 1.6; white-space: pre-wrap; }
+.goal-content--collapsed { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 5; }
 .plan-meta, .risk-panel__heading, .section-heading, .approval-buttons { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .plan-meta { margin-top: 1rem; color: var(--color-text-muted); font-size: .85rem; }
 .risk-panel { border-left: 4px solid var(--color-warning); }
 .risk-panel--safe { border-left-color: var(--color-success); background: rgb(103 194 58 / 7%); }
 .risk-panel--warning { background: rgb(245 108 108 / 7%); }
 .risk-panel h3, .section-heading h3 { margin: 0; }
-.risk-checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; margin: 1rem 0 0; padding: 0; list-style: none; }
-.risk-checks li { display: flex; gap: .5rem; color: var(--color-success); }
-.risk-checks li span { font-weight: 900; }
-.risk-checks li.unsafe { color: var(--color-danger); }
+.security-rows { display: grid; gap: .65rem; margin-top: 1rem; }
+.security-rows > div { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
+.security-rows > div > span:first-child { width: 5rem; color: var(--color-text-muted); font-size: .8rem; }
 .step-count { color: var(--color-text-muted); font-size: .85rem; }
 .step-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 1rem; }
 .step-card { min-width: 0; }
@@ -203,6 +213,7 @@ function confirmApprove(): void {
 .snapshot-items { display: grid; gap: .5rem; }
 .snapshot-items article { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; padding: .65rem; border-radius: var(--radius-small); background: rgb(255 255 255 / 3%); }
 .snapshot-items article > span { color: var(--color-text-muted); }
+.raw-metadata { max-height: 22rem; margin: 0; padding: .75rem; overflow: auto; border-radius: var(--radius-small); background: #080d19; white-space: pre-wrap; }
 .approval-actions { position: sticky; bottom: 0; z-index: 2; display: grid; gap: .75rem; border-top: 3px solid var(--color-primary); background: var(--el-bg-color-overlay); box-shadow: 0 -10px 24px rgb(0 0 0 / 18%); }
 .approval-actions__status { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
 .approval-actions__status span { color: var(--color-text-muted); text-transform: uppercase; }
@@ -215,7 +226,8 @@ function confirmApprove(): void {
 .approval-confirm-mode { padding: .85rem; border: 1px solid var(--color-success); border-radius: var(--radius-small); color: var(--color-success); background: rgb(103 194 58 / 8%); font-size: 1.1rem; font-weight: 900; text-align: center; }
 .approval-confirm-mode--write { border-color: var(--color-danger); color: var(--color-danger); background: rgb(245 108 108 / 8%); }
 @media (max-width: 700px) {
-  .risk-checks, .approval-fields, .step-card__footer { grid-template-columns: minmax(0, 1fr); }
+  .plan-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .approval-fields, .step-card__footer { grid-template-columns: minmax(0, 1fr); }
   .risk-panel__heading, .plan-meta { align-items: flex-start; flex-direction: column; }
   .step-facts div, .snapshot-list div, .confirm-list div { grid-template-columns: minmax(0, 1fr); gap: .2rem; }
 }

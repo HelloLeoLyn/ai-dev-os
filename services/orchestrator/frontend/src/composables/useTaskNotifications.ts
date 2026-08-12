@@ -57,6 +57,7 @@ const storage: MonitorStorage = {
 
 const state = reactive({
   notifications: parseList<TaskNotificationItem>(NOTIFICATIONS_KEY).slice(0, 50),
+  taskStates: {} as Record<string, TaskRecord>,
   centerVisible: false,
 })
 
@@ -145,7 +146,12 @@ async function handleTerminal(task: TaskRecord): Promise<void> {
   desktopNotify(item)
 }
 
-const monitor = new TaskPollingMonitor({ fetchTask: getTask, storage, onTerminal: handleTerminal })
+const monitor = new TaskPollingMonitor({
+  fetchTask: getTask,
+  storage,
+  onTerminal: handleTerminal,
+  onUpdate: (task) => { state.taskStates[task.taskId] = task },
+})
 
 export function useTaskNotifications() {
   const unreadCount = computed(() => state.notifications.filter((item) => !item.read).length)
@@ -165,6 +171,7 @@ export function useTaskNotifications() {
     notifications: computed(() => state.notifications), unreadCount,
     centerVisible: computed({ get: () => state.centerVisible, set: (value) => { state.centerVisible = value } }),
     start: () => monitor.start(), stop: () => monitor.stop(), track: (task: TaskRecord) => monitor.track(task),
+    taskState: (taskId: string) => computed(() => state.taskStates[taskId] ?? null),
     markRead, markAllRead, enableDesktopNotifications,
     openExecution: (taskId: string) => router.push(taskExecutionPath(taskId)),
     openTimeline: (taskId: string) => router.push(taskTimelinePath(taskId)),

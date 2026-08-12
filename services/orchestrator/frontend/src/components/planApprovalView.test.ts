@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PlanApprovalRequest } from '../types/planApproval'
-import { canDecide, planApprovalRisk, toolLabel, validRejectReason } from './planApprovalView'
+import { canDecide, isLongPlanGoal, planApprovalRisk, toolLabel, validRejectReason } from './planApprovalView'
 
 const approval = {
   status: 'PENDING',
@@ -38,5 +38,10 @@ describe('PlanApprovalDetail view rules', () => {
   it('requires a non-blank reject reason', () => {
     expect(validRejectReason('   ')).toBe(false)
     expect(validRejectReason('unsafe write step')).toBe(true)
+  })
+
+  it('only collapses long goals', () => {
+    expect(isLongPlanGoal('short goal')).toBe(false)
+    expect(isLongPlanGoal('x'.repeat(321))).toBe(true)
   })
 })
