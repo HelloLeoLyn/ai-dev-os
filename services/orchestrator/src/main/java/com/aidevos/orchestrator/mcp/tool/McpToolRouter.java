@@ -20,6 +20,9 @@ import com.aidevos.orchestrator.security.sandbox.SandboxManager;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import com.aidevos.orchestrator.taskcenter.TaskCenterService;
+import com.aidevos.orchestrator.taskcenter.ExecutionMode;
+import org.springframework.context.annotation.Lazy;
 
 /**
  * Unified MCP tool layer router. Every tool invocation goes through the
@@ -36,32 +39,42 @@ public class McpToolRouter {
 	private final SandboxManager sandboxManager;
 	private final ApprovalService approvalService;
 	private final ExecutionTraceService traceService;
+	private final TaskCenterService taskCenterService;
 
 	public McpToolRouter(ToolRegistry registry) {
 		this(registry, AuditService.noop());
 	}
 
 	public McpToolRouter(ToolRegistry registry, AuditService auditService) {
-		this(registry, auditService, null, null, null, null);
+		this(registry, auditService, null, null, null, null, null);
 	}
 
 	public McpToolRouter(ToolRegistry registry, AuditService auditService,
 			SecurityPolicyRegistry securityPolicyRegistry, SandboxManager sandboxManager,
 			ApprovalService approvalService) {
 		this(registry, auditService, securityPolicyRegistry, sandboxManager, approvalService,
-			null);
+			null, null);
+	}
+
+	public McpToolRouter(ToolRegistry registry, AuditService auditService,
+			SecurityPolicyRegistry securityPolicyRegistry, SandboxManager sandboxManager,
+			ApprovalService approvalService, ExecutionTraceService traceService) {
+		this(registry, auditService, securityPolicyRegistry, sandboxManager, approvalService,
+			traceService, null);
 	}
 
 	@Autowired
 	public McpToolRouter(ToolRegistry registry, AuditService auditService,
 			SecurityPolicyRegistry securityPolicyRegistry, SandboxManager sandboxManager,
-			ApprovalService approvalService, ExecutionTraceService traceService) {
+			ApprovalService approvalService, ExecutionTraceService traceService,
+			@Lazy TaskCenterService taskCenterService) {
 		this.registry = registry;
 		this.auditService = auditService;
 		this.securityPolicyRegistry = securityPolicyRegistry;
 		this.sandboxManager = sandboxManager;
 		this.approvalService = approvalService;
 		this.traceService = traceService;
+		this.taskCenterService = taskCenterService;
 	}
 
 	/**
@@ -89,6 +102,13 @@ public class McpToolRouter {
 		if (tool == null || executor == null) {
 			return failure(request.toolId(), request.agentType(), request.taskId(),
 				"Tool not found: " + request.toolId(), started);
+		}
+		if (isReadOnlyTask(request) && !isReadOnlyRequest(request)) {
+			String message = "READ_ONLY task denied write-capable tool operation: "
+				+ request.toolId();
+			audit(EventType.TOOL_DENIED, request.toolId(), request.agentType(),
+				request.taskId(), "DENIED", message, toolMetadata(request, 0));
+			return failure(request.toolId(), request.agentType(), request.taskId(), message, started);
 		}
 		SecurityDenial denial = securityCheck(request, tool);
 		if (denial != null) {
@@ -283,6 +303,32 @@ public class McpToolRouter {
 		catch (IllegalArgumentException ignored) {
 			return null;
 		}
+	}
+
+	private boolean isReadOnlyTask(ToolExecutionRequest request) {
+		if (taskCenterService != null && request.taskId() != null) {
+			return taskCenterService.getTask(request.taskId())
+				.map(task -> task.getExecutionMode() == ExecutionMode.READ_ONLY)
+				.orElse(false);
+		}
+		return "READ_ONLY".equalsIgnoreCase(stringParameter(request, "executionMode"));
+	}
+
+	private boolean isReadOnlyRequest(ToolExecutionRequest request) {
+		ToolPermission permission = requestedPermission(request);
+		if (permission == ToolPermission.WRITE || permission == ToolPermission.DANGEROUS) {
+			return false;
+		}
+		String operation = stringParameter(request, "operation");
+		if ("filesystem".equals(request.toolId())) {
+			return operation == null || List.of("read", "list", "stat", "search")
+				.contains(operation.toLowerCase(Locale.ROOT));
+		}
+		if ("git".equals(request.toolId())) {
+			return operation == null || List.of("status", "log", "diff", "patch", "branch",
+				"remote", "hash").contains(operation.toLowerCase(Locale.ROOT));
+		}
+		return permission == ToolPermission.READ;
 	}
 
 	private Map<String, Object> toolMetadata(ToolExecutionRequest request, long duration) {

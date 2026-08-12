@@ -5,10 +5,17 @@ package com.aidevos.orchestrator.taskcenter;
  * kept for callers that do not bind a workspace yet.
  */
 public record CreateTaskRequest(String name, String description, String goal,
-		String plannerName, String projectId, String workspaceId) {
+		String plannerName, String projectId, String workspaceId, ExecutionMode executionMode) {
+
+	public CreateTaskRequest(String name, String description, String goal,
+			String plannerName, String projectId, String workspaceId) {
+		this(name, description, goal, plannerName, projectId, workspaceId,
+			ExecutionMode.READ_WRITE);
+	}
 
 	public CreateTaskRequest(String name, String description, String goal,
 			String plannerName, String projectId) {
-		this(name, description, goal, plannerName, projectId, null);
+		this(name, description, goal, plannerName, projectId, null,
+			ExecutionMode.READ_WRITE);
 	}
 }

@@ -103,6 +103,39 @@ class McpToolRouterTest {
 		assertTrue(result.error().contains("Tool not found"));
 	}
 
+	@Test
+	void readOnlyTaskAllowsReadsAndRejectsFilesystemWrites() throws Exception {
+		java.nio.file.Path file = java.nio.file.Files.createTempFile("readonly-tool", ".txt");
+		java.nio.file.Files.writeString(file, "content");
+		ToolExecutionResult read = router.route(new ToolExecutionRequest("filesystem",
+			AgentType.CODEX, "task-read", Map.of("path", file.toString(), "operation", "read",
+				"permission", "READ", "executionMode", "READ_ONLY")));
+		ToolExecutionResult write = router.route(new ToolExecutionRequest("filesystem",
+			AgentType.CODEX, "task-write", Map.of("path", file.toString(), "operation", "write",
+				"permission", "WRITE", "executionMode", "READ_ONLY")));
+
+		assertTrue(read.success());
+		assertFalse(write.success());
+		assertTrue(write.error().contains("READ_ONLY"));
+	}
+
+	@Test
+	void readOnlyTaskRejectsGitCommitAndPushButAllowsStatus() {
+		ToolExecutionResult status = router.route(new ToolExecutionRequest("git",
+			AgentType.CODEX, "task-status", Map.of("path", "/repo", "operation", "status",
+				"permission", "READ", "executionMode", "READ_ONLY")));
+		ToolExecutionResult commit = router.route(new ToolExecutionRequest("git",
+			AgentType.CODEX, "task-commit", Map.of("path", "/repo", "operation", "commit",
+				"permission", "WRITE", "executionMode", "READ_ONLY")));
+		ToolExecutionResult push = router.route(new ToolExecutionRequest("git",
+			AgentType.CODEX, "task-push", Map.of("path", "/repo", "operation", "push",
+				"permission", "WRITE", "executionMode", "READ_ONLY")));
+
+		assertTrue(status.success());
+		assertFalse(commit.success());
+		assertFalse(push.success());
+	}
+
 	private List<EventRecord> events(EventType type) {
 		return auditRepository.query(EventQuery.all()).stream()
 			.filter(event -> event.type() == type).toList();

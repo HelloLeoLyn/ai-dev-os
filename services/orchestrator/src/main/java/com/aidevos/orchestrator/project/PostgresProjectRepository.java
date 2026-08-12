@@ -22,7 +22,7 @@ import org.springframework.stereotype.Repository;
 public class PostgresProjectRepository implements ProjectRepository {
 
 	private static final String COLUMNS =
-		"project_id,name,path,description,status,created_at,updated_at";
+		"project_id,name,path,description,status,repository_url,default_branch,created_at,updated_at";
 
 	private final DataSource dataSource;
 
@@ -32,9 +32,10 @@ public class PostgresProjectRepository implements ProjectRepository {
 
 	@Override
 	public void save(Project project) {
-		String sql = "INSERT INTO projects(" + COLUMNS + ") VALUES (?,?,?,?,?,?,?) "
+		String sql = "INSERT INTO projects(" + COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?) "
 			+ "ON CONFLICT(project_id) DO UPDATE SET name=EXCLUDED.name,path=EXCLUDED.path,"
 			+ "description=EXCLUDED.description,status=EXCLUDED.status,"
+			+ "repository_url=EXCLUDED.repository_url,default_branch=EXCLUDED.default_branch,"
 			+ "updated_at=EXCLUDED.updated_at";
 		try (Connection connection = dataSource.getConnection();
 				PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -43,8 +44,10 @@ public class PostgresProjectRepository implements ProjectRepository {
 			statement.setString(3, project.getPath());
 			statement.setString(4, project.getDescription());
 			statement.setString(5, project.getStatus().name());
-			statement.setTimestamp(6, Timestamp.from(project.getCreatedAt()));
-			statement.setTimestamp(7, Timestamp.from(project.getUpdatedAt()));
+			statement.setString(6, project.getRepositoryUrl());
+			statement.setString(7, project.getDefaultBranch());
+			statement.setTimestamp(8, Timestamp.from(project.getCreatedAt()));
+			statement.setTimestamp(9, Timestamp.from(project.getUpdatedAt()));
 			statement.executeUpdate();
 		}
 		catch (SQLException exception) {
@@ -104,7 +107,8 @@ public class PostgresProjectRepository implements ProjectRepository {
 			result.getString("path"), result.getString("description"),
 			ProjectStatus.valueOf(result.getString("status")),
 			result.getTimestamp("created_at").toInstant(),
-			result.getTimestamp("updated_at").toInstant());
+			result.getTimestamp("updated_at").toInstant(),
+			result.getString("repository_url"), result.getString("default_branch"));
 	}
 
 	private IllegalStateException failure(String operation, Exception cause) {

@@ -61,6 +61,9 @@ function formatDate(value: string): string {
         </el-tag>
       </template>
     </el-table-column>
+    <el-table-column prop="projectId" label="Project" min-width="180" />
+    <el-table-column prop="workspaceId" label="Workspace" min-width="180" />
+    <el-table-column prop="executionMode" label="执行模式" min-width="120" />
     <el-table-column label="创建时间" min-width="160">
       <template #default="{ row }: { row: TaskRecord }">
         {{ formatDate(row.createdAt) }}

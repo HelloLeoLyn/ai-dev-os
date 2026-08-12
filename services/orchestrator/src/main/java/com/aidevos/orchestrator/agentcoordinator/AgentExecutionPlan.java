@@ -1,6 +1,7 @@
 package com.aidevos.orchestrator.agentcoordinator;
 
 import java.time.Instant;
+import com.aidevos.orchestrator.taskcenter.ExecutionMode;
 
 /**
  * One step of a collaborative agent execution plan: which agent runs, in which
@@ -14,6 +15,8 @@ public class AgentExecutionPlan {
 	private final String capability;
 	private final int step;
 	private final String workspaceId;
+	private final String projectId;
+	private final ExecutionMode executionMode;
 	private final Instant createdAt;
 	private volatile AgentPlanStatus status = AgentPlanStatus.PENDING;
 	private volatile Instant updatedAt;
@@ -32,12 +35,21 @@ public class AgentExecutionPlan {
 
 	public AgentExecutionPlan(String planId, String taskId, String agentId, int step,
 			String capability, String workspaceId) {
+		this(planId, taskId, agentId, step, capability, workspaceId,
+			null, ExecutionMode.READ_WRITE);
+	}
+
+	public AgentExecutionPlan(String planId, String taskId, String agentId, int step,
+			String capability, String workspaceId, String projectId,
+			ExecutionMode executionMode) {
 		this.planId = planId;
 		this.taskId = taskId;
 		this.agentId = agentId;
 		this.capability = capability;
 		this.step = step;
 		this.workspaceId = workspaceId;
+		this.projectId = projectId;
+		this.executionMode = executionMode == null ? ExecutionMode.READ_WRITE : executionMode;
 		this.createdAt = Instant.now();
 		this.updatedAt = this.createdAt;
 	}
@@ -84,6 +96,14 @@ public class AgentExecutionPlan {
 
 	public String getWorkspaceId() {
 		return workspaceId;
+	}
+
+	public ExecutionMode getExecutionMode() {
+		return executionMode;
+	}
+
+	public String getProjectId() {
+		return projectId;
 	}
 
 	public AgentPlanStatus getStatus() {

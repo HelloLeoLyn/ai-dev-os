@@ -6,6 +6,7 @@ import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.taskcenter.CreateTaskRequest;
 import com.aidevos.orchestrator.taskcenter.TaskCenterService;
 import com.aidevos.orchestrator.taskcenter.TaskRecord;
+import com.aidevos.orchestrator.project.ProjectTaskService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,15 +21,17 @@ import org.springframework.web.bind.annotation.RestController;
 public class TaskController {
 
 	private final TaskCenterService taskCenterService;
+	private final ProjectTaskService projectTaskService;
 
-	public TaskController(TaskCenterService taskCenterService) {
+	public TaskController(TaskCenterService taskCenterService, ProjectTaskService projectTaskService) {
 		this.taskCenterService = taskCenterService;
+		this.projectTaskService = projectTaskService;
 	}
 
 	@PostMapping
 	public ResponseEntity<TaskRecord> create(@RequestBody CreateTaskRequest request) {
 		return ResponseEntity.status(HttpStatus.CREATED)
-			.body(taskCenterService.createTask(request));
+			.body(projectTaskService.createTask(request));
 	}
 
 	@GetMapping

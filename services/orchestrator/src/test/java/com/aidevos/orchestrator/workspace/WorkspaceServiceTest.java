@@ -17,8 +17,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyString;
 
 class WorkspaceServiceTest {
 
@@ -31,6 +33,7 @@ class WorkspaceServiceTest {
 	@BeforeEach
 	void setUp() {
 		gitCommandExecutor = mock(GitCommandExecutor.class);
+		when(gitCommandExecutor.status(anyString())).thenReturn(new GitStatus("main", 0, 0, 0));
 		service = new WorkspaceService(new InMemoryWorkspaceRepository(), gitCommandExecutor);
 	}
 
@@ -41,9 +44,19 @@ class WorkspaceServiceTest {
 		assertNotNull(workspace.getWorkspaceId());
 		assertEquals("project-a", workspace.getProjectId());
 		assertEquals(tempDir.toString(), workspace.getPath());
+		assertEquals("main", workspace.getBranch());
 		assertEquals(WorkspaceStatus.READY, workspace.getStatus());
 		assertNotNull(workspace.getCreatedAt());
 		assertNotNull(workspace.getUpdatedAt());
+	}
+
+	@Test
+	void shouldRejectDirectoryWithoutCurrentGitBranch() {
+		when(gitCommandExecutor.status(tempDir.toString()))
+			.thenReturn(new GitStatus("", 0, 0, 0));
+
+		assertThrows(IllegalArgumentException.class,
+			() -> service.createWorkspace("project-a", tempDir.toString()));
 	}
 
 	@Test
@@ -103,7 +116,7 @@ class WorkspaceServiceTest {
 
 		assertEquals(status, service.checkGitStatus(workspace.getWorkspaceId()));
 		assertEquals(diff, service.getGitDiff(workspace.getWorkspaceId()));
-		verify(gitCommandExecutor).status(tempDir.toString());
+		verify(gitCommandExecutor, times(2)).status(tempDir.toString());
 		verify(gitCommandExecutor).diff(tempDir.toString());
 	}
 

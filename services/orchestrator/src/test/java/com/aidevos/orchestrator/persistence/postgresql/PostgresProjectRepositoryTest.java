@@ -51,8 +51,9 @@ class PostgresProjectRepositoryTest {
 
 	@Test
 	void saveAndGetRoundTrip() {
-		repository.save(project("project-1", "AI Dev OS", "/workspace/ai-dev-os",
-			"main platform", ProjectStatus.ACTIVE, NOW));
+		repository.save(new Project("project-1", "AI Dev OS", "/workspace/ai-dev-os",
+			"main platform", ProjectStatus.ACTIVE, NOW, NOW,
+			"git@github.com:example/ai-dev-os.git", "dev"));
 
 		Project stored = repository.get("project-1");
 		assertEquals("project-1", stored.getProjectId());
@@ -60,9 +61,22 @@ class PostgresProjectRepositoryTest {
 		assertEquals("/workspace/ai-dev-os", stored.getPath());
 		assertEquals("main platform", stored.getDescription());
 		assertEquals(ProjectStatus.ACTIVE, stored.getStatus());
+		assertEquals("git@github.com:example/ai-dev-os.git", stored.getRepositoryUrl());
+		assertEquals("dev", stored.getDefaultBranch());
 		assertEquals(NOW, stored.getCreatedAt());
 		assertEquals(NOW, stored.getUpdatedAt());
 		assertNull(repository.get("missing"));
+	}
+
+	@Test
+	void saveAllowsProjectWithoutRemoteOrBranch() {
+		repository.save(project("project-local", "Local", "/p/local", null,
+			ProjectStatus.ACTIVE, NOW));
+
+		Project stored = repository.get("project-local");
+
+		assertNull(stored.getRepositoryUrl());
+		assertNull(stored.getDefaultBranch());
 	}
 
 	@Test

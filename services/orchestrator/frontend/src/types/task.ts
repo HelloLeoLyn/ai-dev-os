@@ -29,8 +29,12 @@ export interface TaskRecord {
   approvalId: string | null
   planRunId: string | null
   workspaceId: string | null
+  projectId: string
+  executionMode: ExecutionMode
   errorMessage: string | null
 }
+
+export type ExecutionMode = 'READ_ONLY' | 'READ_WRITE'
 
 export interface CreateTaskRequest {
   name: string
@@ -39,4 +43,5 @@ export interface CreateTaskRequest {
   plannerName: string
   projectId?: string
   workspaceId?: string
+  executionMode: ExecutionMode
 }

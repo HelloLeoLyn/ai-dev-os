@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 
 import { createTask, getTasks } from '../api/tasks'
+import { getProjects, getProjectWorkspaces } from '../api/projects'
 import TaskDetail from '../components/TaskDetail.vue'
 import TaskTable from '../components/TaskTable.vue'
 import type { CreateTaskRequest, TaskRecord } from '../types/task'
+import type { Project } from '../types/project'
+import type { Workspace } from '../types/workspace'
 
 const tasks = ref<TaskRecord[]>([])
 const selectedTask = ref<TaskRecord | null>(null)
@@ -12,12 +15,18 @@ const loading = ref(true)
 const submitting = ref(false)
 const errorMessage = ref<string | null>(null)
 const submitError = ref<string | null>(null)
+const projects = ref<Project[]>([])
+const workspaces = ref<Workspace[]>([])
+const loadingWorkspaces = ref(false)
 
 const form = reactive<CreateTaskRequest>({
   name: '',
   description: '',
   goal: '',
   plannerName: 'hermes',
+  projectId: '',
+  workspaceId: '',
+  executionMode: 'READ_ONLY',
 })
 
 const plannerOptions = ['hermes', 'fake']
@@ -38,9 +47,30 @@ async function loadTasks(): Promise<void> {
   }
 }
 
+async function loadProjects(): Promise<void> {
+  projects.value = (await getProjects()).filter((project) => project.status === 'ACTIVE')
+}
+
+watch(() => form.projectId, async (projectId) => {
+  form.workspaceId = ''
+  workspaces.value = []
+  if (!projectId) return
+  loadingWorkspaces.value = true
+  try {
+    workspaces.value = await getProjectWorkspaces(projectId)
+    if (workspaces.value.length === 1) {
+      form.workspaceId = workspaces.value[0].workspaceId
+    }
+  } catch (error) {
+    submitError.value = error instanceof Error ? error.message : '无法加载 Workspace。'
+  } finally {
+    loadingWorkspaces.value = false
+  }
+})
+
 async function handleCreate(): Promise<void> {
-  if (!form.name.trim() || !form.goal.trim()) {
-    submitError.value = '任务名称与目标（goal）为必填项。'
+  if (!form.name.trim() || !form.goal.trim() || !form.projectId || !form.workspaceId) {
+		submitError.value = '任务名称、目标、Project 与 Workspace 为必填项。'
     return
   }
 
@@ -53,6 +83,9 @@ async function handleCreate(): Promise<void> {
       description: form.description.trim(),
       goal: form.goal.trim(),
       plannerName: form.plannerName,
+      projectId: form.projectId,
+      workspaceId: form.workspaceId,
+      executionMode: form.executionMode,
     })
     form.name = ''
     form.description = ''
@@ -66,7 +99,7 @@ async function handleCreate(): Promise<void> {
   }
 }
 
-onMounted(loadTasks)
+onMounted(async () => Promise.all([loadTasks(), loadProjects()]))
 </script>
 
 <template>
@@ -105,6 +138,35 @@ onMounted(loadTasks)
             </el-form-item>
           </el-col>
         </el-row>
+        <el-row :gutter="16">
+          <el-col :xs="24" :sm="8">
+            <el-form-item label="Project" required>
+              <el-select v-model="form.projectId" placeholder="选择项目" style="width: 100%">
+                <el-option v-for="item in projects" :key="item.projectId"
+                  :label="`${item.name} (${item.projectId})`" :value="item.projectId" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="8">
+            <el-form-item label="Workspace" required>
+              <el-select v-model="form.workspaceId" :loading="loadingWorkspaces"
+                :disabled="!form.projectId || workspaces.length === 0"
+                :placeholder="workspaces.length === 0 ? '该项目暂无 Workspace' : '选择 Workspace'"
+                style="width: 100%">
+                <el-option v-for="item in workspaces" :key="item.workspaceId"
+                  :label="`${item.path} (${item.branch || 'unknown'})`" :value="item.workspaceId" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="8">
+            <el-form-item label="执行模式" required>
+              <el-select v-model="form.executionMode" style="width: 100%">
+                <el-option label="READ_ONLY（只读）" value="READ_ONLY" />
+                <el-option label="READ_WRITE（可写）" value="READ_WRITE" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
         <el-form-item label="描述">
           <el-input v-model="form.description" placeholder="任务描述（可选）" />
         </el-form-item>
@@ -117,7 +179,8 @@ onMounted(loadTasks)
           />
         </el-form-item>
         <p v-if="submitError" class="form-error">{{ submitError }}</p>
-        <el-button type="primary" :loading="submitting" native-type="submit">
+        <el-button type="primary" :loading="submitting" native-type="submit"
+          :disabled="!form.projectId || !form.workspaceId">
           创建并规划
         </el-button>
       </el-form>

@@ -10,6 +10,8 @@ import java.util.UUID;
 
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
+import com.aidevos.orchestrator.workspace.git.GitCommandExecutor;
+import com.aidevos.orchestrator.workspace.git.GitStatus;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -23,26 +25,46 @@ public class ProjectService {
 
 	private final ProjectRepository repository;
 	private final AuditService auditService;
+	private final GitCommandExecutor gitCommandExecutor;
 	private volatile String currentProjectId;
 
 	public ProjectService(ProjectRepository repository) {
-		this(repository, AuditService.noop());
+		this(repository, AuditService.noop(), null);
+	}
+
+	public ProjectService(ProjectRepository repository, AuditService auditService) {
+		this(repository, auditService, null);
 	}
 
 	@Autowired
-	public ProjectService(ProjectRepository repository, AuditService auditService) {
+	public ProjectService(ProjectRepository repository, AuditService auditService,
+			GitCommandExecutor gitCommandExecutor) {
 		this.repository = repository;
 		this.auditService = auditService;
+		this.gitCommandExecutor = gitCommandExecutor;
 	}
 
 	public Project createProject(CreateProjectRequest request) {
 		if (request == null || isBlank(request.name()) || isBlank(request.path())) {
 			throw new IllegalArgumentException("Project name and path are required");
 		}
+		String path = request.path().trim();
+		String repositoryUrl = normalize(request.repositoryUrl());
+		String defaultBranch = normalize(request.defaultBranch());
+		if (gitCommandExecutor != null) {
+			GitStatus status = gitCommandExecutor.status(path);
+			if (status != null && !isBlank(status.getBranch())) {
+				defaultBranch = status.getBranch().trim();
+			}
+			String originUrl = originUrl(gitCommandExecutor.listRemotes(path));
+			if (originUrl != null) {
+				repositoryUrl = originUrl;
+			}
+		}
 		String projectId = "project-" + UUID.randomUUID();
-		Project project = new Project(projectId, request.name().trim(), request.path().trim(),
+		Project project = new Project(projectId, request.name().trim(), path,
 			request.description(), ProjectStatus.ACTIVE, Instant.now(), Instant.now(),
-			request.repositoryUrl(), request.defaultBranch());
+			repositoryUrl, defaultBranch);
 		repository.save(project);
 		auditService.projectEvent(EventType.PROJECT_CREATED, projectId,
 			"Project created: " + project.getName(),
@@ -113,5 +135,23 @@ public class ProjectService {
 
 	private boolean isBlank(String value) {
 		return value == null || value.isBlank();
+	}
+
+	private String normalize(String value) {
+		return isBlank(value) ? null : value.trim();
+	}
+
+	private String originUrl(String remotes) {
+		if (isBlank(remotes)) {
+			return null;
+		}
+		for (String line : remotes.split("\\R")) {
+			String[] fields = line.trim().split("\\s+");
+			if (fields.length >= 2 && "origin".equals(fields[0])
+					&& (fields.length < 3 || "(fetch)".equals(fields[2]))) {
+				return normalize(fields[1]);
+			}
+		}
+		return null;
 	}
 }

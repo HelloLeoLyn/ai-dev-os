@@ -6,14 +6,14 @@ import java.util.List;
 
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.InMemoryAuditRepository;
-import com.aidevos.orchestrator.executor.command.CommandExecutor;
 import com.aidevos.orchestrator.taskcenter.CreateTaskRequest;
 import com.aidevos.orchestrator.taskcenter.TaskCenterService;
 import com.aidevos.orchestrator.taskcenter.TaskRecord;
 import com.aidevos.orchestrator.workspace.InMemoryWorkspaceRepository;
 import com.aidevos.orchestrator.workspace.Workspace;
 import com.aidevos.orchestrator.workspace.WorkspaceService;
-import com.aidevos.orchestrator.workspace.git.ProcessGitCommandExecutor;
+import com.aidevos.orchestrator.workspace.git.GitCommandExecutor;
+import com.aidevos.orchestrator.workspace.git.GitStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -42,8 +42,10 @@ class MultiProjectIntegrationTest {
 	void setUp() {
 		AuditService auditService = new AuditService(new InMemoryAuditRepository());
 		projectService = new ProjectService(new InMemoryProjectRepository(), auditService);
+		GitCommandExecutor gitCommandExecutor = mock(GitCommandExecutor.class);
+		when(gitCommandExecutor.status(any())).thenReturn(new GitStatus("main", 0, 0, 0));
 		workspaceService = new WorkspaceService(new InMemoryWorkspaceRepository(),
-			new ProcessGitCommandExecutor(new CommandExecutor()), auditService);
+			gitCommandExecutor, auditService);
 		com.aidevos.orchestrator.planner.PlannerService plannerService = mock(
 			com.aidevos.orchestrator.planner.PlannerService.class);
 		com.aidevos.orchestrator.plan.approval.PlanApprovalService approvalService = mock(

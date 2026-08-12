@@ -1,7 +1,7 @@
 import { apiClient } from './client'
 import type { AgentMetrics } from '../types/agentMetrics'
 import type { CreateProjectRequest, Project } from '../types/project'
-import type { TaskRecord } from '../types/task'
+import type { CreateTaskRequest, TaskRecord } from '../types/task'
 import type { Workspace } from '../types/workspace'
 
 export function getProjects(): Promise<Project[]> {
@@ -30,9 +30,29 @@ export function getProjectWorkspaces(projectId: string): Promise<Workspace[]> {
   )
 }
 
+export function createProjectWorkspace(
+  projectId: string,
+  path?: string,
+): Promise<Workspace> {
+  return apiClient.post<Workspace>(
+    `/api/projects/${encodeURIComponent(projectId)}/workspaces`,
+    { path },
+  )
+}
+
 export function getProjectTasks(projectId: string): Promise<TaskRecord[]> {
   return apiClient.get<TaskRecord[]>(
     `/api/projects/${encodeURIComponent(projectId)}/tasks`,
+  )
+}
+
+export function createProjectTask(
+  projectId: string,
+  request: CreateTaskRequest,
+): Promise<TaskRecord> {
+  return apiClient.post<TaskRecord>(
+    `/api/projects/${encodeURIComponent(projectId)}/tasks`,
+    request,
   )
 }
 

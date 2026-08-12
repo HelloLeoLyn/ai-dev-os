@@ -13,6 +13,7 @@ public class TaskRecord {
 	private final String description;
 	private final String projectId;
 	private final String workspaceId;
+	private final ExecutionMode executionMode;
 	private final Instant createdAt;
 	private volatile TaskStatus status = TaskStatus.CREATED;
 	private volatile Instant updatedAt;
@@ -21,27 +22,33 @@ public class TaskRecord {
 	private volatile String errorMessage;
 
 	public TaskRecord(String taskId, String name, String description) {
-		this(taskId, name, description, null, null);
+		this(taskId, name, description, null, null, ExecutionMode.READ_WRITE);
 	}
 
 	public TaskRecord(String taskId, String name, String description, String projectId) {
-		this(taskId, name, description, projectId, null);
+		this(taskId, name, description, projectId, null, ExecutionMode.READ_WRITE);
 	}
 
 	public TaskRecord(String taskId, String name, String description, String projectId,
 			String workspaceId) {
+		this(taskId, name, description, projectId, workspaceId, ExecutionMode.READ_WRITE);
+	}
+
+	public TaskRecord(String taskId, String name, String description, String projectId,
+			String workspaceId, ExecutionMode executionMode) {
 		this.taskId = taskId;
 		this.name = name;
 		this.description = description;
 		this.projectId = projectId == null || projectId.isBlank() ? "default" : projectId.trim();
 		this.workspaceId = workspaceId == null || workspaceId.isBlank()
 			? null : workspaceId.trim();
+		this.executionMode = executionMode == null ? ExecutionMode.READ_WRITE : executionMode;
 		this.createdAt = Instant.now();
 		this.updatedAt = this.createdAt;
 	}
 
 	private TaskRecord(String taskId, String name, String description, String projectId,
-			String workspaceId, TaskStatus status, Instant createdAt, Instant updatedAt,
+			String workspaceId, ExecutionMode executionMode, TaskStatus status, Instant createdAt, Instant updatedAt,
 			String approvalId, String planRunId, String errorMessage) {
 		this.taskId = taskId;
 		this.name = name;
@@ -50,6 +57,7 @@ public class TaskRecord {
 			: projectId.trim();
 		this.workspaceId = workspaceId == null || workspaceId.isBlank()
 			? null : workspaceId.trim();
+		this.executionMode = executionMode == null ? ExecutionMode.READ_WRITE : executionMode;
 		this.status = status == null ? TaskStatus.CREATED : status;
 		this.createdAt = createdAt == null ? Instant.now() : createdAt;
 		this.updatedAt = updatedAt == null ? this.createdAt : updatedAt;
@@ -66,7 +74,17 @@ public class TaskRecord {
 	public static TaskRecord restore(String taskId, String name, String description,
 			String projectId, String workspaceId, TaskStatus status, Instant createdAt,
 			Instant updatedAt, String approvalId, String planRunId, String errorMessage) {
-		return new TaskRecord(taskId, name, description, projectId, workspaceId, status,
+		return restore(taskId, name, description, projectId, workspaceId,
+			ExecutionMode.READ_WRITE, status, createdAt, updatedAt, approvalId, planRunId,
+			errorMessage);
+	}
+
+	public static TaskRecord restore(String taskId, String name, String description,
+			String projectId, String workspaceId, ExecutionMode executionMode,
+			TaskStatus status, Instant createdAt, Instant updatedAt, String approvalId,
+			String planRunId, String errorMessage) {
+		return new TaskRecord(taskId, name, description, projectId, workspaceId,
+			executionMode, status,
 			createdAt, updatedAt, approvalId, planRunId, errorMessage);
 	}
 
@@ -152,6 +170,10 @@ public class TaskRecord {
 
 	public String getWorkspaceId() {
 		return workspaceId;
+	}
+
+	public ExecutionMode getExecutionMode() {
+		return executionMode;
 	}
 
 	public TaskStatus getStatus() {

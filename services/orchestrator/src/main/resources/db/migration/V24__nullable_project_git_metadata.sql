@@ -1,0 +1,4 @@
+ALTER TABLE projects ALTER COLUMN repository_url DROP NOT NULL;
+ALTER TABLE projects ALTER COLUMN repository_url DROP DEFAULT;
+ALTER TABLE projects ALTER COLUMN default_branch DROP NOT NULL;
+ALTER TABLE projects ALTER COLUMN default_branch DROP DEFAULT;

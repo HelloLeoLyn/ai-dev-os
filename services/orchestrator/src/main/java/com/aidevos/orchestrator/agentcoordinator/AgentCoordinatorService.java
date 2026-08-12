@@ -186,7 +186,8 @@ public class AgentCoordinatorService {
 		TaskType type = taskType == null ? TaskType.GENERAL : taskType;
 		ResolvedModel model = modelRouterService.route(type);
 		String planId = "plan-" + UUID.randomUUID();
-		List<AgentExecutionPlan> steps = buildSteps(planId, taskId, task.getWorkspaceId(), type);
+		List<AgentExecutionPlan> steps = buildSteps(planId, taskId, task.getProjectId(),
+			task.getWorkspaceId(), task.getExecutionMode(), type);
 		plans.put(taskId, steps);
 		auditService.agentPlanEvent(EventType.AGENT_PLAN_CREATED, planId, taskId,
 			steps.getFirst().getAgentId(), 0, null, "PENDING",
@@ -227,6 +228,7 @@ public class AgentCoordinatorService {
 		context.setTask(task);
 		context.setWorkspaceId(task.getWorkspaceId());
 		context.setWorkspacePath(resolveWorkspacePath(task.getWorkspaceId()));
+		context.setExecutionMode(task.getExecutionMode());
 		context.setGraphId(graph.getGraphId());
 		context.setMemoryHints(memoryHints);
 		context.setInput(task.getDescription() == null || task.getDescription().isBlank()
@@ -333,6 +335,7 @@ public class AgentCoordinatorService {
 				Map.of("graphId", graph.getGraphId()));
 			saveGraphBugRecord(task, error);
 		}
+		taskCenterService.saveTask(task);
 	}
 
 	private void saveGraphHistory(TaskRecord task, ExecutionGraph graph) {
@@ -391,7 +394,9 @@ public class AgentCoordinatorService {
 	}
 
 	private List<AgentExecutionPlan> buildSteps(String planId, String taskId,
-			String workspaceId, TaskType taskType) {
+			String projectId, String workspaceId,
+			com.aidevos.orchestrator.taskcenter.ExecutionMode executionMode,
+			TaskType taskType) {
 		List<AgentExecutionPlan> steps = new ArrayList<>();
 		int stepNumber = 1;
 		for (String capability : capabilitiesFor(taskType)) {
@@ -399,7 +404,7 @@ public class AgentCoordinatorService {
 				.orElseThrow(() -> new IllegalStateException(
 					"No agent found for capability: " + capability));
 			steps.add(new AgentExecutionPlan(planId, taskId, agent.getName(), stepNumber++,
-				capability, workspaceId));
+				capability, workspaceId, projectId, executionMode));
 		}
 		return steps;
 	}
@@ -476,7 +481,8 @@ public class AgentCoordinatorService {
 		String goal = task.getDescription() == null || task.getDescription().isBlank()
 			? task.getName() : task.getDescription();
 		PlanningResult result = plannerService.createPlan(new PlanningRequest(task.getTaskId(),
-			goal, HERMES_PLANNER, model == null ? null : model.model(), null, null, null, null));
+			goal, HERMES_PLANNER, model == null ? null : model.model(), null, null, null,
+			planningMetadata(task, resolveWorkspacePath(task.getWorkspaceId()))));
 		if (!result.success() || result.plan() == null) {
 			throw new IllegalStateException("Planning failed: " + joinErrors(result.errors()));
 		}
@@ -513,7 +519,8 @@ public class AgentCoordinatorService {
 	 * Read-only git snapshot; change tracking must never break the agent flow.
 	 */
 	private void recordChange(TaskRecord task, String workspaceId, String executionId) {
-		if (changeService == null || workspaceId == null || workspaceId.isBlank()) {
+		if (changeService == null || workspaceId == null || workspaceId.isBlank()
+				|| task.getExecutionMode() == com.aidevos.orchestrator.taskcenter.ExecutionMode.READ_ONLY) {
 			return;
 		}
 		try {
@@ -542,6 +549,12 @@ public class AgentCoordinatorService {
 		context.setTaskId(task.getTaskId());
 		context.setTaskName(task.getName());
 		context.setProjectId(task.getProjectId());
+		context.getMetadata().put("workspaceId", workspaceId);
+		context.getMetadata().put("executionMode", task.getExecutionMode().name());
+		context.getParameters().put("executionMode", task.getExecutionMode().name());
+		if (task.getExecutionMode() == com.aidevos.orchestrator.taskcenter.ExecutionMode.READ_ONLY) {
+			context.getParameters().put("sandbox", "read-only");
+		}
 		context.setDescription(task.getDescription());
 		context.setInput(task.getDescription() == null || task.getDescription().isBlank()
 			? task.getName() : task.getDescription());
@@ -553,6 +566,13 @@ public class AgentCoordinatorService {
 		ExecutionResult result = executor.execute(context);
 		saveExecutionRecord(task, agentName, executionId, result, workspaceId, workspacePath);
 		return result;
+	}
+
+	private Map<String, Object> planningMetadata(TaskRecord task, String workspacePath) {
+		return Map.of("projectId", task.getProjectId(), "workspaceId",
+			task.getWorkspaceId() == null ? "" : task.getWorkspaceId(),
+			"workspacePath", workspacePath == null ? "" : workspacePath,
+			"executionMode", task.getExecutionMode().name());
 	}
 
 	private String resolveWorkspacePath(String workspaceId) {
@@ -596,6 +616,7 @@ public class AgentCoordinatorService {
 				TaskStatus.FAILED.name(), "Task failed: " + error, Map.of());
 			saveBugRecord(task, error);
 		}
+		taskCenterService.saveTask(task);
 	}
 
 	private void saveExecutionRecord(TaskRecord task, String agentName, String executionId,

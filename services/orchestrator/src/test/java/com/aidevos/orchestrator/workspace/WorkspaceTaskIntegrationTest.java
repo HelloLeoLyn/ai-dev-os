@@ -36,6 +36,7 @@ import com.aidevos.orchestrator.taskcenter.CreateTaskRequest;
 import com.aidevos.orchestrator.taskcenter.TaskCenterService;
 import com.aidevos.orchestrator.taskcenter.TaskRecord;
 import com.aidevos.orchestrator.taskcenter.TaskStatus;
+import com.aidevos.orchestrator.taskcenter.ExecutionMode;
 import com.aidevos.orchestrator.testagent.browser.BrowserTestExecutor;
 import com.aidevos.orchestrator.testagent.browser.BrowserTestResult;
 import com.aidevos.orchestrator.testagent.TestAgentService;
@@ -77,8 +78,11 @@ class WorkspaceTaskIntegrationTest {
 	@BeforeEach
 	void setUp() {
 		projectService = new ProjectService(new InMemoryProjectRepository());
+		GitCommandExecutor gitCommandExecutor = mock(GitCommandExecutor.class);
+		when(gitCommandExecutor.status(any())).thenReturn(
+			new com.aidevos.orchestrator.workspace.git.GitStatus("main", 0, 0, 0));
 		workspaceService = new WorkspaceService(new InMemoryWorkspaceRepository(),
-			mock(GitCommandExecutor.class));
+			gitCommandExecutor);
 
 		plannerService = mock(PlannerService.class);
 		approvalService = mock(PlanApprovalService.class);
@@ -140,6 +144,10 @@ class WorkspaceTaskIntegrationTest {
 		assertTrue(steps.stream().allMatch(step -> task.getTaskId().equals(step.getTaskId())));
 		assertTrue(steps.stream().allMatch(step -> workspaceId.equals(step.getWorkspaceId())),
 			"every plan step must carry the task workspaceId");
+		assertTrue(steps.stream().allMatch(step -> project.getProjectId().equals(step.getProjectId())),
+			"every plan step must carry the task projectId");
+		assertTrue(steps.stream().allMatch(step -> ExecutionMode.READ_ONLY == step.getExecutionMode()),
+			"every plan step must carry READ_ONLY mode");
 	}
 
 	@Test
@@ -165,7 +173,7 @@ class WorkspaceTaskIntegrationTest {
 
 		TaskRecord task = taskCenterService.createTask(new CreateTaskRequest(
 			"Implement login", "Login flow", "Implement a login flow", "hermes",
-			projectId, workspaceId));
+			projectId, workspaceId, ExecutionMode.READ_ONLY));
 		TaskRecord refreshed = taskCenterService.getTask(task.getTaskId()).orElseThrow();
 		assertEquals(TaskStatus.APPROVED, refreshed.getStatus());
 		return refreshed;

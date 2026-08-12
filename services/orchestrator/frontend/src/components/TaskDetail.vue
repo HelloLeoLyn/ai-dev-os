@@ -50,6 +50,17 @@ function formatDate(value: string | null): string {
       <el-descriptions-item label="描述">
         {{ task.description || '—' }}
       </el-descriptions-item>
+      <el-descriptions-item label="Project">
+        <code>{{ task.projectId }}</code>
+      </el-descriptions-item>
+      <el-descriptions-item label="Workspace">
+        <code>{{ task.workspaceId || '—' }}</code>
+      </el-descriptions-item>
+      <el-descriptions-item label="执行模式">
+        <el-tag :type="task.executionMode === 'READ_ONLY' ? 'warning' : 'danger'">
+          {{ task.executionMode }}
+        </el-tag>
+      </el-descriptions-item>
       <el-descriptions-item label="创建时间">
         {{ formatDate(task.createdAt) }}
       </el-descriptions-item>

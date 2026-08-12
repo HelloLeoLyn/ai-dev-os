@@ -61,14 +61,20 @@ public class WorkspaceService {
 		if (path == null || path.isBlank()) {
 			throw new IllegalArgumentException("path is required");
 		}
-		Path directory = Path.of(path);
+		String normalizedPath = path.trim();
+		Path directory = Path.of(normalizedPath);
 		if (!Files.isDirectory(directory)) {
 			throw new IllegalArgumentException("Workspace path is not a directory: " + path);
 		}
+		GitStatus gitStatus = gitCommandExecutor.status(normalizedPath);
+		if (gitStatus == null || gitStatus.getBranch() == null || gitStatus.getBranch().isBlank()) {
+			throw new IllegalArgumentException(
+				"Workspace path is not a Git repository with a current branch: " + path);
+		}
 		String workspaceId = "workspace-" + UUID.randomUUID();
 		String normalizedProjectId = projectId.trim();
-		Workspace workspace = new Workspace(workspaceId, normalizedProjectId, path.trim(),
-			null, WorkspaceStatus.READY, Instant.now(), Instant.now(), repositoryUrl);
+		Workspace workspace = new Workspace(workspaceId, normalizedProjectId, normalizedPath,
+			gitStatus.getBranch(), WorkspaceStatus.READY, Instant.now(), Instant.now(), repositoryUrl);
 		repository.save(workspace);
 		auditService.projectEvent(EventType.PROJECT_WORKSPACE_CREATED, normalizedProjectId,
 			"Workspace created for project: " + normalizedProjectId,

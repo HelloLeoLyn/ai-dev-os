@@ -17,6 +17,8 @@ import com.aidevos.orchestrator.plan.run.PlanRun;
 import com.aidevos.orchestrator.plan.run.PlanRunRepository;
 import com.aidevos.orchestrator.planner.PlanningResult;
 import com.aidevos.orchestrator.planner.PlannerService;
+import com.aidevos.orchestrator.planner.PlanningRequest;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -72,6 +74,32 @@ class TaskCenterServiceTest {
 
 		assertEquals(TaskStatus.FAILED, task.getStatus());
 		assertEquals("PLANNER_FAILED", task.getErrorMessage());
+	}
+
+	@Test
+	void shouldPersistTasksAcrossServiceInstancesAndCarryPlanningContext() {
+		InMemoryTaskRepository repository = new InMemoryTaskRepository();
+		service = new TaskCenterService(plannerService, approvalService, planRunRepository,
+			null, AuditService.noop(), repository);
+		when(plannerService.createPlan(any()))
+			.thenReturn(PlanningResult.failure("hermes", null, List.of("PLANNED_READ_ONLY")));
+
+		TaskRecord created = service.createTask(new CreateTaskRequest("Analyze", "Inspect",
+			"Analyze project", "hermes", "project-1", "workspace-1",
+			ExecutionMode.READ_ONLY), "/repo/jjx");
+		TaskCenterService restarted = new TaskCenterService(plannerService, approvalService,
+			planRunRepository, null, AuditService.noop(), repository);
+
+		TaskRecord reloaded = restarted.getTask(created.getTaskId()).orElseThrow();
+		assertEquals("project-1", reloaded.getProjectId());
+		assertEquals("workspace-1", reloaded.getWorkspaceId());
+		assertEquals(ExecutionMode.READ_ONLY, reloaded.getExecutionMode());
+		ArgumentCaptor<PlanningRequest> captor = ArgumentCaptor.forClass(PlanningRequest.class);
+		verify(plannerService).createPlan(captor.capture());
+		assertEquals("project-1", captor.getValue().metadata().get("projectId"));
+		assertEquals("workspace-1", captor.getValue().metadata().get("workspaceId"));
+		assertEquals("/repo/jjx", captor.getValue().metadata().get("workspacePath"));
+		assertEquals("READ_ONLY", captor.getValue().metadata().get("executionMode"));
 	}
 
 	@Test

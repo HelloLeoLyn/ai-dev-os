@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 
 import { apiClient } from '../api/client'
 import {
+  createProjectWorkspace,
+  createProjectTask,
   getProject,
   getProjectMetrics,
   getProjectTasks,
@@ -25,6 +27,17 @@ const metrics = ref<AgentMetrics[]>([])
 const memories = ref<MemoryRecord[]>([])
 const loading = ref(true)
 const errorMessage = ref<string | null>(null)
+const workspaceDialogVisible = ref(false)
+const workspacePath = ref('')
+const creatingWorkspace = ref(false)
+const workspaceErrorMessage = ref<string | null>(null)
+const taskDialogVisible = ref(false)
+const creatingTask = ref(false)
+const taskErrorMessage = ref<string | null>(null)
+const taskForm = reactive({
+  name: '', description: '', goal: '', plannerName: 'hermes',
+  workspaceId: '', executionMode: 'READ_ONLY' as const,
+})
 
 async function loadProject(): Promise<void> {
   const projectId = Array.isArray(route.params.id) ? route.params.id[0] : route.params.id
@@ -43,6 +56,7 @@ async function loadProject(): Promise<void> {
         apiClient.get<MemoryRecord[]>('/api/memory/search', { projectId }),
       ])
     project.value = loadedProject
+    workspacePath.value = loadedProject.path
     workspaces.value = loadedWorkspaces
     tasks.value = loadedTasks
     metrics.value = loadedMetrics
@@ -51,6 +65,62 @@ async function loadProject(): Promise<void> {
     errorMessage.value = error instanceof Error ? error.message : '无法加载项目详情。'
   } finally {
     loading.value = false
+  }
+}
+
+function openWorkspaceDialog(): void {
+  if (!project.value) return
+  workspacePath.value = project.value.path
+  workspaceErrorMessage.value = null
+  workspaceDialogVisible.value = true
+}
+
+async function attachWorkspace(): Promise<void> {
+  if (!project.value || creatingWorkspace.value) return
+  creatingWorkspace.value = true
+  workspaceErrorMessage.value = null
+  try {
+    const workspace = await createProjectWorkspace(
+      project.value.projectId,
+      workspacePath.value,
+    )
+    workspaces.value = [...workspaces.value, workspace]
+    workspaceDialogVisible.value = false
+  } catch (error) {
+    workspaceErrorMessage.value =
+      error instanceof Error ? error.message : '无法创建 Workspace。'
+  } finally {
+    creatingWorkspace.value = false
+  }
+}
+
+function openTaskDialog(): void {
+  taskErrorMessage.value = null
+  taskForm.workspaceId = workspaces.value.length === 1 ? workspaces.value[0].workspaceId : ''
+  taskDialogVisible.value = true
+}
+
+async function createTask(): Promise<void> {
+  if (!project.value || !taskForm.name.trim() || !taskForm.goal.trim() || !taskForm.workspaceId) {
+    taskErrorMessage.value = '任务名称、目标和 Workspace 为必填项。'
+    return
+  }
+  creatingTask.value = true
+  taskErrorMessage.value = null
+  try {
+    const task = await createProjectTask(project.value.projectId, {
+      name: taskForm.name.trim(), description: taskForm.description.trim(),
+      goal: taskForm.goal.trim(), plannerName: taskForm.plannerName,
+      projectId: project.value.projectId, workspaceId: taskForm.workspaceId,
+      executionMode: taskForm.executionMode,
+    })
+    tasks.value = [task, ...tasks.value]
+    taskDialogVisible.value = false
+    taskForm.name = ''; taskForm.description = ''; taskForm.goal = ''
+  } catch (error) {
+    taskErrorMessage.value = error instanceof Error ? error.message : '创建 Task 失败。'
+  } finally {
+    creatingTask.value = false
   }
 }
 
@@ -83,6 +153,11 @@ onMounted(loadProject)
       </BaseCard>
 
       <BaseCard title="Workspaces">
+        <div class="workspace-actions">
+          <el-button type="primary" @click="openWorkspaceDialog">
+            创建 / 接入 Workspace
+          </el-button>
+        </div>
         <el-table :data="workspaces" empty-text="该项目暂无 Workspace">
           <el-table-column prop="workspaceId" label="Workspace ID" min-width="180" />
           <el-table-column prop="path" label="路径" min-width="220" />
@@ -91,14 +166,64 @@ onMounted(loadProject)
         </el-table>
       </BaseCard>
 
+      <el-dialog v-model="workspaceDialogVisible" title="创建 / 接入 Workspace" width="560px">
+        <p class="muted">绑定现有本地 Git 目录，不会复制、移动或修改目录内容。</p>
+        <el-form label-position="top" @submit.prevent="attachWorkspace">
+          <el-form-item label="Workspace 路径">
+            <el-input v-model="workspacePath" placeholder="默认使用项目路径" />
+          </el-form-item>
+          <p v-if="workspaceErrorMessage" class="error-text">{{ workspaceErrorMessage }}</p>
+        </el-form>
+        <template #footer>
+          <el-button @click="workspaceDialogVisible = false">取消</el-button>
+          <el-button type="primary" :loading="creatingWorkspace" @click="attachWorkspace">
+            创建并绑定
+          </el-button>
+        </template>
+      </el-dialog>
+
       <BaseCard title="Tasks">
+        <div class="workspace-actions">
+          <el-button type="primary" :disabled="workspaces.length === 0" @click="openTaskDialog">
+            创建任务
+          </el-button>
+        </div>
         <el-table :data="tasks" empty-text="该项目暂无 Task">
           <el-table-column prop="taskId" label="Task ID" min-width="180" />
           <el-table-column prop="name" label="名称" min-width="160" />
           <el-table-column prop="status" label="状态" width="120" />
           <el-table-column prop="workspaceId" label="Workspace" min-width="180" />
+          <el-table-column prop="executionMode" label="执行模式" width="130" />
         </el-table>
       </BaseCard>
+
+      <el-dialog v-model="taskDialogVisible" title="创建项目任务" width="640px">
+        <p class="muted">Project：<code>{{ project.projectId }}</code></p>
+        <el-form label-position="top" @submit.prevent="createTask">
+          <el-form-item label="任务名称" required><el-input v-model="taskForm.name" /></el-form-item>
+          <el-form-item label="Workspace" required>
+            <el-select v-model="taskForm.workspaceId" style="width: 100%">
+              <el-option v-for="item in workspaces" :key="item.workspaceId"
+                :label="`${item.path} (${item.branch || 'unknown'})`" :value="item.workspaceId" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="执行模式" required>
+            <el-select v-model="taskForm.executionMode" style="width: 100%">
+              <el-option label="READ_ONLY（只读）" value="READ_ONLY" />
+              <el-option label="READ_WRITE（可写）" value="READ_WRITE" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="描述"><el-input v-model="taskForm.description" /></el-form-item>
+          <el-form-item label="目标" required>
+            <el-input v-model="taskForm.goal" type="textarea" :rows="4" />
+          </el-form-item>
+          <p v-if="taskErrorMessage" class="error-text">{{ taskErrorMessage }}</p>
+        </el-form>
+        <template #footer>
+          <el-button @click="taskDialogVisible = false">取消</el-button>
+          <el-button type="primary" :loading="creatingTask" @click="createTask">创建并规划</el-button>
+        </template>
+      </el-dialog>
 
       <BaseCard title="Agent Metrics">
         <el-table :data="metrics" empty-text="该项目暂无执行指标">
@@ -121,3 +246,11 @@ onMounted(loadProject)
     </template>
   </section>
 </template>
+
+<style scoped>
+.workspace-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+</style>

@@ -8,6 +8,7 @@ import java.util.Optional;
 import com.aidevos.orchestrator.taskcenter.TaskCenterService;
 import com.aidevos.orchestrator.taskcenter.TaskRecord;
 import com.aidevos.orchestrator.taskcenter.TaskStatus;
+import com.aidevos.orchestrator.project.ProjectTaskService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -29,8 +30,9 @@ class TaskControllerTest {
 		TaskCenterService service = mock(TaskCenterService.class);
 		TaskRecord task = new TaskRecord("task-1", "Implement login", "Login flow");
 		task.markPlanning("approval-1");
-		when(service.createTask(any())).thenReturn(task);
-		MockMvc mockMvc = standaloneSetup(new TaskController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
+		ProjectTaskService projectTasks = mock(ProjectTaskService.class);
+		when(projectTasks.createTask(any(com.aidevos.orchestrator.taskcenter.CreateTaskRequest.class))).thenReturn(task);
+		MockMvc mockMvc = standaloneSetup(new TaskController(service, projectTasks)).setControllerAdvice(new GlobalExceptionHandler()).build();
 		String requestBody = """
 				{
 				  "name": "Implement login",
@@ -49,7 +51,7 @@ class TaskControllerTest {
 			.andExpect(jsonPath("$.status").value("PLANNING"))
 			.andExpect(jsonPath("$.approvalId").value("approval-1"));
 
-		verify(service).createTask(any());
+		verify(projectTasks).createTask(any(com.aidevos.orchestrator.taskcenter.CreateTaskRequest.class));
 	}
 
 	@Test
@@ -57,7 +59,7 @@ class TaskControllerTest {
 		TaskCenterService service = mock(TaskCenterService.class);
 		TaskRecord task = new TaskRecord("task-1", "Implement login", "Login flow");
 		when(service.listTasks()).thenReturn(List.of(task));
-		MockMvc mockMvc = standaloneSetup(new TaskController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
+		MockMvc mockMvc = standaloneSetup(new TaskController(service, mock(ProjectTaskService.class))).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/tasks"))
 			.andExpect(status().isOk())
@@ -73,7 +75,7 @@ class TaskControllerTest {
 		TaskRecord task = new TaskRecord("task-1", "Implement login", "Login flow");
 		task.markSuccess();
 		when(service.getTask("task-1")).thenReturn(Optional.of(task));
-		MockMvc mockMvc = standaloneSetup(new TaskController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
+		MockMvc mockMvc = standaloneSetup(new TaskController(service, mock(ProjectTaskService.class))).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/tasks/task-1"))
 			.andExpect(status().isOk())
@@ -87,7 +89,7 @@ class TaskControllerTest {
 	void shouldReturnNotFoundForUnknownTask() throws Exception {
 		TaskCenterService service = mock(TaskCenterService.class);
 		when(service.getTask("missing")).thenReturn(Optional.empty());
-		MockMvc mockMvc = standaloneSetup(new TaskController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
+		MockMvc mockMvc = standaloneSetup(new TaskController(service, mock(ProjectTaskService.class))).setControllerAdvice(new GlobalExceptionHandler()).build();
 
 		mockMvc.perform(get("/api/tasks/missing"))
 			.andExpect(status().isNotFound());

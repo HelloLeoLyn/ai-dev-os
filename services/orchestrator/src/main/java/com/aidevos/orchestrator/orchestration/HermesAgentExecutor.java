@@ -42,7 +42,11 @@ public class HermesAgentExecutor implements AgentExecutor {
 		try {
 			String goal = goal(task, context);
 			PlanningResult result = plannerService.createPlan(new PlanningRequest(
-				task.getTaskId(), goal, HERMES_PLANNER, null, null, null, null, null));
+				task.getTaskId(), goal, HERMES_PLANNER, null, null, null, null,
+				java.util.Map.of("projectId", task.getProjectId(),
+					"workspaceId", task.getWorkspaceId() == null ? "" : task.getWorkspaceId(),
+					"workspacePath", context.getWorkspacePath() == null ? "" : context.getWorkspacePath(),
+					"executionMode", task.getExecutionMode().name())));
 			if (!result.success() || result.plan() == null) {
 				return failure(context, "Planning failed: " + joinErrors(result.errors()));
 			}

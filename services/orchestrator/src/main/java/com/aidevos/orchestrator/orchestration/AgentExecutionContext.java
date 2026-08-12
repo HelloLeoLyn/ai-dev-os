@@ -8,6 +8,7 @@ import com.aidevos.orchestrator.mcp.tool.ToolDefinition;
 import com.aidevos.orchestrator.memory.MemoryContext;
 import com.aidevos.orchestrator.planner.PlanningResult;
 import com.aidevos.orchestrator.taskcenter.TaskRecord;
+import com.aidevos.orchestrator.taskcenter.ExecutionMode;
 
 /**
  * Per-node execution context: the task, the graph/node being executed, the
@@ -20,6 +21,7 @@ public class AgentExecutionContext {
 	private TaskRecord task;
 	private String workspaceId;
 	private String workspacePath;
+	private ExecutionMode executionMode = ExecutionMode.READ_WRITE;
 	private String graphId;
 	private String nodeId;
 	private AgentType agentType;
@@ -59,6 +61,14 @@ public class AgentExecutionContext {
 
 	public void setWorkspacePath(String workspacePath) {
 		this.workspacePath = workspacePath;
+	}
+
+	public ExecutionMode getExecutionMode() {
+		return executionMode;
+	}
+
+	public void setExecutionMode(ExecutionMode executionMode) {
+		this.executionMode = executionMode == null ? ExecutionMode.READ_WRITE : executionMode;
 	}
 
 	public String getGraphId() {

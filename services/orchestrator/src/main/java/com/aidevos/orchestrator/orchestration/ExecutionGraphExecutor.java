@@ -496,6 +496,7 @@ public class ExecutionGraphExecutor {
 		copy.setTask(base.getTask());
 		copy.setWorkspaceId(base.getWorkspaceId());
 		copy.setWorkspacePath(base.getWorkspacePath());
+		copy.setExecutionMode(base.getExecutionMode());
 		copy.setGraphId(base.getGraphId());
 		copy.setNodeId(node.getNodeId());
 		copy.setAgentType(node.getAgentType());

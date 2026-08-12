@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 import com.aidevos.orchestrator.agentcoordinator.AgentCoordinatorService;
 import com.aidevos.orchestrator.approval.ApprovalStatus;
@@ -35,7 +34,7 @@ public class TaskCenterService {
 
 	private static final String DEFAULT_PLANNER = "hermes";
 
-	private final Map<String, TaskRecord> tasks = new ConcurrentHashMap<>();
+	private final TaskRepository repository;
 	private final PlannerService plannerService;
 	private final PlanApprovalService approvalService;
 	private final PlanRunRepository planRunRepository;
@@ -44,18 +43,28 @@ public class TaskCenterService {
 
 	public TaskCenterService(PlannerService plannerService,
 			PlanApprovalService approvalService, PlanRunRepository planRunRepository) {
-		this(plannerService, approvalService, planRunRepository, null, AuditService.noop());
+		this(plannerService, approvalService, planRunRepository, null, AuditService.noop(),
+			new InMemoryTaskRepository());
+	}
+
+	public TaskCenterService(PlannerService plannerService,
+			PlanApprovalService approvalService, PlanRunRepository planRunRepository,
+			@Lazy AgentCoordinatorService agentCoordinatorService, AuditService auditService) {
+		this(plannerService, approvalService, planRunRepository, agentCoordinatorService,
+			auditService, new InMemoryTaskRepository());
 	}
 
 	@Autowired
 	public TaskCenterService(PlannerService plannerService,
 			PlanApprovalService approvalService, PlanRunRepository planRunRepository,
-			@Lazy AgentCoordinatorService agentCoordinatorService, AuditService auditService) {
+			@Lazy AgentCoordinatorService agentCoordinatorService, AuditService auditService,
+			TaskRepository repository) {
 		this.plannerService = plannerService;
 		this.approvalService = approvalService;
 		this.planRunRepository = planRunRepository;
 		this.agentCoordinatorService = agentCoordinatorService;
 		this.auditService = auditService;
+		this.repository = repository;
 	}
 
 	/**
@@ -69,16 +78,21 @@ public class TaskCenterService {
 	}
 
 	public TaskRecord createTask(CreateTaskRequest request) {
+		return createTask(request, null);
+	}
+
+	public TaskRecord createTask(CreateTaskRequest request, String workspacePath) {
 		String taskId = "task-" + UUID.randomUUID();
 		TaskRecord task = new TaskRecord(taskId, request.name(), request.description(),
-			request.projectId(), request.workspaceId());
-		tasks.put(taskId, task);
+			request.projectId(), request.workspaceId(), request.executionMode());
+		repository.save(task);
 		auditService.adminEvent(EventType.USER_OPERATION, "task", taskId, "USER",
 			"User submitted task", Map.of("name", request.name(),
 				"projectId", request.projectId() == null ? "default" : request.projectId()));
 		try {
 			PlanningResult result = plannerService.createPlan(new PlanningRequest(taskId,
-				request.goal(), plannerName(request), null, null, null, null, null));
+				request.goal(), plannerName(request), null, null, null, null,
+				planningMetadata(task, workspacePath)));
 			if (result.success() && result.plan() != null) {
 				PlanApprovalRequest approval = approvalService.create(taskId, result.plan());
 				task.markPlanning(approval.getId());
@@ -90,6 +104,7 @@ public class TaskCenterService {
 		catch (RuntimeException exception) {
 			task.markFailed(errorMessage(exception));
 		}
+		repository.save(task);
 		return task;
 	}
 
@@ -102,7 +117,9 @@ public class TaskCenterService {
 		if (task == null || task.getTaskId() == null || task.getTaskId().isBlank()) {
 			throw new IllegalArgumentException("Task is required");
 		}
-		tasks.putIfAbsent(task.getTaskId(), task);
+		if (repository.get(task.getTaskId()) == null) {
+			repository.save(task);
+		}
 		auditService.adminEvent(EventType.USER_OPERATION, "task", task.getTaskId(), "SYSTEM",
 			"Autonomous goal generated task", Map.of("name",
 				task.getName() == null ? "" : task.getName(), "projectId",
@@ -111,14 +128,14 @@ public class TaskCenterService {
 	}
 
 	public List<TaskRecord> listTasks() {
-		List<TaskRecord> result = new ArrayList<>(tasks.values());
+		List<TaskRecord> result = new ArrayList<>(repository.list());
 		result.forEach(this::refresh);
 		result.sort(Comparator.comparing(TaskRecord::getCreatedAt).reversed());
 		return result;
 	}
 
 	public Optional<TaskRecord> getTask(String taskId) {
-		TaskRecord task = tasks.get(taskId);
+		TaskRecord task = repository.get(taskId);
 		if (task != null) {
 			refresh(task);
 		}
@@ -136,7 +153,7 @@ public class TaskCenterService {
 	}
 
 	public TaskRecord execute(String taskId, TaskType taskType) {
-		TaskRecord task = tasks.get(taskId);
+		TaskRecord task = repository.get(taskId);
 		if (task == null) {
 			throw new IllegalArgumentException("Task not found: " + taskId);
 		}
@@ -152,10 +169,25 @@ public class TaskCenterService {
 			TaskStatus.RUNNING.name(), "Task execution started",
 			Map.of("taskType", type.name()));
 		agentCoordinatorService.createCollaborationPlan(taskId, type);
+		repository.save(task);
 		return task;
 	}
 
+	public List<TaskRecord> listTasksByProject(String projectId) {
+		List<TaskRecord> result = new ArrayList<>(repository.listByProject(projectId));
+		result.forEach(this::refresh);
+		return result;
+	}
+
+	public void saveTask(TaskRecord task) {
+		if (task != null) {
+			repository.save(task);
+		}
+	}
+
 	private void refresh(TaskRecord task) {
+		TaskStatus before = task.getStatus();
+		String beforeRunId = task.getPlanRunId();
 		if (task.getStatus() == TaskStatus.SUCCESS || task.getStatus() == TaskStatus.FAILED
 				|| task.getStatus() == TaskStatus.COMPLETED) {
 			return;
@@ -171,6 +203,7 @@ public class TaskCenterService {
 		if (approval.getStatus() == ApprovalStatus.APPROVED
 				&& task.getStatus() == TaskStatus.PLANNING) {
 			task.markApproved();
+			repository.save(task);
 		}
 		String runId = planRunRepository.findRunIdByApproval(approvalId);
 		if (runId == null) {
@@ -189,6 +222,18 @@ public class TaskCenterService {
 				// DRAFT: the plan run exists but has not started; keep current status.
 			}
 		}
+		if (before != task.getStatus() || !java.util.Objects.equals(beforeRunId, task.getPlanRunId())) {
+			repository.save(task);
+		}
+	}
+
+	private Map<String, Object> planningMetadata(TaskRecord task, String workspacePath) {
+		Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+		metadata.put("projectId", task.getProjectId());
+		metadata.put("workspaceId", task.getWorkspaceId() == null ? "" : task.getWorkspaceId());
+		metadata.put("workspacePath", workspacePath == null ? "" : workspacePath);
+		metadata.put("executionMode", task.getExecutionMode().name());
+		return Map.copyOf(metadata);
 	}
 
 	private String plannerName(CreateTaskRequest request) {

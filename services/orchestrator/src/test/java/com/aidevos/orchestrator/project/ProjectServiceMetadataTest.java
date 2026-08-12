@@ -6,11 +6,15 @@ import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventQuery;
 import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.audit.InMemoryAuditRepository;
+import com.aidevos.orchestrator.workspace.git.GitCommandExecutor;
+import com.aidevos.orchestrator.workspace.git.GitStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Phase 17-B: project repository metadata (repositoryUrl / defaultBranch)
@@ -76,5 +80,52 @@ class ProjectServiceMetadataTest {
 
 		assertEquals(null, project.getRepositoryUrl());
 		assertEquals(null, project.getDefaultBranch());
+	}
+
+	@Test
+	void shouldPreferGitMetadataOverClientFallback() {
+		GitCommandExecutor git = mock(GitCommandExecutor.class);
+		when(git.status("/srv/demo")).thenReturn(new GitStatus("dev", 0, 0, 0));
+		when(git.listRemotes("/srv/demo")).thenReturn(
+			"origin git@github.com:example/demo.git (fetch)\n"
+				+ "origin git@github.com:example/demo.git (push)");
+		ProjectService gitAwareService = new ProjectService(new InMemoryProjectRepository(),
+			auditService, git);
+
+		Project project = gitAwareService.createProject(new CreateProjectRequest(
+			"demo", "/srv/demo", "Demo", "https://client.invalid/demo.git", "main"));
+
+		assertEquals("git@github.com:example/demo.git", project.getRepositoryUrl());
+		assertEquals("dev", project.getDefaultBranch());
+	}
+
+	@Test
+	void shouldKeepRepositoryUrlNullWhenGitHasNoRemote() {
+		GitCommandExecutor git = mock(GitCommandExecutor.class);
+		when(git.status("/srv/local")).thenReturn(new GitStatus("feature/local", 0, 0, 0));
+		when(git.listRemotes("/srv/local")).thenReturn("");
+		ProjectService gitAwareService = new ProjectService(new InMemoryProjectRepository(),
+			auditService, git);
+
+		Project project = gitAwareService.createProject(new CreateProjectRequest(
+			"local", "/srv/local", "Local"));
+
+		assertEquals(null, project.getRepositoryUrl());
+		assertEquals("feature/local", project.getDefaultBranch());
+	}
+
+	@Test
+	void shouldUseClientMetadataOnlyWhenGitMetadataIsUnavailable() {
+		GitCommandExecutor git = mock(GitCommandExecutor.class);
+		when(git.status("/srv/fallback")).thenReturn(new GitStatus("", 0, 0, 0));
+		when(git.listRemotes("/srv/fallback")).thenReturn("");
+		ProjectService gitAwareService = new ProjectService(new InMemoryProjectRepository(),
+			auditService, git);
+
+		Project project = gitAwareService.createProject(new CreateProjectRequest(
+			"fallback", "/srv/fallback", "Fallback", "https://example/fallback.git", "main"));
+
+		assertEquals("https://example/fallback.git", project.getRepositoryUrl());
+		assertEquals("main", project.getDefaultBranch());
 	}
 }

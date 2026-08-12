@@ -361,6 +361,7 @@ public class AgentRuntimeService {
 		context.setTaskId(task.getTaskId());
 		context.setTask(task);
 		context.setWorkspaceId(task.getWorkspaceId());
+		context.setExecutionMode(task.getExecutionMode());
 		context.setGraphId(graph.getGraphId());
 		context.setInput(task.getDescription() == null || task.getDescription().isBlank()
 			? task.getName() : task.getDescription());
@@ -375,6 +376,7 @@ public class AgentRuntimeService {
 		copy.setTaskId(context.getTaskId());
 		copy.setTask(context.getTask());
 		copy.setWorkspaceId(context.getWorkspaceId());
+		copy.setExecutionMode(context.getExecutionMode());
 		copy.setWorkspacePath(context.getWorkspacePath());
 		copy.setGraphId(context.getGraphId());
 		copy.setNodeId(context.getNodeId());

@@ -1,8 +1,11 @@
 package com.aidevos.orchestrator.persistence.postgresql;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 
+import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.change.ChangeSet;
 import com.aidevos.orchestrator.change.ChangeStatus;
 import com.aidevos.orchestrator.ci.CiRunRecord;
@@ -17,17 +20,25 @@ import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.observability.TraceRecord;
 import com.aidevos.orchestrator.observability.TraceStatus;
 import com.aidevos.orchestrator.observability.usage.UsageRecord;
+import com.aidevos.orchestrator.executor.command.CommandExecutor;
+import com.aidevos.orchestrator.project.CreateProjectRequest;
 import com.aidevos.orchestrator.project.Project;
+import com.aidevos.orchestrator.project.ProjectService;
 import com.aidevos.orchestrator.project.ProjectStatus;
 import com.aidevos.orchestrator.repair.FailureContext;
 import com.aidevos.orchestrator.repair.RepairStatus;
 import com.aidevos.orchestrator.repair.RepairTask;
 import com.aidevos.orchestrator.taskcenter.TaskRecord;
 import com.aidevos.orchestrator.taskcenter.TaskStatus;
+import com.aidevos.orchestrator.taskcenter.ExecutionMode;
+import com.aidevos.orchestrator.taskcenter.CreateTaskRequest;
+import com.aidevos.orchestrator.taskcenter.TaskCenterService;
 import com.aidevos.orchestrator.workspace.Workspace;
 import com.aidevos.orchestrator.workspace.WorkspaceStatus;
+import com.aidevos.orchestrator.workspace.git.ProcessGitCommandExecutor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -49,6 +60,9 @@ class PostgresRepositoryIntegrationTest {
 
 	private static final Instant NOW = Instant.parse("2026-08-01T00:00:00Z");
 
+	@TempDir
+	Path tempDir;
+
 	@Container
 	static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
 
@@ -64,6 +78,8 @@ class PostgresRepositoryIntegrationTest {
 		new PostgresDocumentStore(dataSource, new ObjectMapper());
 		this.jdbc = new PostgresJdbc(dataSource);
 		this.mapper = new ObjectMapper();
+		this.jdbc.update("DELETE FROM projects");
+		this.jdbc.update("DELETE FROM tasks");
 	}
 
 	@Test
@@ -86,6 +102,66 @@ class PostgresRepositoryIntegrationTest {
 
 		assertTrue(repository.delete("project-1"));
 		assertNull(repository.get("project-1"));
+	}
+
+	@Test
+	void projectAllowsMissingGitRemoteAndBranch() {
+		PostgresProjectRepository repository = new PostgresProjectRepository(jdbc);
+		Project project = new Project("project-local", "Local", "/work/local", null,
+			ProjectStatus.ACTIVE, NOW, NOW, null, null);
+
+		repository.save(project);
+		Project loaded = repository.get("project-local");
+
+		assertNotNull(loaded);
+		assertNull(loaded.getRepositoryUrl());
+		assertNull(loaded.getDefaultBranch());
+	}
+
+	@Test
+	void projectServiceCreatesLocalGitProjectAndPersistsDetectedMetadata() throws Exception {
+		Path repositoryPath = Files.createDirectories(tempDir.resolve("git-project"));
+		git(repositoryPath, "init", "-b", "dev");
+		git(repositoryPath, "remote", "add", "origin",
+			"git@github.com:example/git-project.git");
+		PostgresProjectRepository repository = new PostgresProjectRepository(jdbc);
+		ProjectService service = new ProjectService(repository, AuditService.noop(),
+			new ProcessGitCommandExecutor(new CommandExecutor()));
+
+		Project created = service.createProject(new CreateProjectRequest(
+			"Git project", repositoryPath.toString(), "Existing local project"));
+		Project reloaded = new PostgresProjectRepository(jdbc).get(created.getProjectId());
+
+		assertNotNull(reloaded);
+		assertEquals("git@github.com:example/git-project.git", reloaded.getRepositoryUrl());
+		assertEquals("dev", reloaded.getDefaultBranch());
+	}
+
+	@Test
+	void projectServicePersistsNullRemoteForLocalOnlyGitProject() throws Exception {
+		Path repositoryPath = Files.createDirectories(tempDir.resolve("local-only"));
+		git(repositoryPath, "init", "-b", "local-dev");
+		PostgresProjectRepository repository = new PostgresProjectRepository(jdbc);
+		ProjectService service = new ProjectService(repository, AuditService.noop(),
+			new ProcessGitCommandExecutor(new CommandExecutor()));
+
+		Project created = service.createProject(new CreateProjectRequest(
+			"Local only", repositoryPath.toString(), null));
+		Project reloaded = new PostgresProjectRepository(jdbc).get(created.getProjectId());
+
+		assertNotNull(reloaded);
+		assertNull(reloaded.getRepositoryUrl());
+		assertEquals("local-dev", reloaded.getDefaultBranch());
+	}
+
+	private void git(Path directory, String... arguments) throws Exception {
+		List<String> command = new java.util.ArrayList<>();
+		command.add("git");
+		command.addAll(List.of(arguments));
+		Process process = new ProcessBuilder(command).directory(directory.toFile()).start();
+		int exitCode = process.waitFor();
+		String error = new String(process.getErrorStream().readAllBytes());
+		assertEquals(0, exitCode, error);
 	}
 
 	@Test
@@ -125,6 +201,33 @@ class PostgresRepositoryIntegrationTest {
 		assertEquals("approval-1", loaded.getApprovalId());
 		assertEquals(1, repository.listByProject("project-1").size());
 		assertTrue(repository.list().stream().anyMatch(item -> "task-1".equals(item.getTaskId())));
+	}
+
+	@Test
+	void taskCenterSurvivesServiceRestartInPostgresMode() {
+		PostgresTaskRepository repository = new PostgresTaskRepository(jdbc);
+		com.aidevos.orchestrator.planner.PlannerService planner = org.mockito.Mockito.mock(
+			com.aidevos.orchestrator.planner.PlannerService.class);
+		com.aidevos.orchestrator.plan.approval.PlanApprovalService approvals = org.mockito.Mockito.mock(
+			com.aidevos.orchestrator.plan.approval.PlanApprovalService.class);
+		com.aidevos.orchestrator.plan.run.PlanRunRepository runs = org.mockito.Mockito.mock(
+			com.aidevos.orchestrator.plan.run.PlanRunRepository.class);
+		org.mockito.Mockito.when(planner.createPlan(org.mockito.ArgumentMatchers.any()))
+			.thenReturn(com.aidevos.orchestrator.planner.PlanningResult.failure("hermes", null,
+				List.of("analysis-only")));
+		TaskCenterService first = new TaskCenterService(planner, approvals, runs, null,
+			AuditService.noop(), repository);
+		TaskRecord created = first.createTask(new CreateTaskRequest("Analyze JJX", "Inspect",
+			"Analyze", "hermes", "project-jjx", "workspace-jjx", ExecutionMode.READ_ONLY),
+			"/home/administrator/jjx");
+
+		TaskCenterService restarted = new TaskCenterService(planner, approvals, runs, null,
+			AuditService.noop(), new PostgresTaskRepository(jdbc));
+		TaskRecord reloaded = restarted.getTask(created.getTaskId()).orElseThrow();
+
+		assertEquals("project-jjx", reloaded.getProjectId());
+		assertEquals("workspace-jjx", reloaded.getWorkspaceId());
+		assertEquals(ExecutionMode.READ_ONLY, reloaded.getExecutionMode());
 	}
 
 	@Test

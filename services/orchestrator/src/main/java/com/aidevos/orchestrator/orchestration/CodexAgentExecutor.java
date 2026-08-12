@@ -79,6 +79,12 @@ public class CodexAgentExecutor implements AgentExecutor {
 		executionContext.setTaskId(task.getTaskId());
 		executionContext.setTaskName(task.getName());
 		executionContext.setProjectId(task.getProjectId());
+		executionContext.getMetadata().put("workspaceId", context.getWorkspaceId());
+		executionContext.getMetadata().put("executionMode", task.getExecutionMode().name());
+		executionContext.getParameters().put("executionMode", task.getExecutionMode().name());
+		if (task.getExecutionMode() == com.aidevos.orchestrator.taskcenter.ExecutionMode.READ_ONLY) {
+			executionContext.getParameters().put("sandbox", "read-only");
+		}
 		executionContext.setDescription(task.getDescription());
 		executionContext.setInput(task.getDescription() == null || task.getDescription().isBlank()
 			? task.getName() : task.getDescription());
@@ -115,7 +121,8 @@ public class CodexAgentExecutor implements AgentExecutor {
 	}
 
 	private void recordChange(TaskRecord task, String workspaceId, String executionId) {
-		if (changeService == null || workspaceId == null || workspaceId.isBlank()) {
+		if (changeService == null || workspaceId == null || workspaceId.isBlank()
+				|| task.getExecutionMode() == com.aidevos.orchestrator.taskcenter.ExecutionMode.READ_ONLY) {
 			return;
 		}
 		try {

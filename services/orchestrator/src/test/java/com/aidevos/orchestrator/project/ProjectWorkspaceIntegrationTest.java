@@ -67,17 +67,21 @@ class ProjectWorkspaceIntegrationTest {
 
 	@Test
 	void shouldBindWorkspaceAndTaskToProject() throws Exception {
-		Files.createDirectories(tempDir.resolve("repo"));
+		Path repo = Files.createDirectories(tempDir.resolve("repo"));
+		Process process = new ProcessBuilder("git", "init", "-b", "main")
+			.directory(repo.toFile()).start();
+		assertEquals(0, process.waitFor());
 		Project project = projectService.createProject(new CreateProjectRequest(
-			"demo", tempDir.resolve("repo").toString(), "Demo",
+			"demo", repo.toString(), "Demo",
 			"https://github.com/org/demo.git", "main"));
 
 		Workspace workspace = workspaceService.createProjectWorkspace(project.getProjectId(),
-			tempDir.resolve("repo").toString(), "https://github.com/org/demo.git");
+			repo.toString(), "https://github.com/org/demo.git");
 		TaskRecord task = taskCenterService.createTask(new CreateTaskRequest(
 			"实现功能", "实现功能", "实现功能", "hermes", project.getProjectId(), workspace.getWorkspaceId()));
 
 		assertEquals(project.getProjectId(), workspace.getProjectId());
+		assertEquals("main", workspace.getBranch());
 		assertEquals("https://github.com/org/demo.git", workspace.getRepositoryUrl());
 		assertEquals(project.getProjectId(), task.getProjectId());
 		assertEquals(1, workspaceService.getProjectWorkspaces(project.getProjectId()).size());
