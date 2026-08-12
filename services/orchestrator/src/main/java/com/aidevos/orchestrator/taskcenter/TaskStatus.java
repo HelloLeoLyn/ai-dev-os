@@ -15,5 +15,6 @@ public enum TaskStatus {
 	RUNNING,
 	SUCCESS,
 	COMPLETED,
+	REJECTED,
 	FAILED
 }

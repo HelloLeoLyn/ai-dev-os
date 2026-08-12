@@ -5,14 +5,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.plan.AgentAssignment;
 import com.aidevos.orchestrator.plan.ExpectedArtifact;
 import com.aidevos.orchestrator.plan.FailurePolicy;
 import com.aidevos.orchestrator.plan.PlanSnapshot;
+import com.aidevos.orchestrator.plan.PlanSnapshotFactory;
 import com.aidevos.orchestrator.plan.PlanStep;
 import com.aidevos.orchestrator.plan.PlanValidator;
 import com.aidevos.orchestrator.plan.RetryPolicy;
 import com.aidevos.orchestrator.plan.StepStatus;
+import com.aidevos.orchestrator.planner.replan.ReplanValidator;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -20,6 +23,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 class PlannerServiceTest {
 
@@ -73,8 +80,10 @@ class PlannerServiceTest {
 	void planningRequestSnapshotShouldBeRetainedInDraftAndPlan() {
 		PlanSnapshot snapshot = snapshot();
 		PlanDraft draft = validDraft("fake", snapshot);
+		PlanSnapshotFactory snapshotFactory = mock(PlanSnapshotFactory.class);
 		PlannerService service = new PlannerService(List.of(new FakePlanner("fake", draft)),
-			new PlanValidator());
+			new PlanValidator(), new ReplanValidator(new PlanValidator()), AuditService.noop(),
+			snapshotFactory, "v1");
 
 		PlanningResult result = service.createPlan(request("fake", snapshot));
 
@@ -83,6 +92,36 @@ class PlannerServiceTest {
 		assertSame(snapshot, result.plan().snapshot());
 		assertEquals(Set.of("coding"), result.plan().snapshot().capabilities());
 		assertEquals("policy-v1", result.plan().snapshot().policyVersion());
+		verifyNoInteractions(snapshotFactory);
+	}
+
+	@Test
+	void missingSnapshotShouldBeCapturedWithPlanningMetadata() {
+		PlanSnapshot captured = snapshot();
+		PlanSnapshotFactory snapshotFactory = mock(PlanSnapshotFactory.class);
+		when(snapshotFactory.capture("v1", Map.of("source", "test"))).thenReturn(captured);
+		PlannerService service = new PlannerService(List.of(new HermesPlanner()),
+			new PlanValidator(), new ReplanValidator(new PlanValidator()), AuditService.noop(),
+			snapshotFactory, "v1");
+
+		PlanningResult result = service.createPlan(request(HermesPlanner.NAME, null));
+
+		assertTrue(result.success(), () -> result.errors().toString());
+		assertSame(captured, result.plan().snapshot());
+		verify(snapshotFactory).capture("v1", Map.of("source", "test"));
+	}
+
+	@Test
+	void incompleteExplicitSnapshotShouldStillBeRejected() {
+		PlanSnapshot incomplete = new PlanSnapshot(snapshot().agents(), snapshot().capabilities(),
+			snapshot().tools(), snapshot().executors(), null, Map.of());
+		PlannerService service = new PlannerService(List.of(new HermesPlanner()),
+			new PlanValidator());
+
+		PlanningResult result = service.createPlan(request(HermesPlanner.NAME, incomplete));
+
+		assertFalse(result.success());
+		assertTrue(result.errors().contains("POLICY_VERSION_REQUIRED"));
 	}
 
 	@Test

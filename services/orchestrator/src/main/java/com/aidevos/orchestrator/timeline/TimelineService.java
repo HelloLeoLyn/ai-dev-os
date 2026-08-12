@@ -95,7 +95,20 @@ public class TimelineService {
 	private List<TimelineEventDTO> eventsByTask(String taskId) {
 		EventQuery all = new EventQuery(null, null, null, null, null, null, null,
 			null, null, null, java.util.Set.of(), null, null, 0, EventQuery.MAX_LIMIT);
-		return events(all, event -> taskId.equals(event.taskId()));
+		return events(all, event -> belongsToTask(event, taskId));
+	}
+
+	private boolean belongsToTask(EventRecord event, String taskId) {
+		if (taskId.equals(event.taskId())) {
+			return true;
+		}
+		if (taskId.equals(event.aggregateId())
+				&& ("task".equals(event.aggregateType())
+					|| "planning-request".equals(event.aggregateType()))) {
+			return true;
+		}
+		return "plan-approval".equals(event.aggregateType())
+			&& taskId.equals(event.metadata().get("requestId"));
 	}
 
 	private List<TimelineEventDTO> eventsByAggregateOrStep(String id) {

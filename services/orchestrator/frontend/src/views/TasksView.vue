@@ -8,6 +8,8 @@ import TaskTable from '../components/TaskTable.vue'
 import type { CreateTaskRequest, TaskRecord } from '../types/task'
 import type { Project } from '../types/project'
 import type { Workspace } from '../types/workspace'
+import type { PlanApprovalRequest } from '../types/planApproval'
+import { approveTask, getPlanApproval, rejectTask } from '../api/planApprovals'
 
 const tasks = ref<TaskRecord[]>([])
 const selectedTask = ref<TaskRecord | null>(null)
@@ -18,6 +20,9 @@ const submitError = ref<string | null>(null)
 const projects = ref<Project[]>([])
 const workspaces = ref<Workspace[]>([])
 const loadingWorkspaces = ref(false)
+const approval = ref<PlanApprovalRequest | null>(null)
+const approvalLoading = ref(false)
+const decisionBusy = ref(false)
 
 const form = reactive<CreateTaskRequest>({
   name: '',
@@ -67,6 +72,38 @@ watch(() => form.projectId, async (projectId) => {
     loadingWorkspaces.value = false
   }
 })
+
+watch(() => selectedTask.value?.approvalId, async (approvalId) => {
+  approval.value = null
+  if (!approvalId) return
+  approvalLoading.value = true
+  try {
+    approval.value = await getPlanApproval(approvalId)
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '无法加载 Plan Approval。'
+  } finally {
+    approvalLoading.value = false
+  }
+}, { immediate: true })
+
+async function decide(action: 'approve' | 'reject', approver: string, reason = ''): Promise<void> {
+  const task = selectedTask.value
+  if (!task || decisionBusy.value) return
+  decisionBusy.value = true
+  errorMessage.value = null
+  try {
+    const updated = action === 'approve'
+      ? await approveTask(task.taskId, approver)
+      : await rejectTask(task.taskId, approver, reason)
+    selectedTask.value = updated
+    if (updated.approvalId) approval.value = await getPlanApproval(updated.approvalId)
+    await loadTasks()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '审批操作失败。'
+  } finally {
+    decisionBusy.value = false
+  }
+}
 
 async function handleCreate(): Promise<void> {
   if (!form.name.trim() || !form.goal.trim() || !form.projectId || !form.workspaceId) {
@@ -202,7 +239,10 @@ onMounted(async () => Promise.all([loadTasks(), loadProjects()]))
         </el-card>
       </el-col>
       <el-col :xs="24" :lg="9">
-        <TaskDetail :task="selectedTask" />
+        <TaskDetail :task="selectedTask" :approval="approval"
+          :approval-loading="approvalLoading" :decision-busy="decisionBusy"
+          @approve="(approver) => decide('approve', approver)"
+          @reject="(approver, reason) => decide('reject', approver, reason)" />
       </el-col>
     </el-row>
   </section>

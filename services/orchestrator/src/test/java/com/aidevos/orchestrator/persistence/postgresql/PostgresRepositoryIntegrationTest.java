@@ -4,6 +4,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.change.ChangeSet;
@@ -68,6 +70,7 @@ class PostgresRepositoryIntegrationTest {
 
 	private PostgresJdbc jdbc;
 	private ObjectMapper mapper;
+	private javax.sql.DataSource dataSource;
 
 	@BeforeEach
 	void setUp() {
@@ -77,6 +80,7 @@ class PostgresRepositoryIntegrationTest {
 		dataSource.setPassword(POSTGRES.getPassword());
 		new PostgresDocumentStore(dataSource, new ObjectMapper());
 		this.jdbc = new PostgresJdbc(dataSource);
+		this.dataSource = dataSource;
 		this.mapper = new ObjectMapper();
 		this.jdbc.update("DELETE FROM projects");
 		this.jdbc.update("DELETE FROM tasks");
@@ -228,6 +232,32 @@ class PostgresRepositoryIntegrationTest {
 		assertEquals("project-jjx", reloaded.getProjectId());
 		assertEquals("workspace-jjx", reloaded.getWorkspaceId());
 		assertEquals(ExecutionMode.READ_ONLY, reloaded.getExecutionMode());
+	}
+
+	@Test
+	void planRunRetainsOriginalTaskAndApprovedContextAfterRepositoryRestart() {
+		PostgresDocumentStore store = new PostgresDocumentStore(dataSource, mapper);
+		PostgresPlanRunRepository first = new PostgresPlanRunRepository(store, dataSource, mapper);
+		com.aidevos.orchestrator.plan.PlanSnapshot snapshot =
+			new com.aidevos.orchestrator.plan.PlanSnapshot(List.of(), Set.of(), List.of(), Set.of(),
+				"v1", Map.of("projectId", "project-1", "workspaceId", "workspace-1",
+					"workspacePath", "/workspace/project", "executionMode", "READ_ONLY"));
+		com.aidevos.orchestrator.plan.Plan plan = new com.aidevos.orchestrator.plan.Plan("plan-1",
+			1, "Analyze", com.aidevos.orchestrator.plan.PlanStatus.DRAFT, List.of(), List.of(),
+			snapshot, NOW);
+		com.aidevos.orchestrator.plan.run.PlanRun run =
+			new com.aidevos.orchestrator.plan.run.PlanRun("run-1", "approval-1", "task-1",
+				plan, List.of(), NOW);
+		first.create("approval-1", run);
+
+		PostgresPlanRunRepository restarted = new PostgresPlanRunRepository(
+			new PostgresDocumentStore(dataSource, mapper), dataSource, mapper);
+		com.aidevos.orchestrator.plan.run.PlanRun loaded = restarted.get("run-1");
+
+		assertEquals("task-1", loaded.getOriginalTaskId());
+		assertEquals("project-1", loaded.getPlan().snapshot().plannerMetadata().get("projectId"));
+		assertEquals("READ_ONLY",
+			loaded.getPlan().snapshot().plannerMetadata().get("executionMode"));
 	}
 
 	@Test

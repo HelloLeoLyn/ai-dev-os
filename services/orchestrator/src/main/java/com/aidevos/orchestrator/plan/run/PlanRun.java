@@ -9,6 +9,7 @@ public class PlanRun {
 
 	private final String id;
 	private final String approvalId;
+	private final String originalTaskId;
 	private final Plan plan;
 	private final List<StepRun> steps;
 	private final Instant createdAt;
@@ -22,8 +23,13 @@ public class PlanRun {
 	private Instant coordinatorExpiresAt;
 
 	public PlanRun(String id, String approvalId, Plan plan, List<StepRun> steps, Instant createdAt) {
+		this(id, approvalId, null, plan, steps, createdAt);
+	}
+	public PlanRun(String id, String approvalId, String originalTaskId, Plan plan,
+			List<StepRun> steps, Instant createdAt) {
 		this.id = id;
 		this.approvalId = approvalId;
+		this.originalTaskId = originalTaskId;
 		this.plan = plan;
 		this.steps = List.copyOf(steps);
 		this.createdAt = createdAt;
@@ -31,7 +37,13 @@ public class PlanRun {
 	public static PlanRun restore(String id, String approvalId, Plan plan, List<StepRun> steps,
 			Instant createdAt, PlanRunStatus status, String error, Instant startedAt,
 			Instant completedAt) {
-		PlanRun value = new PlanRun(id, approvalId, plan, steps, createdAt);
+		return restore(id, approvalId, null, plan, steps, createdAt, status, error, startedAt,
+			completedAt);
+	}
+	public static PlanRun restore(String id, String approvalId, String originalTaskId, Plan plan,
+			List<StepRun> steps, Instant createdAt, PlanRunStatus status, String error,
+			Instant startedAt, Instant completedAt) {
+		PlanRun value = new PlanRun(id, approvalId, originalTaskId, plan, steps, createdAt);
 		value.status=status; value.error=error; value.startedAt=startedAt;
 		value.completedAt=completedAt;
 		return value;
@@ -75,6 +87,7 @@ public class PlanRun {
 
 	public String getId() { return id; }
 	public String getApprovalId() { return approvalId; }
+	public String getOriginalTaskId() { return originalTaskId; }
 	public Plan getPlan() { return plan; }
 	public String getPlanId() { return plan.id(); }
 	public int getPlanVersion() { return plan.version(); }

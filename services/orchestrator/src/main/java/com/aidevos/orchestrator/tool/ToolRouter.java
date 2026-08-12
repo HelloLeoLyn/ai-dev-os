@@ -16,6 +16,7 @@ import com.aidevos.orchestrator.tool.approval.ToolApprovalService;
 import com.aidevos.orchestrator.tool.approval.ToolApprovalStore;
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
+import com.aidevos.orchestrator.taskcenter.ExecutionMode;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -62,12 +63,21 @@ public class ToolRouter {
 	}
 
 	public ToolResult invoke(ToolInvocation invocation) {
+		return invoke(invocation, ExecutionMode.READ_WRITE);
+	}
+
+	public ToolResult invoke(ToolInvocation invocation, ExecutionMode executionMode) {
 		auditService.toolEvent(EventType.TOOL_INVOCATION_CREATED, invocation, null, "CREATED", null);
 		ToolDefinition definition = registry.getTool(invocation.providerId(), invocation.toolName());
 		ToolProvider provider = registry.getProvider(invocation.providerId());
 		if (definition == null || provider == null) {
 			return auditedFailure(invocation, null, "TOOL_NOT_FOUND", "Tool not found: "
 				+ invocation.providerId() + "/" + invocation.toolName());
+		}
+		if (executionMode == ExecutionMode.READ_ONLY && definition.access() != ToolAccess.READ_ONLY) {
+			return auditedFailure(invocation, null, "TOOL_DENIED",
+				"READ_ONLY task denied workspace-write tool: " + invocation.providerId()
+					+ "/" + invocation.toolName());
 		}
 		ToolPolicyDecision decision = policy.evaluate(definition, invocation);
 		if (decision.action() == ToolPolicyAction.DENY) {

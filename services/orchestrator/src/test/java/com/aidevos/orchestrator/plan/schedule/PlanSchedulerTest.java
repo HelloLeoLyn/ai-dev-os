@@ -144,7 +144,13 @@ class PlanSchedulerTest {
 		assertEquals("explicit evidence", evidence.get("content"));
 		assertEquals("record-source", evidence.get("executionRecordId"));
 		assertEquals("focused", submissions.get(1).getParameters().get("mode"));
-		assertEquals(Set.of("mode", "inputs"), submissions.get(1).getParameters().keySet());
+		assertEquals("request-1", submissions.get(1).getParameters().get("originalTaskId"));
+		assertEquals("", submissions.get(1).getParameters().get("projectId"));
+		assertEquals("", submissions.get(1).getParameters().get("workspaceId"));
+		assertEquals("", submissions.get(1).getParameters().get("workspacePath"));
+		assertEquals("", submissions.get(1).getParameters().get("executionMode"));
+		assertEquals(Set.of("mode", "inputs", "originalTaskId", "projectId", "workspaceId",
+			"workspacePath", "executionMode"), submissions.get(1).getParameters().keySet());
 	}
 
 	@Test

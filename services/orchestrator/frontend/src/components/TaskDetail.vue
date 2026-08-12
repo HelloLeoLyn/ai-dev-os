@@ -2,16 +2,23 @@
 import { RouterLink } from 'vue-router'
 
 import type { TaskRecord, TaskStatus } from '../types/task'
+import type { PlanApprovalRequest } from '../types/planApproval'
+import PlanApprovalDetail from './PlanApprovalDetail.vue'
 
 defineProps<{
   task: TaskRecord | null
+  approval: PlanApprovalRequest | null
+  approvalLoading: boolean
+  decisionBusy: boolean
 }>()
+defineEmits<{ approve: [approver: string]; reject: [approver: string, reason: string] }>()
 
 function statusType(status: TaskStatus): 'success' | 'warning' | 'danger' | 'info' {
   switch (status) {
     case 'SUCCESS':
       return 'success'
     case 'FAILED':
+    case 'REJECTED':
       return 'danger'
     case 'RUNNING':
       return 'info'
@@ -79,6 +86,10 @@ function formatDate(value: string | null): string {
         </span>
       </el-descriptions-item>
     </el-descriptions>
+
+    <p v-if="approvalLoading">正在加载 Plan Approval…</p>
+    <PlanApprovalDetail v-else-if="approval" :approval="approval" :busy="decisionBusy"
+      @approve="$emit('approve', $event)" @reject="(approver, reason) => $emit('reject', approver, reason)" />
 
     <div class="detail-actions">
       <RouterLink

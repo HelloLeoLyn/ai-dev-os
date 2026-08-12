@@ -41,14 +41,40 @@ public class StepTaskFactory {
 			parameters.putAll(step.toolArguments());
 		}
 		task.setParameters(parameters);
-		task.setMetadata(Map.of(
+		Map<String, Object> metadata = new LinkedHashMap<>();
+		metadata.put("originalTaskId", value(planRun.getOriginalTaskId()));
+		metadata.put("projectId", snapshotValue(planRun, "projectId"));
+		metadata.put("workspaceId", snapshotValue(planRun, "workspaceId"));
+		metadata.put("workspacePath", snapshotValue(planRun, "workspacePath"));
+		metadata.put("executionMode", snapshotValue(planRun, "executionMode"));
+		metadata.putAll(Map.of(
 			"planRunId", planRun.getId(),
 			"stepRunId", stepRun.getId(),
 			"attemptId", attempt.getId(),
 			"planId", planRun.getPlanId(),
 			"planVersion", planRun.getPlanVersion(),
 			"stepId", step.id()));
+		task.setMetadata(Map.copyOf(metadata));
+		parameters.put("originalTaskId", metadata.get("originalTaskId"));
+		parameters.put("projectId", metadata.get("projectId"));
+		parameters.put("workspaceId", metadata.get("workspaceId"));
+		parameters.put("workspacePath", metadata.get("workspacePath"));
+		parameters.put("executionMode", metadata.get("executionMode"));
+		if ("READ_ONLY".equals(metadata.get("executionMode"))) {
+			parameters.put("sandbox", "read-only");
+		}
+		task.setParameters(parameters);
 		task.setStatus("PLANNED");
 		return task;
+	}
+
+	private String snapshotValue(PlanRun run, String key) {
+		if (run.getPlan().snapshot() == null) return "";
+		Object value = run.getPlan().snapshot().plannerMetadata().get(key);
+		return value == null ? "" : String.valueOf(value);
+	}
+
+	private String value(String value) {
+		return value == null ? "" : value;
 	}
 }

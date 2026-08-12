@@ -111,6 +111,33 @@ class ToolExecutorTest {
 		assertEquals("TOOL_TIMEOUT", result.getMetadata().get("toolResultCode"));
 	}
 
+	@Test
+	void readOnlyExecutionRejectsWorkspaceWriteTool() {
+		ToolProvider provider = new ToolProvider() {
+			@Override public String getId() { return "filesystem"; }
+			@Override public List<ToolDefinition> getTools() {
+				return List.of(new ToolDefinition("filesystem", "write_file", "Write", Map.of(),
+					ToolAccess.WORKSPACE_WRITE));
+			}
+			@Override public ToolResult invoke(ToolInvocation invocation) {
+				return ToolResult.success("written", List.of());
+			}
+		};
+		router = new ToolRouter(new ToolRegistry(List.of(provider)), new AllowRegisteredToolPolicy());
+		ToolExecutor executor = new ToolExecutor(router,
+			new DefaultToolArtifactMapper(new ArtifactContentLimiter(10_000)));
+		ExecutionContext context = context("write_file", Map.of("path", "file.txt"), "PT1S");
+		Map<String, Object> parameters = new java.util.LinkedHashMap<>(context.getParameters());
+		parameters.put("executionMode", "READ_ONLY");
+		context.setParameters(parameters);
+
+		ExecutionResult result = executor.execute(context);
+
+		assertFalse(result.isSuccess());
+		assertEquals("TOOL_DENIED", result.getMetadata().get("toolResultCode"));
+		assertTrue(result.getMessage().contains("READ_ONLY"));
+	}
+
 	private ToolExecutor executor(Function<ToolInvocation, ToolResult> handler) {
 		ToolProvider provider = new ToolProvider() {
 			@Override public String getId() { return "filesystem"; }

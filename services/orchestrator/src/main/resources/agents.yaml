@@ -6,6 +6,21 @@ agents:
       - planning
       - analysis
 
+  - name: analyst
+    description: Performs read-only project analysis with Codex
+    enabled: true
+    type: system
+    permissionLevel: read-only
+    version: 1.0.0
+    executor: codex
+    codex:
+      workspace:
+      model:
+      sandbox: read-only
+    capabilities:
+      - analysis
+      - read-only
+
   - name: executor
     executor: mock
     version: 1.0.0

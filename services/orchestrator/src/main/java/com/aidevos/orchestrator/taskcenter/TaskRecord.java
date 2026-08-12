@@ -110,6 +110,12 @@ public class TaskRecord {
 		this.updatedAt = Instant.now();
 	}
 
+	public synchronized void markRejected(String reason) {
+		this.status = TaskStatus.REJECTED;
+		this.errorMessage = reason;
+		this.updatedAt = Instant.now();
+	}
+
 	public synchronized void markCoding() {
 		if (isTerminal()) {
 			return;
@@ -144,7 +150,7 @@ public class TaskRecord {
 
 	private boolean isTerminal() {
 		return status == TaskStatus.SUCCESS || status == TaskStatus.FAILED
-			|| status == TaskStatus.COMPLETED;
+			|| status == TaskStatus.COMPLETED || status == TaskStatus.REJECTED;
 	}
 
 	public synchronized void setPlanRunId(String planRunId) {

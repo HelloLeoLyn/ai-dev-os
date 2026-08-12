@@ -44,4 +44,36 @@ public class TaskController {
 		return ResponseEntity.ok(taskCenterService.getTask(id)
 			.orElseThrow(() -> new ResourceNotFoundException("Task", id)));
 	}
+
+	@PostMapping("/{id}/approve")
+	public ResponseEntity<?> approve(@PathVariable String id,
+			@RequestBody DecisionRequest request) {
+		ensureTask(id);
+		try {
+			return ResponseEntity.ok(taskCenterService.approve(id, request.approver()));
+		}
+		catch (IllegalStateException exception) {
+			return ResponseEntity.status(HttpStatus.CONFLICT).body(exception.getMessage());
+		}
+	}
+
+	@PostMapping("/{id}/reject")
+	public ResponseEntity<?> reject(@PathVariable String id,
+			@RequestBody DecisionRequest request) {
+		ensureTask(id);
+		try {
+			return ResponseEntity.ok(taskCenterService.reject(id, request.approver(), request.reason()));
+		}
+		catch (IllegalStateException exception) {
+			return ResponseEntity.status(HttpStatus.CONFLICT).body(exception.getMessage());
+		}
+	}
+
+	private void ensureTask(String id) {
+		if (taskCenterService.getTask(id).isEmpty()) {
+			throw new ResourceNotFoundException("Task", id);
+		}
+	}
+
+	public record DecisionRequest(String approver, String reason) { }
 }

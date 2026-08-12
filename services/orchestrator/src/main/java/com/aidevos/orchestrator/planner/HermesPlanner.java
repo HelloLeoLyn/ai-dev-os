@@ -28,6 +28,9 @@ public class HermesPlanner implements Planner {
 
 	@Override
 	public PlanDraft plan(PlanningRequest request) {
+		if ("project-analysis".equals(request.structuredInput().get("taskType"))) {
+			return projectAnalysisPlan(request);
+		}
 		if (Boolean.TRUE.equals(request.structuredInput().get("multiAgent"))) {
 			return multiStepPlan(request);
 		}
@@ -41,6 +44,27 @@ public class HermesPlanner implements Planner {
 			StepStatus.PLANNED, assignment, null, null, Map.of(),
 			List.of(new ExpectedArtifact("result", "result", "application/json", true, 1)),
 			RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN, false);
+		return new PlanDraft("plan-" + request.requestId(), 1, request.goal(), List.of(step),
+			List.of(), request.snapshot(), name(), request.model(), request.promptVersion(),
+			request.metadata());
+	}
+
+	private PlanDraft projectAnalysisPlan(PlanningRequest request) {
+		PlanSnapshot.AgentSnapshot analyst = request.snapshot() == null ? null
+			: request.snapshot().agents().stream()
+				.filter(PlanSnapshot.AgentSnapshot::enabled)
+				.filter(agent -> agent.capabilities().contains("analysis"))
+				.filter(agent -> !"mock".equals(agent.executor()))
+				.filter(agent -> "read-only".equals(agent.permissionLevel()))
+				.findFirst().orElse(null);
+		AgentAssignment assignment = analyst == null
+			? new AgentAssignment(null, List.of("analysis", "read-only"), List.of())
+			: new AgentAssignment(analyst.name(), List.of("analysis", "read-only"), List.of());
+		PlanStep step = new PlanStep("analyze-project", "Analyze project", request.goal(),
+			StepStatus.PLANNED, assignment,
+			Map.of("sandbox", "read-only"), List.of(), null, null, Map.of(),
+			List.of(new ExpectedArtifact("codex-result", "codex-result.txt", "text/plain",
+				true, 1)), RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN, false);
 		return new PlanDraft("plan-" + request.requestId(), 1, request.goal(), List.of(step),
 			List.of(), request.snapshot(), name(), request.model(), request.promptVersion(),
 			request.metadata());

@@ -16,6 +16,7 @@ import com.aidevos.orchestrator.plan.approval.PlanApprovalRequest;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalService;
 import com.aidevos.orchestrator.plan.run.PlanRun;
 import com.aidevos.orchestrator.plan.run.PlanRunRepository;
+import com.aidevos.orchestrator.plan.schedule.PlanScheduler;
 import com.aidevos.orchestrator.planner.PlanningRequest;
 import com.aidevos.orchestrator.planner.PlanningResult;
 import com.aidevos.orchestrator.planner.PlannerService;
@@ -39,32 +40,42 @@ public class TaskCenterService {
 	private final PlanApprovalService approvalService;
 	private final PlanRunRepository planRunRepository;
 	private final AuditService auditService;
+	private final PlanScheduler planScheduler;
 	private AgentCoordinatorService agentCoordinatorService;
 
 	public TaskCenterService(PlannerService plannerService,
 			PlanApprovalService approvalService, PlanRunRepository planRunRepository) {
 		this(plannerService, approvalService, planRunRepository, null, AuditService.noop(),
-			new InMemoryTaskRepository());
+			new InMemoryTaskRepository(), null);
 	}
 
 	public TaskCenterService(PlannerService plannerService,
 			PlanApprovalService approvalService, PlanRunRepository planRunRepository,
 			@Lazy AgentCoordinatorService agentCoordinatorService, AuditService auditService) {
 		this(plannerService, approvalService, planRunRepository, agentCoordinatorService,
-			auditService, new InMemoryTaskRepository());
+			auditService, new InMemoryTaskRepository(), null);
+	}
+
+	public TaskCenterService(PlannerService plannerService,
+			PlanApprovalService approvalService, PlanRunRepository planRunRepository,
+			@Lazy AgentCoordinatorService agentCoordinatorService, AuditService auditService,
+			TaskRepository repository) {
+		this(plannerService, approvalService, planRunRepository, agentCoordinatorService,
+			auditService, repository, null);
 	}
 
 	@Autowired
 	public TaskCenterService(PlannerService plannerService,
 			PlanApprovalService approvalService, PlanRunRepository planRunRepository,
 			@Lazy AgentCoordinatorService agentCoordinatorService, AuditService auditService,
-			TaskRepository repository) {
+			TaskRepository repository, @Lazy PlanScheduler planScheduler) {
 		this.plannerService = plannerService;
 		this.approvalService = approvalService;
 		this.planRunRepository = planRunRepository;
 		this.agentCoordinatorService = agentCoordinatorService;
 		this.auditService = auditService;
 		this.repository = repository;
+		this.planScheduler = planScheduler;
 	}
 
 	/**
@@ -86,12 +97,13 @@ public class TaskCenterService {
 		TaskRecord task = new TaskRecord(taskId, request.name(), request.description(),
 			request.projectId(), request.workspaceId(), request.executionMode());
 		repository.save(task);
-		auditService.adminEvent(EventType.USER_OPERATION, "task", taskId, "USER",
+		auditService.taskSubmitted(taskId,
 			"User submitted task", Map.of("name", request.name(),
 				"projectId", request.projectId() == null ? "default" : request.projectId()));
 		try {
 			PlanningResult result = plannerService.createPlan(new PlanningRequest(taskId,
-				request.goal(), plannerName(request), null, null, null, null,
+				request.goal(), plannerName(request), null, null,
+				planningInput(task, workspacePath), null,
 				planningMetadata(task, workspacePath)));
 			if (result.success() && result.plan() != null) {
 				PlanApprovalRequest approval = approvalService.create(taskId, result.plan());
@@ -106,6 +118,15 @@ public class TaskCenterService {
 		}
 		repository.save(task);
 		return task;
+	}
+
+	private Map<String, Object> planningInput(TaskRecord task, String workspacePath) {
+		if (task.getExecutionMode() != ExecutionMode.READ_ONLY
+				|| workspacePath == null || workspacePath.isBlank()) {
+			return Map.of();
+		}
+		return Map.of("taskType", "project-analysis", "workspacePath", workspacePath,
+			"executionMode", ExecutionMode.READ_ONLY.name());
 	}
 
 	/**
@@ -185,11 +206,113 @@ public class TaskCenterService {
 		}
 	}
 
+	public synchronized TaskRecord approve(String taskId, String approver) {
+		TaskRecord task = requireTask(taskId);
+		PlanApprovalRequest approval = requireTaskApproval(task);
+		if (task.getStatus() != TaskStatus.PLANNING && task.getStatus() != TaskStatus.APPROVED
+				&& task.getStatus() != TaskStatus.RUNNING) {
+			throw new IllegalStateException("Task cannot be approved from state: " + task.getStatus());
+		}
+		if (approval.getStatus() == ApprovalStatus.REJECTED) {
+			throw new IllegalStateException("Task plan approval has been rejected");
+		}
+		if (approval.getStatus() == ApprovalStatus.PENDING) {
+			approval = approvalService.approve(approval.getId(), approver);
+		}
+		else if (approval.getStatus() != ApprovalStatus.APPROVED
+				&& approval.getStatus() != ApprovalStatus.CONSUMED) {
+			throw new IllegalStateException("Task plan approval cannot be approved from state: "
+				+ approval.getStatus());
+		}
+		String runId = planRunRepository.findRunIdByApproval(approval.getId());
+		if (runId == null) {
+			if (planScheduler == null) {
+				throw new IllegalStateException("Plan scheduler is not configured");
+			}
+			try {
+				PlanRun run = planScheduler.start(approval.getId());
+				runId = run.getId();
+			}
+			catch (IllegalStateException exception) {
+				runId = planRunRepository.findRunIdByApproval(approval.getId());
+				if (runId == null) {
+					throw exception;
+				}
+			}
+		}
+		TaskStatus before = task.getStatus();
+		task.setPlanRunId(runId);
+		task.markRunning();
+		repository.save(task);
+		if (before != TaskStatus.RUNNING) {
+			auditService.taskEvent(EventType.TASK_RUNNING, taskId, before.name(),
+				TaskStatus.RUNNING.name(), "Approved task execution started",
+				Map.of("approvalId", approval.getId(), "planRunId", runId));
+		}
+		return task;
+	}
+
+	public synchronized TaskRecord reject(String taskId, String approver, String reason) {
+		TaskRecord task = requireTask(taskId);
+		PlanApprovalRequest approval = requireTaskApproval(task);
+		if (task.getStatus() != TaskStatus.PLANNING && task.getStatus() != TaskStatus.REJECTED) {
+			throw new IllegalStateException("Task cannot be rejected from state: " + task.getStatus());
+		}
+		if (approval.getStatus() == ApprovalStatus.APPROVED
+				|| approval.getStatus() == ApprovalStatus.CONSUMED) {
+			throw new IllegalStateException("Approved task plan cannot be rejected");
+		}
+		if (approval.getStatus() == ApprovalStatus.PENDING) {
+			approval = approvalService.reject(approval.getId(), approver, reason);
+		}
+		else if (approval.getStatus() != ApprovalStatus.REJECTED) {
+			throw new IllegalStateException("Task plan approval cannot be rejected from state: "
+				+ approval.getStatus());
+		}
+		if (planRunRepository.findRunIdByApproval(approval.getId()) != null) {
+			throw new IllegalStateException("Rejected task plan already has a PlanRun");
+		}
+		TaskStatus before = task.getStatus();
+		task.markRejected(approval.getRejectionReason());
+		repository.save(task);
+		if (before != TaskStatus.REJECTED) {
+			auditService.taskEvent(EventType.TASK_REJECTED, taskId, before.name(),
+				TaskStatus.REJECTED.name(), "Task plan rejected",
+				Map.of("approvalId", approval.getId(), "reason",
+					approval.getRejectionReason()));
+		}
+		return task;
+	}
+
+	private TaskRecord requireTask(String taskId) {
+		TaskRecord task = repository.get(taskId);
+		if (task == null) {
+			throw new IllegalArgumentException("Task not found: " + taskId);
+		}
+		return task;
+	}
+
+	private PlanApprovalRequest requireTaskApproval(TaskRecord task) {
+		if (task.getApprovalId() == null || task.getApprovalId().isBlank()) {
+			throw new IllegalStateException("Task has no plan approval");
+		}
+		PlanApprovalRequest approval = approvalService.get(task.getApprovalId());
+		if (approval == null) {
+			throw new IllegalStateException("Task plan approval not found: "
+				+ task.getApprovalId());
+		}
+		if (!task.getTaskId().equals(approval.getRequestId())) {
+			throw new IllegalStateException("Task and plan approval requestId do not match");
+		}
+		return approval;
+	}
+
 	private void refresh(TaskRecord task) {
 		TaskStatus before = task.getStatus();
 		String beforeRunId = task.getPlanRunId();
 		if (task.getStatus() == TaskStatus.SUCCESS || task.getStatus() == TaskStatus.FAILED
-				|| task.getStatus() == TaskStatus.COMPLETED) {
+				|| task.getStatus() == TaskStatus.COMPLETED
+				|| task.getStatus() == TaskStatus.REJECTED) {
 			return;
 		}
 		String approvalId = task.getApprovalId();
@@ -233,6 +356,10 @@ public class TaskCenterService {
 		metadata.put("workspaceId", task.getWorkspaceId() == null ? "" : task.getWorkspaceId());
 		metadata.put("workspacePath", workspacePath == null ? "" : workspacePath);
 		metadata.put("executionMode", task.getExecutionMode().name());
+		if (task.getExecutionMode() == ExecutionMode.READ_ONLY
+				&& workspacePath != null && !workspacePath.isBlank()) {
+			metadata.put("taskType", "project-analysis");
+		}
 		return Map.copyOf(metadata);
 	}
 

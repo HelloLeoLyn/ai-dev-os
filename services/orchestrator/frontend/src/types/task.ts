@@ -17,6 +17,7 @@ export type TaskStatus =
   | 'RUNNING'
   | 'SUCCESS'
   | 'COMPLETED'
+  | 'REJECTED'
   | 'FAILED'
 
 export interface TaskRecord {

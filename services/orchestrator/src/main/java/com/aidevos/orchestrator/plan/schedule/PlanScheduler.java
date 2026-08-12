@@ -25,6 +25,7 @@ import com.aidevos.orchestrator.model.TaskDefinition;
 import com.aidevos.orchestrator.plan.Dependency;
 import com.aidevos.orchestrator.plan.ArtifactReference;
 import com.aidevos.orchestrator.plan.ExpectedArtifact;
+import com.aidevos.orchestrator.plan.ExecutablePlanGuard;
 import com.aidevos.orchestrator.plan.Plan;
 import com.aidevos.orchestrator.plan.PlanStep;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalRequest;
@@ -121,11 +122,13 @@ public class PlanScheduler {
 			throw new IllegalStateException("Plan must be approved before execution");
 		}
 		Plan plan = approval.getPlan();
+		ExecutablePlanGuard.requireExecutable(plan);
 		String runId = runId(approvalId);
 		List<StepRun> stepRuns = plan.steps().stream()
 			.map(step -> new StepRun(stepRunId(runId, step.id()), step.id()))
 			.toList();
-		PlanRun run = new PlanRun(runId, approvalId, plan, stepRuns, Instant.now(clock));
+		PlanRun run = new PlanRun(runId, approvalId, approval.getRequestId(), plan, stepRuns,
+			Instant.now(clock));
 		PlanRun stored = runRepository.createIfAbsent(approvalId, run);
 		if (stored != run) {
 			throw new IllegalStateException("Plan approval has already started a run");

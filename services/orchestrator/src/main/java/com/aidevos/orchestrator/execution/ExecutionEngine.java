@@ -145,17 +145,39 @@ public class ExecutionEngine {
 		ExecutionContext context = new ExecutionContext();
 		context.setExecutionId(executionId);
 		context.setJobId(jobId);
-		context.setTaskId(taskDefinition.getId());
+		String originalTaskId = taskMetadataString(taskDefinition, "originalTaskId");
+		context.setTaskId(originalTaskId == null || originalTaskId.isBlank()
+			? taskDefinition.getId() : originalTaskId);
 		context.setTaskName(taskDefinition.getName());
 		context.setDescription(taskDefinition.getDescription());
 		context.setAgentName(agent.getName());
 		context.setInput(taskDefinition.getDescription());
-		context.setWorkspace(System.getProperty("user.dir"));
+		String workspacePath = taskMetadataString(taskDefinition, "workspacePath");
+		context.setWorkspace(workspacePath == null || workspacePath.isBlank()
+			? System.getProperty("user.dir") : workspacePath);
+		context.setProjectId(taskMetadataString(taskDefinition, "projectId"));
+		if (taskDefinition.getMetadata() != null) {
+			context.getMetadata().putAll(taskDefinition.getMetadata());
+		}
 		Map<String, Object> parameters = new LinkedHashMap<>();
 		if (taskDefinition.getParameters() != null) {
 			parameters.putAll(taskDefinition.getParameters());
 		}
 		parameters.putAll(agent.getExecutorConfig());
+		String executionMode = taskMetadataString(taskDefinition, "executionMode");
+		if (executionMode != null) {
+			parameters.put("executionMode", executionMode);
+			if ("READ_ONLY".equals(executionMode)) {
+				parameters.put("sandbox", "read-only");
+				Object coding = parameters.get("coding");
+				if (coding instanceof Map<?, ?> source) {
+					Map<String, Object> safeCoding = new LinkedHashMap<>();
+					source.forEach((key, value) -> safeCoding.put(String.valueOf(key), value));
+					safeCoding.put("sandbox", "read-only");
+					parameters.put("coding", Map.copyOf(safeCoding));
+				}
+			}
+		}
 		context.setParameters(parameters);
 		return context;
 	}
@@ -179,7 +201,9 @@ public class ExecutionEngine {
 	private ExecutionReport createReport(TaskDefinition taskDefinition, String agentName,
 			ExecutionResult result) {
 		ExecutionReport report = new ExecutionReport();
-		report.setTaskId(taskDefinition.getId());
+		String originalTaskId = taskMetadataString(taskDefinition, "originalTaskId");
+		report.setTaskId(originalTaskId == null || originalTaskId.isBlank()
+			? taskDefinition.getId() : originalTaskId);
 		report.setAgentName(agentName);
 		report.setSuccess(result.isSuccess());
 		report.setOutput(result.getOutput());
@@ -193,7 +217,9 @@ public class ExecutionEngine {
 			Instant startedAt, ExecutionAttempt attempt) {
 		ExecutionRecord record = new ExecutionRecord();
 		record.setId(UUID.randomUUID().toString());
-		record.setTaskId(taskDefinition.getId());
+		String originalTaskId = taskMetadataString(taskDefinition, "originalTaskId");
+		record.setTaskId(originalTaskId == null || originalTaskId.isBlank()
+			? taskDefinition.getId() : originalTaskId);
 		record.setAgentName(agentName);
 		record.setStatus(result.isApprovalRequired() ? "WAITING_APPROVAL"
 			: result.isSuccess() ? "SUCCESS" : "FAILED");

@@ -140,6 +140,31 @@ class TimelineServiceTest {
 	}
 
 	@Test
+	void shouldResolveHistoricalTaskEventsWithoutFormalTaskId() {
+		String taskId = "task-center-legacy";
+		when(taskCenterService.getTask(taskId)).thenReturn(Optional.of(
+			new TaskRecord(taskId, "Legacy task", "Historical audit events")));
+		append(new EventRecord("event-task", EventType.USER_OPERATION,
+			Instant.parse("2026-08-01T00:00:00Z"), 0, "task", taskId,
+			null, null, null, null, null, null, null, null, null, null,
+			null, null, null, "USER", "USER", "submitted", Map.of(), "idem-task", 1));
+		append(new EventRecord("event-plan", EventType.PLAN_CREATED,
+			Instant.parse("2026-08-01T00:00:01Z"), 0, "planning-request", taskId,
+			null, "CREATED", null, null, null, null, null, null, null, null,
+			null, null, null, "USER", taskId, "created", Map.of(), "idem-plan", 1));
+		append(new EventRecord("event-approval", EventType.PLAN_APPROVAL_REQUESTED,
+			Instant.parse("2026-08-01T00:00:02Z"), 0, "plan-approval", "approval-1",
+			null, "PENDING", null, "plan-1", 1, null, null, null, null, null,
+			null, null, "approval-1", "SYSTEM", null, "approval requested",
+			Map.of("requestId", taskId), "idem-approval", 1));
+
+		UnifiedTimeline timeline = service.timeline(taskId);
+
+		assertEquals(List.of("USER_OPERATION", "PLAN_CREATED", "PLAN_APPROVAL_REQUESTED"),
+			timeline.events().stream().map(TimelineEventDTO::eventType).toList());
+	}
+
+	@Test
 	void shouldFallBackToAuditEvents() {
 		append(new EventRecord("event-1", EventType.STEP_SUCCEEDED,
 			Instant.parse("2026-08-01T00:00:00Z"), 0, "step-run", "step-1",

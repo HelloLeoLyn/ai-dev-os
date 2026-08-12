@@ -89,7 +89,7 @@ public class AuditService {
 	public void executionEvent(EventType type, TaskDefinition task, String executionId, String jobId,
 			String executionRecordId, String status, String agentName) {
 		String aggregateId = executionId == null ? executionRecordId : executionId;
-		record(event(type, "execution", aggregateId, null, status, task.getId(),
+		record(event(type, "execution", aggregateId, null, status, taskId(task),
 			metadata(task, "planId"), metadataInteger(task, "planVersion"),
 			metadata(task, "planRunId"), metadata(task, "stepRunId"), metadata(task, "attemptId"),
 			jobId, executionId, executionRecordId, null, null, "AGENT", agentName, type.name(),
@@ -161,7 +161,7 @@ public class AuditService {
 	public void agentEvent(EventType type, TaskDefinition task, String executionId, String jobId,
 			String agentName, String status) {
 		String aggregateId = executionId == null ? task.getId() + ":" + agentName : executionId;
-		record(event(type, "agent-execution", aggregateId, null, status, task.getId(),
+		record(event(type, "agent-execution", aggregateId, null, status, taskId(task),
 			metadata(task, "planId"), metadataInteger(task, "planVersion"),
 			metadata(task, "planRunId"), metadata(task, "stepRunId"), metadata(task, "attemptId"),
 			jobId, executionId, null, null, null, "AGENT", agentName, type.name(), Map.of(),
@@ -173,7 +173,7 @@ public class AuditService {
 		String requestId = request == null ? "unknown" : request.requestId();
 		Map<String, Object> metadata = errors == null || errors.isEmpty()
 			? Map.of() : Map.of("errors", List.copyOf(errors));
-		record(event(type, "planning-request", requestId, null, status, null, null, null,
+		record(event(type, "planning-request", requestId, null, status, requestId, null, null,
 			null, null, null, null, null, null, null, null, "USER", requestId, type.name(),
 			metadata, type + ":planning-request:" + requestId));
 	}
@@ -183,7 +183,8 @@ public class AuditService {
 		String attemptId = attempt == null ? null : attempt.getId();
 		String jobId = attempt == null ? null : attempt.getJobId();
 		String recordId = attempt == null ? null : attempt.getExecutionRecordId();
-		record(event(type, "step-run", step.getId(), fromStatus, toStatus, null, run.getPlanId(),
+		record(event(type, "step-run", step.getId(), fromStatus, toStatus,
+			run.getOriginalTaskId(), run.getPlanId(),
 			run.getPlanVersion(), run.getId(), step.getId(), attemptId, jobId, null, recordId,
 			null, null, "SYSTEM", "plan-scheduler", type.name(),
 			Map.of("stepId", step.getStepId()), type + ":step:" + step.getId() + ":"
@@ -619,6 +620,13 @@ public class AuditService {
 			type + ":task:" + taskId + ":" + value(fromStatus) + ":" + value(toStatus)));
 	}
 
+	public void taskSubmitted(String taskId, String summary, Map<String, Object> metadata) {
+		record(event(EventType.USER_OPERATION, "task", taskId, null, null, taskId, null, null,
+			null, null, null, null, null, null, null, null, "USER", "USER", summary,
+			metadata == null ? Map.of() : Map.copyOf(metadata),
+			"USER_OPERATION:task:" + taskId + ":" + UUID.randomUUID()));
+	}
+
 	/**
 	 * Records an autonomous optimization event (OPTIMIZATION_STARTED /
 	 * OPTIMIZATION_COMPLETED / OPTIMIZATION_RECOMMENDED / AGENT_SCORE_UPDATED)
@@ -766,7 +774,8 @@ public class AuditService {
 
 	public void planApprovalEvent(EventType type, PlanApprovalRequest approval, String fromStatus,
 			String toStatus) {
-		record(event(type, "plan-approval", approval.getId(), fromStatus, toStatus, null,
+		record(event(type, "plan-approval", approval.getId(), fromStatus, toStatus,
+			approval.getRequestId(),
 			approval.getPlanId(), approval.getPlanVersion(), null, null, null, null, null, null,
 			null, approval.getId(), approval.getApprover() == null ? "SYSTEM" : "USER",
 			approval.getApprover(), type.name(), Map.of("requestId", approval.getRequestId()),
@@ -774,7 +783,8 @@ public class AuditService {
 	}
 
 	private void planRunEvent(EventType type, PlanRun run, String fromStatus, String toStatus) {
-		record(event(type, "plan-run", run.getId(), fromStatus, toStatus, null, run.getPlanId(),
+		record(event(type, "plan-run", run.getId(), fromStatus, toStatus,
+			run.getOriginalTaskId(), run.getPlanId(),
 			run.getPlanVersion(), run.getId(), null, null, null, null, null, null,
 			run.getApprovalId(), "SYSTEM", "plan-scheduler", type.name(), Map.of(),
 			type + ":plan-run:" + run.getId() + ":" + value(fromStatus) + ":" + value(toStatus)
@@ -795,6 +805,11 @@ public class AuditService {
 			taskId, planId, planVersion, planRunId, stepRunId, attemptId, jobId, executionId,
 			executionRecordId, invocationId, approvalId, actorType, actorId, summary, metadata,
 			idempotencyKey);
+	}
+
+	private String taskId(TaskDefinition task) {
+		String original = metadata(task, "originalTaskId");
+		return original == null || original.isBlank() ? task.getId() : original;
 	}
 
 	private EventRecord eventAt(Instant occurredAt, EventType type, String aggregateType,

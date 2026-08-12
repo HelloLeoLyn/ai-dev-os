@@ -11,6 +11,7 @@ import com.aidevos.orchestrator.tool.ToolArtifactMapper;
 import com.aidevos.orchestrator.tool.ToolInvocation;
 import com.aidevos.orchestrator.tool.ToolResult;
 import com.aidevos.orchestrator.tool.ToolRouter;
+import com.aidevos.orchestrator.taskcenter.ExecutionMode;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -35,7 +36,7 @@ public class ToolExecutor implements AgentExecutor {
 	public ExecutionResult execute(ExecutionContext context) {
 		try {
 			ToolInvocation invocation = invocation(context);
-			ToolResult toolResult = toolRouter.invoke(invocation);
+			ToolResult toolResult = toolRouter.invoke(invocation, executionMode(context));
 			ExecutionResult result = new ExecutionResult();
 			result.setSuccess(toolResult.success());
 			result.setMessage(toolResult.message());
@@ -56,6 +57,17 @@ public class ToolExecutor implements AgentExecutor {
 			result.setMessage("Invalid tool invocation: " + exception.getMessage());
 			result.getMetadata().put("toolResultCode", "INVALID_TOOL_INVOCATION");
 			return result;
+		}
+	}
+
+	private ExecutionMode executionMode(ExecutionContext context) {
+		Object value = context.getParameters().get("executionMode");
+		if (value == null) return ExecutionMode.READ_WRITE;
+		try {
+			return ExecutionMode.valueOf(String.valueOf(value));
+		}
+		catch (IllegalArgumentException ignored) {
+			return ExecutionMode.READ_WRITE;
 		}
 	}
 

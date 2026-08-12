@@ -64,7 +64,8 @@ public class CodexExecutor implements AgentExecutor {
 	@Override
 	public ExecutionResult execute(ExecutionContext context) {
 		WorkspaceSnapshot workspace = workspaceResolver.resolve(context);
-		CodexSandbox sandbox = CodexSandbox.parse(codingConfig(context, "sandbox", "workspace-write"));
+		CodexSandbox sandbox = readOnly(context) ? CodexSandbox.READ_ONLY
+			: CodexSandbox.parse(codingConfig(context, "sandbox", "workspace-write"));
 		CodingApprovalRequest approval = approvalService.requireApproval(context, workspace.path(), sandbox);
 		if (approval != null) {
 			ExecutionResult waiting = new ExecutionResult();
@@ -89,6 +90,11 @@ public class CodexExecutor implements AgentExecutor {
 			workspace.path(), after.branch().trim(), after.status(), after.diffStat());
 		return toExecutionResult(executionResult, codexOutput, sandbox, before, after,
 			contextMetadataString(context, "approvalId"));
+	}
+
+	private boolean readOnly(ExecutionContext context) {
+		Object value = context.getParameters().get("executionMode");
+		return value != null && "READ_ONLY".equalsIgnoreCase(String.valueOf(value));
 	}
 
 	private ExecutionResult toExecutionResult(CodexExecutionResult executionResult,
