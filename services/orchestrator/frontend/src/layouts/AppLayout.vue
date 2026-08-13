@@ -1,33 +1,15 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted } from 'vue'
-import { RouterLink, RouterView } from 'vue-router'
+import { RouterLink, RouterView, useRoute } from 'vue-router'
 import TaskNotificationCenter from '../components/TaskNotificationCenter.vue'
 import { useTaskNotifications } from '../composables/useTaskNotifications'
+import { isNavigationActive, navigationGroups } from '../navigation'
 
 const taskNotifications = useTaskNotifications()
+const route = useRoute()
 onMounted(taskNotifications.start)
 onBeforeUnmount(taskNotifications.stop)
 
-const navigation = [
-  { to: '/dashboard', label: 'Dashboard' },
-  { to: '/jobs', label: 'Jobs' },
-  { to: '/executions', label: 'Executions' },
-  { to: '/timeline', label: 'Timeline' },
-  { to: '/audit', label: 'Audit' },
-  { to: '/tasks', label: 'Tasks' },
-    { to: '/projects', label: 'Projects' },
-  { to: '/workspaces', label: 'Workspaces' },
-  { to: '/schedules', label: 'Schedules' },
-  { to: '/skills', label: 'Skills' },
-  { to: '/agents', label: 'Agents' },
-  { to: '/agent-market', label: 'Agent Market' },
-  { to: '/agent-metrics', label: 'Agent Metrics' },
-  { to: '/agent-flow', label: 'Agent Flow' },
-  { to: '/models', label: 'Models' },
-  { to: '/memory', label: 'Memory' },
-  { to: '/mcp/plugins', label: 'MCP Plugins' },
-  { to: '/tests', label: 'Tests' },
-]
 </script>
 
 <template>
@@ -42,9 +24,13 @@ const navigation = [
       </div>
 
       <nav class="app-navigation" aria-label="Primary navigation">
-        <RouterLink v-for="item in navigation" :key="item.to" :to="item.to">
-          {{ item.label }}
-        </RouterLink>
+        <section v-for="group in navigationGroups" :key="group.label" class="navigation-group">
+          <p>{{ group.label }}</p>
+          <RouterLink v-for="item in group.items" :key="item.to" :to="item.to"
+            :class="{ 'is-active': isNavigationActive(route.path, item.to) }">
+            {{ item.label }}
+          </RouterLink>
+        </section>
       </nav>
     </aside>
 

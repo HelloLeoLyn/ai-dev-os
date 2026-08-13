@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { TaskRecord, TaskStatus } from '../types/task'
+import type { TaskRecord } from '../types/task'
+import StatusBadge from './StatusBadge.vue'
 
 defineProps<{
   tasks: TaskRecord[]
@@ -10,25 +11,6 @@ defineProps<{
 const emit = defineEmits<{
   select: [task: TaskRecord]
 }>()
-
-function statusType(status: TaskStatus): 'success' | 'warning' | 'danger' | 'info' {
-  switch (status) {
-    case 'SUCCESS':
-    case 'COMPLETED':
-      return 'success'
-    case 'FAILED':
-      return 'danger'
-    case 'RUNNING':
-    case 'CODING':
-    case 'TESTING':
-      return 'info'
-    case 'PLANNING':
-    case 'APPROVED':
-      return 'warning'
-    default:
-      return 'info'
-  }
-}
 
 function formatDate(value: string): string {
   const date = new Date(value)
@@ -54,9 +36,7 @@ function formatDate(value: string): string {
     </el-table-column>
     <el-table-column label="Status" width="112">
       <template #default="{ row }: { row: TaskRecord }">
-        <el-tag :type="statusType(row.status)" effect="dark" size="small">
-          {{ row.status }}
-        </el-tag>
+        <StatusBadge :status="row.status" size="small" />
         <small v-if="['RUNNING', 'CODING', 'TESTING'].includes(row.status)" class="status-copy">执行中...</small>
         <small v-else-if="row.status === 'FAILED' && row.errorMessage" class="status-copy status-copy--error" :title="row.errorMessage">{{ row.errorMessage }}</small>
         <RouterLink v-else-if="['SUCCESS', 'COMPLETED'].includes(row.status)" class="result-link" :to="`/tasks/${encodeURIComponent(row.taskId)}/execution`" @click.stop>查看结果 →</RouterLink>
@@ -66,9 +46,7 @@ function formatDate(value: string): string {
     <el-table-column prop="projectId" label="Project" min-width="130" show-overflow-tooltip />
     <el-table-column label="Mode" width="112">
       <template #default="{ row }: { row: TaskRecord }">
-        <el-tag :type="row.executionMode === 'READ_ONLY' ? 'warning' : 'danger'" size="small">
-          {{ row.executionMode }}
-        </el-tag>
+        <StatusBadge :status="row.executionMode" size="small" />
       </template>
     </el-table-column>
     <el-table-column label="Created" min-width="150">

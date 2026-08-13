@@ -2,21 +2,12 @@
 import { RouterLink } from 'vue-router'
 
 import type { ExecutionSummaryDTO } from '../types/dashboard'
+import StatusBadge from './StatusBadge.vue'
 
 defineProps<{
   executions: ExecutionSummaryDTO[]
   loading?: boolean
 }>()
-
-function statusType(status: string | null): 'success' | 'warning' | 'danger' | 'info' {
-  if (status === 'SUCCESS') {
-    return 'success'
-  }
-  if (status === 'FAILED') {
-    return 'danger'
-  }
-  return 'info'
-}
 
 function formatDate(value: string | null): string {
   if (!value) {
@@ -33,9 +24,7 @@ function formatDate(value: string | null): string {
     <el-table-column prop="jobId" label="Job ID" min-width="180" />
     <el-table-column label="状态" min-width="120">
       <template #default="{ row }: { row: ExecutionSummaryDTO }">
-        <el-tag :type="statusType(row.status)" effect="dark" size="small">
-          {{ row.status || '—' }}
-        </el-tag>
+        <StatusBadge :status="row.status" size="small" />
       </template>
     </el-table-column>
     <el-table-column prop="attempt" label="尝试次数" width="100" sortable />

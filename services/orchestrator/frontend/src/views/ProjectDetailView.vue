@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
 
 import { apiClient } from '../api/client'
 import {
@@ -123,8 +124,10 @@ async function createTask(): Promise<void> {
     taskNotifications.track(task)
     taskDialogVisible.value = false
     taskForm.name = ''; taskForm.description = ''; taskForm.goal = ''
+    ElMessage.success('Task 已创建，正在规划...')
   } catch (error) {
     taskErrorMessage.value = error instanceof Error ? error.message : '创建 Task 失败。'
+    ElMessage.error(taskErrorMessage.value)
   } finally {
     creatingTask.value = false
   }

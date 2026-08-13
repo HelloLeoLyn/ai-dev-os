@@ -143,8 +143,10 @@ async function handleCreate(): Promise<void> {
     selectedTask.value = task
     taskNotifications.track(task)
     await loadTasks()
+    ElMessage.success('Task 已创建，正在规划...')
   } catch (error) {
     submitError.value = error instanceof Error ? error.message : 'Unable to create task.'
+    ElMessage.error(submitError.value)
   } finally {
     submitting.value = false
   }
