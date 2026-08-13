@@ -2,22 +2,25 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
-import { getValidations, startValidation, validationArtifactUrl } from '../api/validations'
+import { getSecurityReport, getValidations, startValidation, validationArtifactUrl } from '../api/validations'
 import AsyncState from '../components/AsyncState.vue'
 import ConsoleCard from '../components/ConsoleCard.vue'
 import SectionHeader from '../components/SectionHeader.vue'
 import StatusBadge from '../components/StatusBadge.vue'
-import type { ValidationRun } from '../types/validation'
+import SecurityReportDrawer from '../components/SecurityReportDrawer.vue'
+import type { SecurityReport, ValidationRun } from '../types/validation'
 
 const runs = ref<ValidationRun[]>([])
 const loading = ref(true)
 const submitting = ref(false)
 const errorMessage = ref<string | null>(null)
 const taskId = ref('')
+const securityReport=ref<SecurityReport|null>(null)
 
 const running = computed(() => runs.value.filter((run) => run.status === 'RUNNING').length)
 const passed = computed(() => runs.value.filter((run) => run.decision === 'PASS').length)
 const failed = computed(() => runs.value.filter((run) => run.decision === 'FAIL').length)
+const latestSecurity=computed(()=>{const totals={critical:0,high:0,medium:0,low:0};for(const c of runs.value[0]?.checks??[])if(c.type==='SECURITY')for(const k of Object.keys(totals) as Array<keyof typeof totals>)totals[k]+=Number(c.metadata[k]??0);return totals})
 
 async function load(): Promise<void> {
   loading.value = true
@@ -61,6 +64,7 @@ function command(check: ValidationRun['checks'][number]): string {
   const value = check.metadata.command
   return Array.isArray(value) ? value.join(' ') : typeof value === 'string' ? value : '—'
 }
+async function openSecurityReport(id:unknown){if(typeof id!=='string')return;try{securityReport.value=await getSecurityReport(id)}catch(error){ElMessage.error(error instanceof Error?error.message:'Unable to load security report.')}}
 
 onMounted(load)
 </script>
@@ -81,6 +85,8 @@ onMounted(load)
       <ConsoleCard title="Failed"><p class="metric metric--failed">{{ failed }}</p></ConsoleCard>
       <ConsoleCard title="Recent Runs"><p class="metric">{{ runs.length }}</p></ConsoleCard>
     </div>
+
+    <ConsoleCard title="Security Findings" eyebrow="Latest validation run"><div class="security-metrics"><span><strong>{{latestSecurity.critical}}</strong> Critical</span><span><strong>{{latestSecurity.high}}</strong> High</span><span><strong>{{latestSecurity.medium}}</strong> Medium</span><span><strong>{{latestSecurity.low}}</strong> Low</span></div></ConsoleCard>
 
     <ConsoleCard title="Run validation" eyebrow="Task entry">
       <el-form inline @submit.prevent="start">
@@ -118,6 +124,7 @@ onMounted(load)
                       </a>
                       <span v-if="check.artifactIds.length === 0">—</span>
                     </dd>
+                    <template v-if="check.type==='SECURITY'"><dt>Findings</dt><dd>{{check.metadata.totalFindings??0}} · C {{check.metadata.critical??0}} · H {{check.metadata.high??0}} · M {{check.metadata.medium??0}} · L {{check.metadata.low??0}}</dd><dt>Availability</dt><dd>{{check.metadata.availability||'UNKNOWN'}}</dd><dt>Report</dt><dd><el-button link type="primary" :disabled="!check.metadata.securityReportId" @click="openSecurityReport(check.metadata.securityReportId)">View SecurityReport</el-button></dd></template>
                   </dl>
                 </article>
               </div>
@@ -140,9 +147,10 @@ onMounted(load)
         </el-table>
       </ConsoleCard>
     </AsyncState>
+    <SecurityReportDrawer :report="securityReport" @close="securityReport=null" />
   </section>
 </template>
 
 <style scoped>
-.overview-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem}.metric{margin:0;font-size:2rem;font-weight:750}.metric--success{color:var(--color-success)}.metric--failed,.check-error{color:var(--color-danger)}.check-list{display:grid;gap:.75rem;padding:1rem}.check-card{padding:1rem;border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-surface)}.check-card__header{display:flex;justify-content:space-between;gap:1rem}.check-card__header div{display:flex;flex-direction:column;gap:.2rem}.check-card__header span{color:var(--color-text-muted);font-size:.75rem}.check-card p{white-space:pre-wrap}.check-card dl{display:grid;grid-template-columns:7rem 1fr;gap:.35rem 1rem;margin:.75rem 0 0}.check-card dt{color:var(--color-text-muted)}.check-card dd{margin:0;min-width:0;overflow-wrap:anywhere}.check-card dd a{display:block}@media(max-width:900px){.overview-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:560px){.overview-grid{grid-template-columns:1fr}.check-card dl{grid-template-columns:1fr}.check-card dd{margin-bottom:.5rem}}
+.overview-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem}.metric{margin:0;font-size:2rem;font-weight:750}.metric--success{color:var(--color-success)}.metric--failed,.check-error{color:var(--color-danger)}.security-metrics{display:flex;gap:2rem;flex-wrap:wrap}.security-metrics span{display:flex;flex-direction:column;color:var(--color-text-muted)}.security-metrics strong{font-size:1.5rem;color:var(--color-text)}.check-list{display:grid;gap:.75rem;padding:1rem}.check-card{padding:1rem;border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-surface)}.check-card__header{display:flex;justify-content:space-between;gap:1rem}.check-card__header div{display:flex;flex-direction:column;gap:.2rem}.check-card__header span{color:var(--color-text-muted);font-size:.75rem}.check-card p{white-space:pre-wrap}.check-card dl{display:grid;grid-template-columns:7rem 1fr;gap:.35rem 1rem;margin:.75rem 0 0}.check-card dt{color:var(--color-text-muted)}.check-card dd{margin:0;min-width:0;overflow-wrap:anywhere}.check-card dd a{display:block}@media(max-width:900px){.overview-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:560px){.overview-grid{grid-template-columns:1fr}.check-card dl{grid-template-columns:1fr}.check-card dd{margin-bottom:.5rem}}
 </style>

@@ -1,9 +1,13 @@
 import { apiClient } from './client'
-import type { ValidationRun } from '../types/validation'
+import type { SecurityFinding, SecurityReport, ValidationRun } from '../types/validation'
 
 export function getValidations(): Promise<ValidationRun[]> {
   return apiClient.get<ValidationRun[]>('/api/validations')
 }
+
+export function getSecurityReports(runId:string):Promise<SecurityReport[]>{return apiClient.get(`/api/validations/${encodeURIComponent(runId)}/security-reports`)}
+export function getSecurityReport(reportId:string):Promise<SecurityReport>{return apiClient.get(`/api/security-reports/${encodeURIComponent(reportId)}`)}
+export function getSecurityFindings(reportId:string):Promise<SecurityFinding[]>{return apiClient.get(`/api/security-reports/${encodeURIComponent(reportId)}/findings`)}
 
 export function getValidation(validationRunId: string): Promise<ValidationRun> {
   return apiClient.get<ValidationRun>(`/api/validations/${encodeURIComponent(validationRunId)}`)

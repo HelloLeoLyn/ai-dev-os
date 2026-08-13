@@ -30,8 +30,10 @@ class ValidationServiceTest {
 		Fixture fixture = fixture(true);
 		ValidationRun run = fixture.service().start("task-1");
 		assertEquals(ValidationDecision.PASS, run.getDecision());
-		assertEquals(6, run.getChecks().size());
+		assertEquals(9, run.getChecks().size());
 		assertTrue(run.getChecks().stream().allMatch(check -> check.getStatus() == ValidationStatus.SKIPPED));
+		assertEquals(3, run.getChecks().stream()
+			.filter(check -> check.getType() == ValidationCheckType.SECURITY).count());
 		assertEquals(1, fixture.service().findByTask("task-1").size());
 		assertEquals(run.getValidationRunId(), fixture.service().get(run.getValidationRunId()).getValidationRunId());
 	}

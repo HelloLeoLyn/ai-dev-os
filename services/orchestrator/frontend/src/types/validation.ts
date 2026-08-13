@@ -31,3 +31,7 @@ export interface ValidationRun {
   decision?: ValidationDecision
   summary?: string
 }
+
+export type SecuritySeverity = 'INFO' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+export interface SecurityFinding { findingId:string; scanner:string; category:string; severity:SecuritySeverity; ruleId:string; title:string; message:string; file?:string; line?:number; column?:number; packageName?:string; installedVersion?:string; fixedVersion?:string; vulnerabilityId?:string; recommendation?:string; blockingCandidate:boolean; fingerprint:string }
+export interface SecurityReport { reportId:string; taskId:string; projectId:string; workspaceId:string; validationRunId:string; scanner:string; status:string; findings:SecurityFinding[]; countsBySeverity:Record<SecuritySeverity,number>; startedAt:string; completedAt:string; durationMs:number; artifactIds:string[]; summary:string }

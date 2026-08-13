@@ -1,0 +1,3 @@
+package com.aidevos.orchestrator.validation.provider;
+import com.aidevos.orchestrator.validation.ValidationCheckType; import com.aidevos.orchestrator.validation.security.*;
+abstract class AbstractSecurityValidationProvider implements ValidationProvider { private final SecurityValidationService service; private final SecurityScannerType scanner; AbstractSecurityValidationProvider(SecurityValidationService s,SecurityScannerType t){service=s;scanner=t;} public boolean supports(ValidationContext c){return c.type()==ValidationCheckType.SECURITY&&scanner.name().equals(c.capabilities().get("securityScanner"));} public ValidationCheckResult execute(ValidationContext c){return service.execute(c,scanner);} public String name(){return "security-"+scanner.name().toLowerCase();}}

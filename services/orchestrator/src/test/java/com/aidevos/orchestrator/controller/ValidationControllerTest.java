@@ -10,6 +10,8 @@ import com.aidevos.orchestrator.validation.ValidationEvidenceService;
 import com.aidevos.orchestrator.validation.ValidationRun;
 import com.aidevos.orchestrator.validation.ValidationService;
 import com.aidevos.orchestrator.validation.ValidationStatus;
+import com.aidevos.orchestrator.validation.security.SecurityReport;
+import com.aidevos.orchestrator.validation.security.SecurityValidationService;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -28,20 +30,27 @@ class ValidationControllerTest {
 		when(service.start("task-1")).thenReturn(run);
 		when(service.findByTask("task-1")).thenReturn(List.of(run));
 		when(service.get("validation-1")).thenReturn(run);
-		MockMvc mvc = mvc(service);
+		SecurityValidationService security = mock(SecurityValidationService.class);
+		SecurityReport report = new SecurityReport(); report.setReportId("report-1");
+		when(security.byRun("validation-1")).thenReturn(List.of(report));
+		when(security.get("report-1")).thenReturn(report);
+		MockMvc mvc = mvc(service, security);
 		mvc.perform(post("/api/tasks/task-1/validations")).andExpect(status().isCreated())
 			.andExpect(jsonPath("$.decision").value("PASS"));
 		mvc.perform(get("/api/tasks/task-1/validations")).andExpect(status().isOk())
 			.andExpect(jsonPath("$[0].taskId").value("task-1"));
 		mvc.perform(get("/api/validations/validation-1")).andExpect(status().isOk())
 			.andExpect(jsonPath("$.validationRunId").value("validation-1"));
+		mvc.perform(get("/api/validations/validation-1/security-reports")).andExpect(status().isOk())
+			.andExpect(jsonPath("$[0].reportId").value("report-1"));
+		mvc.perform(get("/api/security-reports/report-1/findings")).andExpect(status().isOk());
 	}
 
 	@Test void missingTaskAndInvalidValidationReturn404() throws Exception {
 		ValidationService service = mock(ValidationService.class);
 		when(service.start("missing")).thenThrow(new ResourceNotFoundException("Task", "missing"));
 		when(service.get("invalid")).thenThrow(new ResourceNotFoundException("ValidationRun", "invalid"));
-		MockMvc mvc = mvc(service);
+		MockMvc mvc = mvc(service, mock(SecurityValidationService.class));
 		mvc.perform(post("/api/tasks/missing/validations")).andExpect(status().isNotFound());
 		mvc.perform(get("/api/validations/invalid")).andExpect(status().isNotFound());
 	}
@@ -50,11 +59,11 @@ class ValidationControllerTest {
 		ValidationService service = mock(ValidationService.class);
 		when(service.start("task-1")).thenThrow(new IllegalArgumentException(
 			"Task workspace does not belong to project"));
-		mvc(service).perform(post("/api/tasks/task-1/validations")).andExpect(status().isBadRequest());
+		mvc(service, mock(SecurityValidationService.class)).perform(post("/api/tasks/task-1/validations")).andExpect(status().isBadRequest());
 	}
 
-	private MockMvc mvc(ValidationService service) {
-		return standaloneSetup(new ValidationController(service, mock(ValidationEvidenceService.class)))
+	private MockMvc mvc(ValidationService service, SecurityValidationService securityService) {
+		return standaloneSetup(new ValidationController(service, mock(ValidationEvidenceService.class), securityService))
 			.setControllerAdvice(new GlobalExceptionHandler()).build();
 	}
 

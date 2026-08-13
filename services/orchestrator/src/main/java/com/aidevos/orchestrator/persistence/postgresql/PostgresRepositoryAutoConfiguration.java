@@ -15,6 +15,7 @@ import com.aidevos.orchestrator.taskcenter.TaskRepository;
 import com.aidevos.orchestrator.workspace.WorkspaceRepository;
 import com.aidevos.orchestrator.validation.ValidationArtifactRepository;
 import com.aidevos.orchestrator.validation.ValidationRepository;
+import com.aidevos.orchestrator.validation.security.SecurityReportRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -102,5 +103,10 @@ public class PostgresRepositoryAutoConfiguration {
 	@Bean
 	ValidationArtifactRepository validationArtifactRepository(DataSource dataSource, ObjectMapper mapper) {
 		return new PostgresValidationArtifactRepository(dataSource, mapper);
+	}
+
+	@Bean
+	SecurityReportRepository securityReportRepository(DataSource dataSource,ObjectMapper mapper){
+		return new PostgresSecurityReportRepository(dataSource,mapper);
 	}
 }

@@ -28,6 +28,7 @@ public class ValidationService {
 		ValidationCheckType.BACKEND_TEST, ValidationCheckType.BACKEND_BUILD,
 		ValidationCheckType.FRONTEND_TEST, ValidationCheckType.FRONTEND_BUILD,
 		ValidationCheckType.E2E, ValidationCheckType.CI);
+	private static final List<String> SECURITY_SCANNERS = List.of("GITLEAKS", "SEMGREP", "TRIVY");
 
 	private final ValidationRepository repository;
 	private final TaskCenterService taskCenterService;
@@ -72,6 +73,17 @@ public class ValidationService {
 			run.getChecks().add(executeCheck(run, workspacePath, capabilities, type));
 			repository.save(run);
 		}
+		audit(run, EventType.SECURITY_VALIDATION_STARTED, null, ValidationStatus.RUNNING,
+			"Security validation started", Map.of("scannerCount", SECURITY_SCANNERS.size()));
+		for (String scanner : SECURITY_SCANNERS) {
+			Map<String,Object> securityCapabilities=new java.util.LinkedHashMap<>(capabilities);
+			securityCapabilities.put("securityScanner",scanner);
+			run.getChecks().add(executeCheck(run,workspacePath,Map.copyOf(securityCapabilities),ValidationCheckType.SECURITY));
+			repository.save(run);
+		}
+		audit(run, EventType.SECURITY_VALIDATION_COMPLETED, ValidationStatus.RUNNING,
+			ValidationStatus.SUCCESS, "Security validation completed",
+			Map.of("scannerCount", SECURITY_SCANNERS.size()));
 		complete(run);
 		return run;
 	}
@@ -105,9 +117,9 @@ public class ValidationService {
 
 	private ValidationCheck executeCheck(ValidationRun run, Path workspace,
 			Map<String, Object> capabilities, ValidationCheckType type) {
-		boolean required = type != ValidationCheckType.CI && type != ValidationCheckType.E2E;
+		boolean required = type != ValidationCheckType.CI && type != ValidationCheckType.E2E && type != ValidationCheckType.SECURITY;
 		ValidationCheck check = new ValidationCheck("check-" + UUID.randomUUID(), type,
-			name(type), required, required);
+			type==ValidationCheckType.SECURITY?"Security / "+capabilities.get("securityScanner"):name(type), required, required);
 		check.setStatus(ValidationStatus.RUNNING);
 		check.setStartedAt(Instant.now());
 		audit(run, EventType.VALIDATION_CHECK_STARTED, null, ValidationStatus.RUNNING,
@@ -135,6 +147,8 @@ public class ValidationService {
 		check.setSummary(result.summary());
 		check.setErrorMessage(result.errorMessage());
 		if (result.metadata() != null) check.getMetadata().putAll(result.metadata());
+		Object existingArtifacts=check.getMetadata().get("artifactIds");
+		if(existingArtifacts instanceof List<?> ids) for(Object id:ids) if(id!=null) check.getArtifactIds().add(id.toString());
 		String log = joinOutput(result.stdout(), result.stderr());
 		if (log != null || result.metadata().containsKey("command")) {
 			check.getArtifactIds().add(evidenceService.saveLog(run.getValidationRunId(),

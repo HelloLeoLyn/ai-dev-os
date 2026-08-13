@@ -57,4 +57,14 @@ public class ValidationEvidenceService {
 	}
 
 	public ValidationArtifact get(String artifactId) { return repository.get(artifactId); }
+
+	public String saveContent(String runId, String checkId, String taskId, String name,
+			String mediaType, String content, Map<String, Object> metadata) {
+		ExecutionArtifact limited = new ExecutionArtifact(); limiter.apply(limited, content);
+		ValidationArtifact artifact = new ValidationArtifact();
+		artifact.setArtifactId("validation-artifact-" + UUID.randomUUID()); artifact.setValidationRunId(runId);
+		artifact.setCheckId(checkId); artifact.setTaskId(taskId); artifact.setName(name);
+		artifact.setMediaType(mediaType); artifact.setContent(limited.getContent()); artifact.setCreatedAt(Instant.now());
+		Map<String,Object> details=new LinkedHashMap<>(limited.getMetadata()); if(metadata!=null)details.putAll(metadata); artifact.setMetadata(details); repository.save(artifact); return artifact.getArtifactId();
+	}
 }
