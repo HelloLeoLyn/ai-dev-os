@@ -147,6 +147,9 @@ public class TimelineService {
 	}
 
 	private String sourceType(EventRecord event) {
+		if ("validation-run".equals(event.aggregateType())) {
+			return "VALIDATION";
+		}
 		if (event.planRunId() != null) {
 			return "PLAN_RUN";
 		}
@@ -166,6 +169,9 @@ public class TimelineService {
 	}
 
 	private String sourceId(EventRecord event) {
+		if ("validation-run".equals(event.aggregateType())) {
+			return event.aggregateId();
+		}
 		if (event.planRunId() != null) {
 			return event.planRunId();
 		}

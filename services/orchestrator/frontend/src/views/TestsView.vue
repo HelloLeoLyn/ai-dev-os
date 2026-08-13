@@ -1,177 +1,148 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
-import { createTest, getTests } from '../api/tests'
-import TestDetail from '../components/TestDetail.vue'
-import TestTable from '../components/TestTable.vue'
-import type { CreateTestRequest, TestPlan, TestType } from '../types/test'
+import { getValidations, startValidation, validationArtifactUrl } from '../api/validations'
+import AsyncState from '../components/AsyncState.vue'
+import ConsoleCard from '../components/ConsoleCard.vue'
+import SectionHeader from '../components/SectionHeader.vue'
+import StatusBadge from '../components/StatusBadge.vue'
+import type { ValidationRun } from '../types/validation'
 
-const tests = ref<TestPlan[]>([])
-const selectedTest = ref<TestPlan | null>(null)
+const runs = ref<ValidationRun[]>([])
 const loading = ref(true)
 const submitting = ref(false)
 const errorMessage = ref<string | null>(null)
+const taskId = ref('')
 
-const typeOptions: Array<{ label: string; value: TestType }> = [
-  { label: '单元测试 (mvn test)', value: 'UNIT_TEST' },
-  { label: 'API 测试 (mvn test)', value: 'API_TEST' },
-  { label: 'UI 测试 (npm run build)', value: 'UI_TEST' },
-  { label: '构建验证 (npm run build)', value: 'BUILD_VERIFY' },
-]
+const running = computed(() => runs.value.filter((run) => run.status === 'RUNNING').length)
+const passed = computed(() => runs.value.filter((run) => run.decision === 'PASS').length)
+const failed = computed(() => runs.value.filter((run) => run.decision === 'FAIL').length)
 
-const form = reactive({
-  taskId: '',
-  testType: 'UNIT_TEST' as TestType,
-  command: '',
-  executionId: '',
-  projectId: '',
-})
-
-async function loadTests(): Promise<void> {
+async function load(): Promise<void> {
   loading.value = true
   errorMessage.value = null
-
   try {
-    tests.value = await getTests()
-    if (!selectedTest.value && tests.value.length > 0) {
-      selectedTest.value = tests.value[0]
-    }
+    runs.value = await getValidations()
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : 'Unable to load tests.'
+    errorMessage.value = error instanceof Error ? error.message : 'Unable to load validations.'
   } finally {
     loading.value = false
   }
 }
 
-async function handleCreate(): Promise<void> {
+async function start(): Promise<void> {
+  const value = taskId.value.trim()
+  if (!value) return
   submitting.value = true
   try {
-    const plan = await createTest({
-      taskId: form.taskId.trim() || undefined,
-      testType: form.testType,
-      command: form.command.trim() || undefined,
-      executionId: form.executionId.trim() || undefined,
-      projectId: form.projectId.trim() || undefined,
-    })
-    form.taskId = ''
-    form.command = ''
-    form.executionId = ''
-    form.projectId = ''
-    selectedTest.value = plan
-    ElMessage.success(plan.status === 'SUCCESS' ? '测试通过。' : '测试完成（未通过）。')
-    await loadTests()
+    const run = await startValidation(value)
+    taskId.value = ''
+    ElMessage.success(`Validation completed: ${run.decision ?? run.status}`)
+    await load()
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '创建测试失败。')
+    ElMessage.error(error instanceof Error ? error.message : 'Unable to start validation.')
   } finally {
     submitting.value = false
   }
 }
 
-onMounted(loadTests)
+function duration(run: ValidationRun): string {
+  if (!run.completedAt) return 'Running'
+  const ms = new Date(run.completedAt).getTime() - new Date(run.startedAt).getTime()
+  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`
+}
+
+function checkDuration(ms: number): string {
+  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`
+}
+
+function command(check: ValidationRun['checks'][number]): string {
+  const value = check.metadata.command
+  return Array.isArray(value) ? value.join(' ') : typeof value === 'string' ? value : '—'
+}
+
+onMounted(load)
 </script>
 
 <template>
   <section class="page-stack">
-    <header class="page-header">
-      <div>
-        <p class="page-eyebrow">Testing Agent</p>
-        <h1>Tests</h1>
-        <p class="page-description">
-          自动生成并执行测试任务：mvn test / npm run build。
-        </p>
-      </div>
-      <el-tag type="info" effect="dark">{{ tests.length }} tests</el-tag>
-    </header>
+    <SectionHeader
+      eyebrow="Evidence-driven delivery"
+      title="Validation Center"
+      description="Task-scoped build, test, E2E and CI evidence in one validation result."
+    >
+      <el-tag type="info" effect="dark">{{ runs.length }} runs</el-tag>
+    </SectionHeader>
 
-    <el-card shadow="never" class="create-card">
-      <template #header>
-        <span class="card-title">创建测试任务</span>
-      </template>
-      <el-form label-position="top" @submit.prevent="handleCreate">
-        <el-row :gutter="16">
-          <el-col :xs="24" :sm="8">
-            <el-form-item label="测试类型" required>
-              <el-select v-model="form.testType" class="full-width">
-                <el-option
-                  v-for="option in typeOptions"
-                  :key="option.value"
-                  :label="option.label"
-                  :value="option.value"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="8">
-            <el-form-item label="Task ID（可选）">
-              <el-input v-model="form.taskId" placeholder="关联 Task Center 任务" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="8">
-            <el-form-item label="项目（可选）">
-              <el-input v-model="form.projectId" placeholder="默认 default" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :xs="24" :sm="16">
-            <el-form-item label="命令（可选）">
-              <el-input v-model="form.command" placeholder="留空则按类型生成默认命令" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="8">
-            <el-form-item label="Execution ID（可选）">
-              <el-input v-model="form.executionId" placeholder="关联 Execution" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-button type="primary" :loading="submitting" native-type="submit">
-          创建并执行
+    <div class="overview-grid">
+      <ConsoleCard title="Running"><p class="metric">{{ running }}</p></ConsoleCard>
+      <ConsoleCard title="Passed"><p class="metric metric--success">{{ passed }}</p></ConsoleCard>
+      <ConsoleCard title="Failed"><p class="metric metric--failed">{{ failed }}</p></ConsoleCard>
+      <ConsoleCard title="Recent Runs"><p class="metric">{{ runs.length }}</p></ConsoleCard>
+    </div>
+
+    <ConsoleCard title="Run validation" eyebrow="Task entry">
+      <el-form inline @submit.prevent="start">
+        <el-form-item label="Task ID">
+          <el-input v-model="taskId" placeholder="task-…" clearable />
+        </el-form-item>
+        <el-button type="primary" native-type="submit" :loading="submitting" :disabled="!taskId.trim()">
+          Validate
         </el-button>
       </el-form>
-    </el-card>
+    </ConsoleCard>
 
-    <el-card v-if="errorMessage" shadow="never">
-      <p class="page-state page-state--error">{{ errorMessage }}</p>
-    </el-card>
-
-    <el-row v-else :gutter="16" class="content-row">
-      <el-col :xs="24" :lg="15">
-        <el-card shadow="never">
-          <TestTable
-            :tests="tests"
-            :loading="loading"
-            :selected-test-id="selectedTest?.testId ?? null"
-            @select="selectedTest = $event"
-          />
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :lg="9">
-        <TestDetail :test="selectedTest" />
-      </el-col>
-    </el-row>
+    <AsyncState :loading="loading" :error="errorMessage" :empty="runs.length === 0" empty-text="No validation runs yet" @retry="load">
+      <ConsoleCard title="Recent Runs" eyebrow="Validation history">
+        <el-table :data="runs" row-key="validationRunId">
+          <el-table-column type="expand">
+            <template #default="scope">
+              <div class="check-list">
+                <article v-for="check in scope.row.checks" :key="check.checkId" class="check-card">
+                  <div class="check-card__header">
+                    <div><strong>{{ check.name }}</strong><span>{{ check.type }}</span></div>
+                    <StatusBadge :status="check.status" size="small" />
+                  </div>
+                  <p v-if="check.errorMessage" class="check-error">{{ check.errorMessage }}</p>
+                  <p v-else>{{ check.summary || 'No summary.' }}</p>
+                  <dl>
+                    <dt>Duration</dt><dd>{{ checkDuration(check.durationMs) }}</dd>
+                    <dt>Provider</dt><dd>{{ check.metadata.provider || '—' }}</dd>
+                    <dt>Command</dt><dd><code>{{ command(check) }}</code></dd>
+                    <dt>Required</dt><dd>{{ check.required ? 'Yes' : 'No' }}</dd>
+                    <dt>Artifacts</dt>
+                    <dd>
+                      <a v-for="artifactId in check.artifactIds" :key="artifactId" :href="validationArtifactUrl(artifactId)" target="_blank" rel="noreferrer">
+                        {{ artifactId }}
+                      </a>
+                      <span v-if="check.artifactIds.length === 0">—</span>
+                    </dd>
+                  </dl>
+                </article>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column prop="taskId" label="Task" min-width="180" />
+          <el-table-column prop="projectId" label="Project" min-width="130" />
+          <el-table-column label="Started" min-width="170">
+            <template #default="scope">{{ new Date(scope.row.startedAt).toLocaleString() }}</template>
+          </el-table-column>
+          <el-table-column label="Duration" min-width="100">
+            <template #default="scope">{{ duration(scope.row) }}</template>
+          </el-table-column>
+          <el-table-column label="Checks" min-width="90">
+            <template #default="scope">{{ scope.row.checks.length }}</template>
+          </el-table-column>
+          <el-table-column label="Result" min-width="110">
+            <template #default="scope"><StatusBadge :status="scope.row.decision || scope.row.status" size="small" /></template>
+          </el-table-column>
+        </el-table>
+      </ConsoleCard>
+    </AsyncState>
   </section>
 </template>
 
 <style scoped>
-.create-card {
-  margin-bottom: 1rem;
-}
-
-.card-title {
-  font-weight: 700;
-}
-
-.full-width {
-  width: 100%;
-}
-
-.page-state {
-  color: var(--color-text-muted);
-  text-align: center;
-}
-
-.page-state--error {
-  color: var(--color-danger);
-}
+.overview-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem}.metric{margin:0;font-size:2rem;font-weight:750}.metric--success{color:var(--color-success)}.metric--failed,.check-error{color:var(--color-danger)}.check-list{display:grid;gap:.75rem;padding:1rem}.check-card{padding:1rem;border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-surface)}.check-card__header{display:flex;justify-content:space-between;gap:1rem}.check-card__header div{display:flex;flex-direction:column;gap:.2rem}.check-card__header span{color:var(--color-text-muted);font-size:.75rem}.check-card p{white-space:pre-wrap}.check-card dl{display:grid;grid-template-columns:7rem 1fr;gap:.35rem 1rem;margin:.75rem 0 0}.check-card dt{color:var(--color-text-muted)}.check-card dd{margin:0;min-width:0;overflow-wrap:anywhere}.check-card dd a{display:block}@media(max-width:900px){.overview-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:560px){.overview-grid{grid-template-columns:1fr}.check-card dl{grid-template-columns:1fr}.check-card dd{margin-bottom:.5rem}}
 </style>

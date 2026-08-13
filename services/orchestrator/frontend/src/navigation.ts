@@ -16,7 +16,7 @@ export const navigationGroups: NavigationGroup[] = [
     { to: '/skills', label: 'Skills' }, { to: '/mcp/plugins', label: 'MCP Plugins' },
   ] },
   { label: 'Operations', items: [
-    { to: '/schedules', label: 'Schedules' }, { to: '/tests', label: 'Tests' },
+    { to: '/schedules', label: 'Schedules' }, { to: '/tests', label: 'Validation' },
   ] },
 ]
 

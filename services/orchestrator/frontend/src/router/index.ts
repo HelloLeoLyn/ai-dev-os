@@ -97,7 +97,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/memory', component: MemoryView, meta: { title: 'Memory' } },
   { path: '/observability', component: ObservabilityView, meta: { title: 'Observability' } },
   { path: '/mcp/plugins', component: McpPluginsView, meta: { title: 'MCP Plugins' } },
-  { path: '/tests', component: TestsView, meta: { title: 'Tests' } },
+  { path: '/tests', component: TestsView, meta: { title: 'Validation Center' } },
 ]
 
 const router = createRouter({

@@ -207,6 +207,20 @@ public class AuditService {
 			type + ":test:" + testId + ":" + value(fromStatus) + ":" + value(toStatus)));
 	}
 
+	/**
+	 * Records validation lifecycle events. The validation run id is the formal
+	 * aggregate id and taskId is a first-class audit field, allowing task
+	 * timelines to include validation without metadata-only joins.
+	 */
+	public void validationEvent(EventType type, String taskId, String validationRunId,
+			String fromStatus, String toStatus, String summary, Map<String, Object> metadata) {
+		record(event(type, "validation-run", validationRunId, fromStatus, toStatus, taskId,
+			null, null, null, null, null, null, null, null, null, null, "SYSTEM",
+			"validation-service", summary, metadata == null ? Map.of() : Map.copyOf(metadata),
+			type + ":validation:" + validationRunId + ":" + value(fromStatus) + ":"
+				+ value(toStatus) + ":" + UUID.randomUUID()));
+	}
+
 	public void agentPlanEvent(EventType type, String planId, String taskId, String agentId,
 			int step, String fromStatus, String toStatus, String summary,
 			Map<String, Object> metadata) {

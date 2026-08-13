@@ -13,6 +13,8 @@ import com.aidevos.orchestrator.project.ProjectRepository;
 import com.aidevos.orchestrator.repair.RepairRepository;
 import com.aidevos.orchestrator.taskcenter.TaskRepository;
 import com.aidevos.orchestrator.workspace.WorkspaceRepository;
+import com.aidevos.orchestrator.validation.ValidationArtifactRepository;
+import com.aidevos.orchestrator.validation.ValidationRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -90,5 +92,15 @@ public class PostgresRepositoryAutoConfiguration {
 	@Bean
 	UsageRepository usageRepository(PostgresJdbc jdbc) {
 		return new PostgresUsageRepository(jdbc);
+	}
+
+	@Bean
+	ValidationRepository validationRepository(DataSource dataSource, ObjectMapper mapper) {
+		return new PostgresValidationRepository(dataSource, mapper);
+	}
+
+	@Bean
+	ValidationArtifactRepository validationArtifactRepository(DataSource dataSource, ObjectMapper mapper) {
+		return new PostgresValidationArtifactRepository(dataSource, mapper);
 	}
 }
