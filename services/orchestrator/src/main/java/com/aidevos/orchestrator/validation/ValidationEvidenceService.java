@@ -42,13 +42,18 @@ public class ValidationEvidenceService {
 
 	public String saveReference(String runId, String checkId, String taskId, String uri,
 			Map<String, Object> metadata) {
+		return saveReference(runId, checkId, taskId, uri, "external-report", "text/uri-list", metadata);
+	}
+
+	public String saveReference(String runId, String checkId, String taskId, String uri,
+			String name, String mediaType, Map<String, Object> metadata) {
 		ValidationArtifact artifact = new ValidationArtifact();
 		artifact.setArtifactId("validation-artifact-" + UUID.randomUUID());
 		artifact.setValidationRunId(runId);
 		artifact.setCheckId(checkId);
 		artifact.setTaskId(taskId);
-		artifact.setName("external-report");
-		artifact.setMediaType("text/uri-list");
+		artifact.setName(name);
+		artifact.setMediaType(mediaType);
 		artifact.setUri(uri);
 		artifact.setCreatedAt(Instant.now());
 		artifact.setMetadata(metadata);

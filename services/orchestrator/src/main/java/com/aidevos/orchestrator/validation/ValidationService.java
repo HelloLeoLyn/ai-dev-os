@@ -18,6 +18,8 @@ import com.aidevos.orchestrator.validation.provider.ProjectCapabilityDetector;
 import com.aidevos.orchestrator.validation.provider.ValidationCheckResult;
 import com.aidevos.orchestrator.validation.provider.ValidationContext;
 import com.aidevos.orchestrator.validation.provider.ValidationProvider;
+import com.aidevos.orchestrator.validation.browser.BrowserScenario;
+import com.aidevos.orchestrator.validation.browser.BrowserScenarioCatalog;
 import com.aidevos.orchestrator.workspace.Workspace;
 import com.aidevos.orchestrator.workspace.WorkspaceService;
 import org.springframework.stereotype.Service;
@@ -37,6 +39,7 @@ public class ValidationService {
 	private final List<ValidationProvider> providers;
 	private final ValidationEvidenceService evidenceService;
 	private final AuditService auditService;
+	private final BrowserScenarioCatalog browserScenarios;
 
 	public ValidationService(ValidationRepository repository, TaskCenterService taskCenterService,
 			WorkspaceService workspaceService, ProjectCapabilityDetector detector,
@@ -49,9 +52,25 @@ public class ValidationService {
 		this.providers = List.copyOf(providers);
 		this.evidenceService = evidenceService;
 		this.auditService = auditService;
+		this.browserScenarios = null;
+	}
+
+	@org.springframework.beans.factory.annotation.Autowired
+	public ValidationService(ValidationRepository repository, TaskCenterService taskCenterService,
+			WorkspaceService workspaceService, ProjectCapabilityDetector detector,
+			List<ValidationProvider> providers, ValidationEvidenceService evidenceService,
+			AuditService auditService, BrowserScenarioCatalog browserScenarios) {
+		this.repository = repository; this.taskCenterService = taskCenterService;
+		this.workspaceService = workspaceService; this.detector = detector;
+		this.providers = List.copyOf(providers); this.evidenceService = evidenceService;
+		this.auditService = auditService; this.browserScenarios = browserScenarios;
 	}
 
 	public ValidationRun start(String taskId) {
+		return start(taskId, null);
+	}
+
+	public ValidationRun start(String taskId, String browserScenarioId) {
 		TaskRecord task = taskCenterService.getTask(taskId)
 			.orElseThrow(() -> new ResourceNotFoundException("Task", taskId));
 		Workspace workspace = requireOwnedWorkspace(task);
@@ -79,6 +98,14 @@ public class ValidationService {
 			Map<String,Object> securityCapabilities=new java.util.LinkedHashMap<>(capabilities);
 			securityCapabilities.put("securityScanner",scanner);
 			run.getChecks().add(executeCheck(run,workspacePath,Map.copyOf(securityCapabilities),ValidationCheckType.SECURITY));
+			repository.save(run);
+		}
+		BrowserScenario browserScenario = browserScenarioId == null || browserScenarioId.isBlank()
+			? null : requireBrowserCatalog().require(browserScenarioId);
+		if (browserScenario != null) {
+			Map<String,Object> browserCapabilities = new java.util.LinkedHashMap<>(capabilities);
+			browserCapabilities.put("browserScenario", browserScenario);
+			run.getChecks().add(executeCheck(run, workspacePath, Map.copyOf(browserCapabilities), ValidationCheckType.BROWSER));
 			repository.save(run);
 		}
 		audit(run, EventType.SECURITY_VALIDATION_COMPLETED, ValidationStatus.RUNNING,
@@ -117,15 +144,19 @@ public class ValidationService {
 
 	private ValidationCheck executeCheck(ValidationRun run, Path workspace,
 			Map<String, Object> capabilities, ValidationCheckType type) {
-		boolean required = type != ValidationCheckType.CI && type != ValidationCheckType.E2E && type != ValidationCheckType.SECURITY;
+		boolean required = type == ValidationCheckType.BROWSER
+			? ((BrowserScenario) capabilities.get("browserScenario")).required()
+			: type != ValidationCheckType.CI && type != ValidationCheckType.E2E && type != ValidationCheckType.SECURITY;
 		ValidationCheck check = new ValidationCheck("check-" + UUID.randomUUID(), type,
 			type==ValidationCheckType.SECURITY?"Security / "+capabilities.get("securityScanner"):name(type), required, required);
 		check.setStatus(ValidationStatus.RUNNING);
 		check.setStartedAt(Instant.now());
 		audit(run, EventType.VALIDATION_CHECK_STARTED, null, ValidationStatus.RUNNING,
 			check.getName() + " started", Map.of("checkId", check.getCheckId(), "checkType", type.name()));
+		Map<String,Object> contextCapabilities = new java.util.LinkedHashMap<>(capabilities);
+		contextCapabilities.put("validationCheckId", check.getCheckId());
 		ValidationContext context = new ValidationContext(run.getValidationRunId(), run.getTaskId(),
-			run.getProjectId(), run.getWorkspaceId(), workspace, type, capabilities);
+			run.getProjectId(), run.getWorkspaceId(), workspace, type, Map.copyOf(contextCapabilities));
 		ValidationProvider provider = providers.stream().filter(candidate -> candidate.supports(context))
 			.findFirst().orElse(null);
 		ValidationCheckResult result;
@@ -133,7 +164,7 @@ public class ValidationService {
 		else {
 			try { result = provider.execute(context); }
 			catch (RuntimeException exception) {
-				result = new ValidationCheckResult(ValidationStatus.FAILED, "Provider failed",
+				result = new ValidationCheckResult(type == ValidationCheckType.BROWSER ? ValidationStatus.ERROR : ValidationStatus.FAILED, "Provider failed",
 					errorMessage(exception), null, null, List.of(), Map.of());
 			}
 			check.getMetadata().put("provider", provider.name());
@@ -160,7 +191,7 @@ public class ValidationService {
 		}
 		check.setCompletedAt(Instant.now());
 		check.setDurationMs(Duration.between(check.getStartedAt(), check.getCompletedAt()).toMillis());
-		EventType event = result.status() == ValidationStatus.FAILED
+		EventType event = result.status() == ValidationStatus.FAILED || result.status() == ValidationStatus.ERROR
 			? EventType.VALIDATION_CHECK_FAILED : EventType.VALIDATION_CHECK_SUCCEEDED;
 		audit(run, event, ValidationStatus.RUNNING, result.status(), check.getName() + " "
 			+ result.status().name().toLowerCase(), Map.of("checkId", check.getCheckId(),
@@ -169,7 +200,7 @@ public class ValidationService {
 
 	private void complete(ValidationRun run) {
 		boolean failed = run.getChecks().stream().anyMatch(check -> check.isRequired()
-			&& check.getStatus() == ValidationStatus.FAILED);
+			&& (check.getStatus() == ValidationStatus.FAILED || check.getStatus() == ValidationStatus.ERROR));
 		run.setDecision(failed ? ValidationDecision.FAIL : ValidationDecision.PASS);
 		run.setStatus(failed ? ValidationStatus.FAILED : ValidationStatus.SUCCESS);
 		run.setCompletedAt(Instant.now());
@@ -209,5 +240,10 @@ public class ValidationService {
 	private String errorMessage(Exception exception) {
 		return exception.getMessage() == null || exception.getMessage().isBlank()
 			? exception.getClass().getSimpleName() : exception.getMessage();
+	}
+
+	private BrowserScenarioCatalog requireBrowserCatalog() {
+		if (browserScenarios == null) throw new IllegalStateException("Browser scenario catalog is not configured");
+		return browserScenarios;
 	}
 }

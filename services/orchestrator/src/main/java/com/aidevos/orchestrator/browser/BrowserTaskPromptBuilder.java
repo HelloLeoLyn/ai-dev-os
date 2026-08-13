@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 public class BrowserTaskPromptBuilder {
 
 	private static final Set<String> SUPPORTED_ACTIONS = Set.of(
-		"navigate", "snapshot", "click", "input", "screenshot", "assert");
+		"navigate", "snapshot", "click", "input", "select", "wait", "screenshot", "assert");
 
 	private final ObjectMapper objectMapper;
 

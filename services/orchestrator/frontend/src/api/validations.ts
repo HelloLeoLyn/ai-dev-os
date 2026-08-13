@@ -17,13 +17,15 @@ export function getTaskValidations(taskId: string): Promise<ValidationRun[]> {
   return apiClient.get<ValidationRun[]>(`/api/tasks/${encodeURIComponent(taskId)}/validations`)
 }
 
-export function startValidation(taskId: string): Promise<ValidationRun> {
-  return apiClient.post<ValidationRun>(`/api/tasks/${encodeURIComponent(taskId)}/validations`)
+export function startValidation(taskId: string, scenarioId?: string): Promise<ValidationRun> {
+  const query = scenarioId ? `?scenarioId=${encodeURIComponent(scenarioId)}` : ''
+  return apiClient.post<ValidationRun>(`/api/tasks/${encodeURIComponent(taskId)}/validations${query}`)
 }
 
 export function validationArtifactUrl(artifactId: string): string {
   return `/api/validation-artifacts/${encodeURIComponent(artifactId)}`
 }
+export function validationArtifactContentUrl(artifactId:string):string{return `/api/validation-artifacts/${encodeURIComponent(artifactId)}/content`}
 export function getQualityGates(runId:string):Promise<QualityGateResult[]>{return apiClient.get(`/api/validations/${encodeURIComponent(runId)}/quality-gates`)}
 export function evaluateQualityGate(runId:string):Promise<QualityGateResult>{return apiClient.post(`/api/validations/${encodeURIComponent(runId)}/quality-gate`)}
 export function approveQualityGate(id:string):Promise<QualityGateResult>{return apiClient.post(`/api/quality-gates/${encodeURIComponent(id)}/approve`,{reviewer:'console-user'})}

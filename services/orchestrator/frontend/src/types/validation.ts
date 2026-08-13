@@ -1,4 +1,6 @@
-export type ValidationStatus = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'BLOCKED' | 'SKIPPED'
+export type ValidationStatus = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'ERROR' | 'BLOCKED' | 'SKIPPED'
+
+export interface BrowserStepResult { stepId:string; name:string; status:ValidationStatus; durationMs:number; summary?:string; errorMessage?:string; finalUrl?:string; screenshotArtifactId?:string }
 export type ValidationDecision = 'PASS' | 'FAIL' | 'BLOCK' | 'REQUIRE_APPROVAL'
 
 export interface ValidationCheck {

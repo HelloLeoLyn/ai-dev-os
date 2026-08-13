@@ -17,6 +17,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -60,6 +61,14 @@ class ValidationControllerTest {
 		when(service.start("task-1")).thenThrow(new IllegalArgumentException(
 			"Task workspace does not belong to project"));
 		mvc(service, mock(SecurityValidationService.class)).perform(post("/api/tasks/task-1/validations")).andExpect(status().isBadRequest());
+	}
+
+	@Test void startsConfiguredBrowserScenarioById() throws Exception {
+		ValidationService service = mock(ValidationService.class); ValidationRun run = run();
+		when(service.start("task-1", "login")).thenReturn(run);
+		mvc(service, mock(SecurityValidationService.class)).perform(post("/api/tasks/task-1/validations?scenarioId=login"))
+			.andExpect(status().isCreated()).andExpect(jsonPath("$.validationRunId").value("validation-1"));
+		verify(service).start("task-1", "login");
 	}
 
 	private MockMvc mvc(ValidationService service, SecurityValidationService securityService) {
