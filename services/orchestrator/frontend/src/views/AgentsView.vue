@@ -3,6 +3,9 @@ import { onMounted, ref } from 'vue'
 
 import { getAgentRegistry } from '../api/agents'
 import AgentTable from '../components/AgentTable.vue'
+import AgentSubnav from '../components/AgentSubnav.vue'
+import AsyncState from '../components/AsyncState.vue'
+import ConsoleCard from '../components/ConsoleCard.vue'
 import type { AgentStatusDTO } from '../types/agent'
 
 const agents = ref<AgentStatusDTO[]>([])
@@ -37,24 +40,9 @@ onMounted(loadAgents)
       </div>
       <el-tag type="info" effect="dark">{{ agents.length }} registered</el-tag>
     </header>
-
-    <el-card v-if="errorMessage" shadow="never">
-      <p class="page-state page-state--error">{{ errorMessage }}</p>
-    </el-card>
-
-    <el-card v-else shadow="never">
-      <AgentTable :agents="agents" :loading="loading" />
-    </el-card>
+    <AgentSubnav />
+    <AsyncState :loading="loading" :error="errorMessage" :empty="!loading && agents.length === 0" empty-text="暂无 Agent" @retry="loadAgents">
+      <ConsoleCard title="Agent Registry"><AgentTable :agents="agents" /></ConsoleCard>
+    </AsyncState>
   </section>
 </template>
-
-<style scoped>
-.page-state {
-  color: var(--color-text-muted);
-  text-align: center;
-}
-
-.page-state--error {
-  color: var(--color-danger);
-}
-</style>

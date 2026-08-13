@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { AgentDetailDTO, AgentRuntimeStatus } from '../types/agent'
+import type { AgentDetailDTO } from '../types/agent'
+import StatusBadge from './StatusBadge.vue'
+import TechnicalId from './TechnicalId.vue'
 
 const props = defineProps<{
   agent: AgentDetailDTO | null
@@ -13,22 +15,6 @@ const configurationEntries = computed(() => {
   }
   return Object.entries(props.agent.configuration)
 })
-
-function statusType(status: AgentRuntimeStatus): 'success' | 'warning' | 'danger' | 'info' {
-  switch (status) {
-    case 'ONLINE':
-      return 'success'
-    case 'RUNNING':
-      return 'info'
-    case 'IDLE':
-      return 'warning'
-    case 'ERROR':
-    case 'DISABLED':
-      return 'danger'
-    default:
-      return 'info'
-  }
-}
 
 function formatDate(value: string | null): string {
   if (!value) {
@@ -46,11 +32,9 @@ function formatDate(value: string | null): string {
         <div>
           <p class="page-eyebrow">Agent Detail</p>
           <h2 class="card-title">{{ agent?.name || 'Agent' }}</h2>
-          <code v-if="agent" class="agent-id">{{ agent.agentId }}</code>
+          <TechnicalId v-if="agent" :value="agent.agentId" label="Agent" />
         </div>
-        <el-tag v-if="agent" :type="statusType(agent.status)" effect="dark" size="large">
-          {{ agent.status }}
-        </el-tag>
+        <StatusBadge v-if="agent" :status="agent.status" />
       </div>
     </template>
 

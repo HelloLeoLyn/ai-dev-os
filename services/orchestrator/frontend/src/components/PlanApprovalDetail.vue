@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import type { PlanApprovalRequest } from '../types/planApproval'
 import type { TaskRecord } from '../types/task'
 import { canDecide, isLongPlanGoal, planApprovalRisk, toolLabel, validRejectReason } from './planApprovalView'
+import StatusBadge from './StatusBadge.vue'
 
 const props = defineProps<{ approval: PlanApprovalRequest; task: TaskRecord; busy: boolean }>()
 const emit = defineEmits<{
@@ -48,11 +49,11 @@ function confirmApprove(): void {
 <template>
   <section class="approval-detail">
     <section class="plan-summary">
-      <div><span>Approval Status</span><strong>{{ approval.status }}</strong></div>
+      <div><span>Approval Status</span><StatusBadge :status="approval.status" /></div>
       <div><span>Plan Version</span><strong>v{{ approval.planVersion }}</strong></div>
-      <div><span>Execution Mode</span><el-tag :type="metadata.executionMode === 'READ_ONLY' ? 'success' : 'danger'">{{ metadata.executionMode || task.executionMode }}</el-tag></div>
+      <div><span>Execution Mode</span><StatusBadge :status="metadata.executionMode || task.executionMode" /></div>
       <div><span>Agent</span><strong>{{ assignedAgents.join(', ') || '无' }}</strong></div>
-      <div><span>Risk</span><el-tag :type="isSafeReadOnly ? 'success' : 'danger'" effect="dark">{{ isSafeReadOnly ? 'SAFE' : 'REVIEW' }}</el-tag></div>
+      <div><span>Risk</span><StatusBadge :status="isSafeReadOnly ? 'SAFE' : 'REVIEW'" /></div>
     </section>
 
     <section class="plan-goal">
@@ -67,12 +68,10 @@ function confirmApprove(): void {
           <p class="section-kicker">Security · 是否安全</p>
           <h3>{{ isSafeReadOnly ? 'Read-only execution verified' : 'Execution risk requires review' }}</h3>
         </div>
-        <el-tag :type="isSafeReadOnly ? 'success' : 'danger'" effect="dark">
-          {{ metadata.executionMode || 'UNKNOWN' }}
-        </el-tag>
+        <StatusBadge :status="metadata.executionMode || 'UNKNOWN'" />
       </div>
       <div class="security-rows">
-        <div><span>Mode</span><el-tag :type="risk.readOnly ? 'success' : 'danger'" size="small">{{ metadata.executionMode || 'UNKNOWN' }}</el-tag></div>
+        <div><span>Mode</span><StatusBadge :status="metadata.executionMode || 'UNKNOWN'" size="small" /></div>
         <div><span>Allowed</span><el-tag type="success" size="small">read workspace</el-tag><el-tag type="success" size="small">read-only agent</el-tag></div>
         <div><span>Blocked</span><el-tag :type="risk.hasWriteTool ? 'danger' : 'info'" size="small">WRITE Tool: {{ risk.hasWriteTool ? 'detected' : 'none' }}</el-tag><el-tag :type="risk.hasDangerousTool ? 'danger' : 'info'" size="small">DANGEROUS: {{ risk.hasDangerousTool ? 'detected' : 'none' }}</el-tag><el-tag :type="risk.hasWorkspaceWritePermission ? 'danger' : 'info'" size="small">workspace-write: {{ risk.hasWorkspaceWritePermission ? 'granted' : 'denied' }}</el-tag></div>
       </div>

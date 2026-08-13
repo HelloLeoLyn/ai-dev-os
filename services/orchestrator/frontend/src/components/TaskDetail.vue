@@ -3,7 +3,8 @@ import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useTimeline } from '../composables/useTimeline'
 import type { PlanApprovalRequest } from '../types/planApproval'
-import type { TaskRecord, TaskStatus } from '../types/task'
+import type { TaskRecord } from '../types/task'
+import StatusBadge from './StatusBadge.vue'
 import { planApprovalRisk } from './planApprovalView'
 
 const props = defineProps<{ task: TaskRecord | null; approval: PlanApprovalRequest | null; approvalLoading: boolean }>()
@@ -22,13 +23,6 @@ const riskLabel = computed(() => {
 
 watch(() => props.task?.taskId, (id) => { if (id) void loadTimeline(id) }, { immediate: true })
 
-function statusType(status: TaskStatus): 'success' | 'warning' | 'danger' | 'info' {
-  if (['SUCCESS', 'COMPLETED'].includes(status)) return 'success'
-  if (['FAILED', 'REJECTED'].includes(status)) return 'danger'
-  if (['PLANNING', 'APPROVED'].includes(status)) return 'warning'
-  return 'info'
-}
-
 function formatDate(value: string | null): string {
   if (!value) return '—'
   const date = new Date(value)
@@ -41,7 +35,7 @@ function formatDate(value: string | null): string {
     <template #header>
       <header class="summary-header">
         <div><p class="eyebrow">Task Summary</p><h2>{{ task.name || 'Untitled Task' }}</h2><p>{{ task.description || '暂无描述' }}</p></div>
-        <div class="summary-actions"><div class="summary-tags"><el-tag :type="statusType(task.status)" effect="dark">{{ task.status }}</el-tag><el-tag :type="task.executionMode === 'READ_ONLY' ? 'warning' : 'danger'">{{ task.executionMode }}</el-tag></div><el-button size="small" @click="emit('duplicate', task)">复制任务</el-button></div>
+        <div class="summary-actions"><div class="summary-tags"><StatusBadge :status="task.status" /><StatusBadge :status="task.executionMode" /></div><el-button size="small" @click="emit('duplicate', task)">复制任务</el-button></div>
       </header>
     </template>
 

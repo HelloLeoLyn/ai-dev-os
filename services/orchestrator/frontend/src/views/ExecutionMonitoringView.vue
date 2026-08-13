@@ -3,6 +3,8 @@ import { computed, onMounted, ref } from 'vue'
 
 import { getDashboardExecutions } from '../api/dashboard'
 import ExecutionTable from '../components/ExecutionTable.vue'
+import AsyncState from '../components/AsyncState.vue'
+import ConsoleCard from '../components/ConsoleCard.vue'
 import type { ExecutionSummaryDTO } from '../types/dashboard'
 
 const statusOptions = ['SUCCESS', 'FAILED', 'WAITING_APPROVAL', 'STARTING', 'RUNNING',
@@ -57,13 +59,9 @@ onMounted(loadExecutions)
       </el-select>
     </header>
 
-    <el-card v-if="errorMessage" shadow="never">
-      <p class="page-state page-state--error">{{ errorMessage }}</p>
-    </el-card>
-
-    <el-card v-else shadow="never">
-      <ExecutionTable :executions="filteredExecutions" :loading="loading" />
-    </el-card>
+    <AsyncState :loading="loading" :error="errorMessage" :empty="!loading && filteredExecutions.length === 0" empty-text="暂无匹配 Execution" @retry="loadExecutions">
+      <ConsoleCard title="Executions"><ExecutionTable :executions="filteredExecutions" /></ConsoleCard>
+    </AsyncState>
   </section>
 </template>
 
@@ -79,12 +77,4 @@ onMounted(loadExecutions)
   width: 14rem;
 }
 
-.page-state {
-  color: var(--color-text-muted);
-  text-align: center;
-}
-
-.page-state--error {
-  color: var(--color-danger);
-}
 </style>

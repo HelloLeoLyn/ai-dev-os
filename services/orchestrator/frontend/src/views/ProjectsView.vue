@@ -7,6 +7,8 @@ import { useRegistryList } from '../composables/useRegistryList'
 import ProjectSelector from '../components/ProjectSelector.vue'
 import ProjectTable from '../components/ProjectTable.vue'
 import type { Project } from '../types/project'
+import AsyncState from '../components/AsyncState.vue'
+import ConsoleCard from '../components/ConsoleCard.vue'
 
 const submitting = ref(false)
 const {
@@ -128,12 +130,9 @@ async function handleArchive(project: Project): Promise<void> {
       </el-form>
     </el-card>
 
-    <el-card v-if="errorMessage" shadow="never">
-      <p class="page-state page-state--error">{{ errorMessage }}</p>
-    </el-card>
-
-    <el-card v-else shadow="never">
-      <template #header>
+    <AsyncState :loading="loading" :error="errorMessage" :empty="!loading && projects.length === 0" empty-text="暂无项目" @retry="reload">
+    <ConsoleCard>
+      <template #actions>
         <div class="list-header">
           <span class="card-title">项目列表</span>
           <el-button
@@ -148,11 +147,11 @@ async function handleArchive(project: Project): Promise<void> {
       </template>
       <ProjectTable
         :projects="projects"
-        :loading="loading"
         :current-project-id="projects.find((project) => project.status === 'ACTIVE')?.projectId ?? null"
         @select="selectedProject = $event"
       />
-    </el-card>
+    </ConsoleCard>
+    </AsyncState>
   </section>
 </template>
 
@@ -175,12 +174,4 @@ async function handleArchive(project: Project): Promise<void> {
   justify-content: space-between;
 }
 
-.page-state {
-  color: var(--color-text-muted);
-  text-align: center;
-}
-
-.page-state--error {
-  color: var(--color-danger);
-}
 </style>

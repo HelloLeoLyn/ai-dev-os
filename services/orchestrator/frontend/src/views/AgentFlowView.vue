@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import AgentSubnav from '../components/AgentSubnav.vue'
 
 import { createAgentPlan, getAgentPlan } from '../api/agentPlans'
 import AgentFlowGraph from '../components/AgentFlowGraph.vue'
@@ -73,6 +74,7 @@ function formatDate(value: string | null): string {
       </div>
       <el-tag type="info" effect="dark">{{ steps?.length ?? 0 }} steps</el-tag>
     </header>
+    <AgentSubnav />
 
     <el-card shadow="never" class="run-card">
       <template #header>

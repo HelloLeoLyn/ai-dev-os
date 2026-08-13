@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import type { AgentRuntimeStatus, AgentStatusDTO } from '../types/agent'
+import type { AgentStatusDTO } from '../types/agent'
+import StatusBadge from './StatusBadge.vue'
+import TechnicalId from './TechnicalId.vue'
 
 const props = defineProps<{
   agents: AgentStatusDTO[]
@@ -11,22 +13,6 @@ const router = useRouter()
 
 function openAgent(row: AgentStatusDTO): void {
   void router.push(`/agents/${encodeURIComponent(row.name || row.agentId)}`)
-}
-
-function statusType(status: AgentRuntimeStatus): 'success' | 'warning' | 'danger' | 'info' {
-  switch (status) {
-    case 'ONLINE':
-      return 'success'
-    case 'RUNNING':
-      return 'info'
-    case 'IDLE':
-      return 'warning'
-    case 'ERROR':
-    case 'DISABLED':
-      return 'danger'
-    default:
-      return 'info'
-  }
 }
 
 function formatDate(value: string | null): string {
@@ -51,7 +37,7 @@ function formatDate(value: string | null): string {
     <el-table-column label="名称" min-width="150">
       <template #default="{ row }: { row: AgentStatusDTO }">
         <span class="agent-name">{{ row.name || '—' }}</span>
-        <code class="agent-id">{{ row.agentId }}</code>
+        <TechnicalId :value="row.agentId" label="Agent" />
       </template>
     </el-table-column>
     <el-table-column label="类型" min-width="110">
@@ -61,9 +47,7 @@ function formatDate(value: string | null): string {
     </el-table-column>
     <el-table-column label="状态" min-width="110">
       <template #default="{ row }: { row: AgentStatusDTO }">
-        <el-tag :type="statusType(row.status)" effect="dark" size="small">
-          {{ row.status }}
-        </el-tag>
+        <StatusBadge :status="row.status" size="small" />
       </template>
     </el-table-column>
     <el-table-column label="能力" min-width="220">

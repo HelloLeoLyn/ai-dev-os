@@ -3,6 +3,7 @@ import { RouterLink } from 'vue-router'
 
 import type { ExecutionSummaryDTO } from '../types/dashboard'
 import StatusBadge from './StatusBadge.vue'
+import TechnicalId from './TechnicalId.vue'
 
 defineProps<{
   executions: ExecutionSummaryDTO[]
@@ -20,8 +21,8 @@ function formatDate(value: string | null): string {
 
 <template>
   <el-table :data="executions" v-loading="loading" stripe empty-text="暂无 Execution">
-    <el-table-column prop="executionId" label="Execution ID" min-width="180" />
-    <el-table-column prop="jobId" label="Job ID" min-width="180" />
+    <el-table-column label="Execution" min-width="180"><template #default="{ row }: { row: ExecutionSummaryDTO }"><TechnicalId :value="row.executionId" label="Execution" /></template></el-table-column>
+    <el-table-column label="Job" min-width="180"><template #default="{ row }: { row: ExecutionSummaryDTO }"><TechnicalId :value="row.jobId" label="Job" /></template></el-table-column>
     <el-table-column label="状态" min-width="120">
       <template #default="{ row }: { row: ExecutionSummaryDTO }">
         <StatusBadge :status="row.status" size="small" />

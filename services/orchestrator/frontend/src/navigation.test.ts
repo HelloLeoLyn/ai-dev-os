@@ -7,9 +7,9 @@ describe('console navigation', () => {
     expect(navigationGroups.find((group) => group.label === 'Workspace')?.items.map((item) => item.label))
       .toEqual(['Dashboard', 'Projects', 'Tasks', 'Workspaces'])
     expect(navigationGroups.find((group) => group.label === 'AI')?.items).toEqual(expect.arrayContaining([
-      { to: '/agent-market', label: 'Agent Market' }, { to: '/agent-metrics', label: 'Agent Metrics' },
-      { to: '/agent-flow', label: 'Agent Flow' },
+      { to: '/agents', label: 'Agents' }, { to: '/models', label: 'Models' },
     ]))
+    expect(navigationGroups.flatMap((group) => group.items).some((item) => item.to === '/agent-market')).toBe(false)
   })
 
   it('keeps parent navigation active on detail routes without false prefixes', () => {

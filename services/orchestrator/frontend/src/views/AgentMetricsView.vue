@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import AgentSubnav from '../components/AgentSubnav.vue'
 
 import { getAgentMetrics, getAgentMetricsDetail, getTaskExecutionMetrics } from '../api/agentMetrics'
 import { useRegistryList } from '../composables/useRegistryList'
@@ -104,6 +105,7 @@ function statusLabel(status: string): string {
         </p>
       </div>
     </header>
+    <AgentSubnav />
 
     <el-card v-if="errorMessage" shadow="never">
       <p class="page-state page-state--error">{{ errorMessage }}</p>

@@ -10,6 +10,7 @@ import {
 import { useRegistryList } from '../composables/useRegistryList'
 import AgentMarketTable from '../components/AgentMarketTable.vue'
 import AgentPackageDetail from '../components/AgentPackageDetail.vue'
+import AgentSubnav from '../components/AgentSubnav.vue'
 import type { AgentPackage } from '../types/agentPackage'
 
 const {
@@ -83,6 +84,7 @@ async function handleUninstall(agentPackage: AgentPackage): Promise<void> {
         {{ installedCount }} / {{ packages.length }} installed
       </el-tag>
     </header>
+    <AgentSubnav />
 
     <el-card v-if="errorMessage" shadow="never">
       <p class="page-state page-state--error">{{ errorMessage }}</p>

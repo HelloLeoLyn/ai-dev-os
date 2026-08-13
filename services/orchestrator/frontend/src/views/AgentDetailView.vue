@@ -6,6 +6,8 @@ import { getAgentDetail, getAgentHistory } from '../api/agents'
 import AgentDetailCard from '../components/AgentDetailCard.vue'
 import AgentExecutionHistory from '../components/AgentExecutionHistory.vue'
 import type { AgentDetailDTO, AgentHistoryDTO } from '../types/agent'
+import AsyncState from '../components/AsyncState.vue'
+import AgentSubnav from '../components/AgentSubnav.vue'
 
 const route = useRoute()
 const agent = ref<AgentDetailDTO | null>(null)
@@ -51,15 +53,11 @@ onMounted(loadAgent)
         <h1>{{ agent?.name || 'Agent' }}</h1>
       </div>
     </header>
-
-    <el-card v-if="errorMessage" shadow="never">
-      <p class="page-state page-state--error">{{ errorMessage }}</p>
-    </el-card>
-
-    <template v-else>
-      <AgentDetailCard :agent="agent" :loading="loading" class="detail-card" />
-      <AgentExecutionHistory :history="history" :loading="loading" />
-    </template>
+    <AgentSubnav />
+    <AsyncState :loading="loading" :error="errorMessage" :empty="!loading && !agent" empty-text="Agent 不存在" @retry="loadAgent">
+      <AgentDetailCard :agent="agent" class="detail-card" />
+      <AgentExecutionHistory :history="history" />
+    </AsyncState>
   </section>
 </template>
 
@@ -79,12 +77,4 @@ onMounted(loadAgent)
   margin-bottom: 1rem;
 }
 
-.page-state {
-  color: var(--color-text-muted);
-  text-align: center;
-}
-
-.page-state--error {
-  color: var(--color-danger);
-}
 </style>

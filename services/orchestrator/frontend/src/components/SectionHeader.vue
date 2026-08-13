@@ -1,0 +1,3 @@
+<script setup lang="ts">defineProps<{ title: string; eyebrow?: string; description?: string }>()</script>
+<template><header class="section-header"><div><p v-if="eyebrow" class="page-eyebrow">{{ eyebrow }}</p><h2>{{ title }}</h2><p v-if="description">{{ description }}</p></div><div class="section-header__actions"><slot /></div></header></template>
+<style scoped>.section-header{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem}.section-header h2{margin:0}.section-header p:not(.page-eyebrow){margin:.35rem 0 0;color:var(--color-text-muted)}.section-header__actions{display:flex;align-items:center;gap:.5rem}@media(max-width:600px){.section-header{flex-direction:column}}</style>

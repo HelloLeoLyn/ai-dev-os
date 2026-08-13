@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 
-import type { Project, ProjectStatus } from '../types/project'
+import type { Project } from '../types/project'
+import StatusBadge from './StatusBadge.vue'
+import TechnicalId from './TechnicalId.vue'
 
 defineProps<{
   projects: Project[]
@@ -12,17 +14,6 @@ defineProps<{
 const emit = defineEmits<{
   select: [project: Project]
 }>()
-
-function statusTone(status: ProjectStatus): 'success' | 'danger' | 'info' {
-  switch (status) {
-    case 'ACTIVE':
-      return 'success'
-    case 'ARCHIVED':
-      return 'danger'
-    default:
-      return 'info'
-  }
-}
 
 function formatDate(value: string): string {
   const date = new Date(value)
@@ -49,7 +40,7 @@ function formatDate(value: string): string {
     </el-table-column>
     <el-table-column label="Project ID" min-width="170">
       <template #default="{ row }: { row: Project }">
-        <code>{{ row.projectId }}</code>
+        <TechnicalId :value="row.projectId" label="Project" />
       </template>
     </el-table-column>
     <el-table-column prop="path" label="路径" min-width="200" show-overflow-tooltip />
@@ -60,9 +51,7 @@ function formatDate(value: string): string {
     </el-table-column>
     <el-table-column label="状态" min-width="90">
       <template #default="{ row }: { row: Project }">
-        <el-tag :type="statusTone(row.status)" effect="dark" size="small">
-          {{ row.status }}
-        </el-tag>
+        <StatusBadge :status="row.status" size="small" />
       </template>
     </el-table-column>
     <el-table-column label="创建时间" min-width="150">

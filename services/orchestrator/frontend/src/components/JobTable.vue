@@ -1,28 +1,13 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import type { JobSummaryDTO } from '../types/dashboard'
+import StatusBadge from './StatusBadge.vue'
+import TechnicalId from './TechnicalId.vue'
 
 defineProps<{
   jobs: JobSummaryDTO[]
   loading?: boolean
 }>()
-
-function statusType(status: string): 'success' | 'warning' | 'danger' | 'info' {
-  switch (status) {
-    case 'RUNNING':
-      return 'info'
-    case 'SUCCESS':
-      return 'success'
-    case 'FAILED':
-    case 'CANCELLED':
-      return 'danger'
-    case 'RECOVERY_REQUIRED':
-    case 'RETRY_WAIT':
-      return 'warning'
-    default:
-      return 'info'
-  }
-}
 
 function formatDate(value: string | null): string {
   if (!value) {
@@ -38,15 +23,13 @@ function formatDate(value: string | null): string {
     <el-table-column label="Job ID" min-width="180">
       <template #default="{ row }: { row: JobSummaryDTO }">
         <RouterLink class="job-link" :to="`/jobs/${encodeURIComponent(row.jobId)}`">
-          {{ row.jobId }}
+          <TechnicalId :value="row.jobId" label="Job" />
         </RouterLink>
       </template>
     </el-table-column>
     <el-table-column label="状态" min-width="130">
       <template #default="{ row }: { row: JobSummaryDTO }">
-        <el-tag :type="statusType(row.status)" effect="dark" size="small">
-          {{ row.status }}
-        </el-tag>
+        <StatusBadge :status="row.status" size="small" />
       </template>
     </el-table-column>
     <el-table-column prop="priority" label="优先级" width="90" sortable />

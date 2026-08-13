@@ -3,6 +3,8 @@ import { computed, onMounted, ref } from 'vue'
 
 import { getDashboardJobs } from '../api/dashboard'
 import JobTable from '../components/JobTable.vue'
+import AsyncState from '../components/AsyncState.vue'
+import ConsoleCard from '../components/ConsoleCard.vue'
 import type { JobSummaryDTO } from '../types/dashboard'
 
 const statusOptions = ['QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'SUCCESS', 'FAILED',
@@ -56,13 +58,9 @@ onMounted(loadJobs)
       </el-select>
     </header>
 
-    <el-card v-if="errorMessage" shadow="never">
-      <p class="page-state page-state--error">{{ errorMessage }}</p>
-    </el-card>
-
-    <el-card v-else shadow="never">
-      <JobTable :jobs="filteredJobs" :loading="loading" />
-    </el-card>
+    <AsyncState :loading="loading" :error="errorMessage" :empty="!loading && filteredJobs.length === 0" empty-text="暂无匹配 Job" @retry="loadJobs">
+      <ConsoleCard title="Jobs"><JobTable :jobs="filteredJobs" /></ConsoleCard>
+    </AsyncState>
   </section>
 </template>
 
@@ -78,12 +76,4 @@ onMounted(loadJobs)
   width: 14rem;
 }
 
-.page-state {
-  color: var(--color-text-muted);
-  text-align: center;
-}
-
-.page-state--error {
-  color: var(--color-danger);
-}
 </style>

@@ -21,6 +21,8 @@ import type { TaskRecord } from '../types/task'
 import type { Workspace } from '../types/workspace'
 import { useTaskNotifications } from '../composables/useTaskNotifications'
 import { rememberTaskCreateMetadata } from '../services/taskDuplicate'
+import AsyncState from '../components/AsyncState.vue'
+import TechnicalId from '../components/TechnicalId.vue'
 
 const route = useRoute()
 const taskNotifications = useTaskNotifications()
@@ -147,13 +149,11 @@ onMounted(loadProject)
       <StatusBadge v-if="project" :status="project.status" />
     </header>
 
-    <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
-    <p v-if="loading" class="muted">加载中…</p>
-
+    <AsyncState :loading="loading" :error="errorMessage" :empty="!loading && !project" empty-text="Project 不存在" @retry="loadProject">
     <template v-if="project">
       <BaseCard title="项目信息">
         <dl class="detail-grid">
-          <div><dt>Project ID</dt><dd>{{ project.projectId }}</dd></div>
+          <div><dt>Project ID</dt><dd><TechnicalId :value="project.projectId" label="Project" /></dd></div>
           <div><dt>路径</dt><dd>{{ project.path }}</dd></div>
           <div><dt>仓库地址</dt><dd>{{ project.repositoryUrl || '—' }}</dd></div>
           <div><dt>默认分支</dt><dd>{{ project.defaultBranch || '—' }}</dd></div>
@@ -253,6 +253,7 @@ onMounted(loadProject)
         </el-table>
       </BaseCard>
     </template>
+    </AsyncState>
   </section>
 </template>
 

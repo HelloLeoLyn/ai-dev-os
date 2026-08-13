@@ -1,0 +1,3 @@
+<script setup lang="ts">defineProps<{ title?: string; eyebrow?: string }>()</script>
+<template><el-card shadow="never" class="console-card"><template v-if="title || eyebrow || $slots.actions" #header><div class="console-card__header"><div><p v-if="eyebrow" class="page-eyebrow">{{ eyebrow }}</p><h2 v-if="title">{{ title }}</h2></div><slot name="actions" /></div></template><slot /></el-card></template>
+<style scoped>.console-card{width:100%;min-width:0}.console-card__header{display:flex;align-items:center;justify-content:space-between;gap:1rem}.console-card__header h2{margin:0;font-size:1.05rem}</style>

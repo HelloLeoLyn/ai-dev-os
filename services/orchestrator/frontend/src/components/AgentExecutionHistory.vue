@@ -1,20 +1,12 @@
 <script setup lang="ts">
 import type { AgentExecutionSummary, AgentHistoryDTO } from '../types/agent'
+import StatusBadge from './StatusBadge.vue'
+import TechnicalId from './TechnicalId.vue'
 
 defineProps<{
   history: AgentHistoryDTO | null
   loading?: boolean
 }>()
-
-function statusType(status: string | null): 'success' | 'warning' | 'danger' | 'info' {
-  if (status === 'SUCCESS') {
-    return 'success'
-  }
-  if (status === 'FAILED') {
-    return 'danger'
-  }
-  return 'info'
-}
 
 function formatDate(value: string | null): string {
   if (!value) {
@@ -54,13 +46,11 @@ function formatDate(value: string | null): string {
       size="small"
       stripe
     >
-      <el-table-column prop="executionId" label="Execution ID" min-width="170" />
-      <el-table-column prop="jobId" label="Job ID" min-width="140" />
+      <el-table-column label="Execution" min-width="170"><template #default="{ row }: { row: AgentExecutionSummary }"><TechnicalId :value="row.executionId" label="Execution" /></template></el-table-column>
+      <el-table-column label="Job" min-width="140"><template #default="{ row }: { row: AgentExecutionSummary }"><TechnicalId :value="row.jobId" label="Job" /></template></el-table-column>
       <el-table-column label="状态" min-width="100">
         <template #default="{ row }: { row: AgentExecutionSummary }">
-          <el-tag :type="statusType(row.status)" effect="dark" size="small">
-            {{ row.status || '—' }}
-          </el-tag>
+          <StatusBadge :status="row.status" size="small" />
         </template>
       </el-table-column>
       <el-table-column label="开始时间" min-width="160">

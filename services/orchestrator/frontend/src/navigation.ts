@@ -11,8 +11,7 @@ export const navigationGroups: NavigationGroup[] = [
     { to: '/timeline', label: 'Timeline' }, { to: '/audit', label: 'Audit' },
   ] },
   { label: 'AI', items: [
-    { to: '/agents', label: 'Agents' }, { to: '/agent-market', label: 'Agent Market' },
-    { to: '/agent-metrics', label: 'Agent Metrics' }, { to: '/agent-flow', label: 'Agent Flow' },
+    { to: '/agents', label: 'Agents' },
     { to: '/models', label: 'Models' }, { to: '/memory', label: 'Memory' },
     { to: '/skills', label: 'Skills' }, { to: '/mcp/plugins', label: 'MCP Plugins' },
   ] },

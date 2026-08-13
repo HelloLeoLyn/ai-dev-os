@@ -14,6 +14,7 @@ import type { PlanApprovalRequest } from '../types/planApproval'
 import { getTaskApproval } from '../composables/useTaskContext'
 import { useTaskNotifications } from '../composables/useTaskNotifications'
 import { duplicateTaskDraft, rememberTaskCreateMetadata, taskCreateMetadata } from '../services/taskDuplicate'
+import AsyncState from '../components/AsyncState.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -270,11 +271,8 @@ onMounted(async () => Promise.all([loadTasks(), loadProjects()]))
     </el-card>
     </div>
 
-    <el-card v-if="errorMessage" shadow="never">
-      <p class="page-state page-state--error">{{ errorMessage }}</p>
-    </el-card>
-
-    <div v-else class="tasks-layout">
+    <AsyncState :loading="loading && tasks.length === 0" :error="errorMessage" :empty="!loading && tasks.length === 0" empty-text="暂无任务" @retry="loadTasks">
+    <div class="tasks-layout">
       <section class="tasks-layout__list" aria-label="Task list">
         <el-card shadow="never">
           <TaskTable
@@ -289,6 +287,7 @@ onMounted(async () => Promise.all([loadTasks(), loadProjects()]))
         <TaskDetail :task="selectedTask" :approval="approval" :approval-loading="approvalLoading" @duplicate="handleDuplicate" />
       </section>
     </div>
+    </AsyncState>
   </section>
 </template>
 
