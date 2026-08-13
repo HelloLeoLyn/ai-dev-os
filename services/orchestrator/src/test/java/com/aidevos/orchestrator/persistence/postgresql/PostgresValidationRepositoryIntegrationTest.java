@@ -11,6 +11,8 @@ import com.aidevos.orchestrator.validation.ValidationCheckType;
 import com.aidevos.orchestrator.validation.ValidationDecision;
 import com.aidevos.orchestrator.validation.ValidationRun;
 import com.aidevos.orchestrator.validation.ValidationStatus;
+import com.aidevos.orchestrator.qualitygate.QualityGateDecision;
+import com.aidevos.orchestrator.qualitygate.QualityGateResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.postgresql.ds.PGSimpleDataSource;
@@ -32,7 +34,7 @@ class PostgresValidationRepositoryIntegrationTest {
 		dataSource.setUser(POSTGRES.getUsername()); dataSource.setPassword(POSTGRES.getPassword());
 		new PostgresDocumentStore(dataSource, new ObjectMapper());
 		try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
-			statement.execute("DELETE FROM repository_documents WHERE repository_type IN ('validation-run','validation-artifact')");
+			statement.execute("DELETE FROM repository_documents WHERE repository_type IN ('validation-run','validation-artifact','quality-gate-result')");
 		}
 	}
 
@@ -52,15 +54,24 @@ class PostgresValidationRepositoryIntegrationTest {
 		artifact.setValidationRunId("validation-1"); artifact.setCheckId("check-1");
 		artifact.setTaskId("task-1"); artifact.setContent("real log"); artifact.setCreatedAt(Instant.now());
 		artifacts.save(artifact);
+		QualityGateResult gate = new QualityGateResult(); gate.setGateResultId("gate-1");
+		gate.setValidationRunId("validation-1"); gate.setTaskId("task-1");
+		gate.setProjectId("project-1"); gate.setWorkspaceId("workspace-1");
+		gate.setPolicyVersion("v1"); gate.setEvidenceFingerprint("evidence-1");
+		gate.setDecision(QualityGateDecision.PASS); gate.setCreatedAt(Instant.now()); gate.setDecidedAt(Instant.now());
+		new PostgresQualityGateRepository(dataSource, new ObjectMapper()).save(gate);
 
 		PostgresDocumentStore restartedStore = new PostgresDocumentStore(dataSource, new ObjectMapper());
 		ValidationRun loaded = new PostgresValidationRepository(restartedStore).get("validation-1");
 		ValidationArtifact loadedArtifact = new PostgresValidationArtifactRepository(restartedStore).get("artifact-1");
+		QualityGateResult loadedGate = new PostgresQualityGateRepository(dataSource, new ObjectMapper()).get("gate-1");
 		assertEquals("task-1", loaded.getTaskId());
 		assertEquals(ValidationDecision.PASS, loaded.getDecision());
 		assertEquals(ValidationStatus.SUCCESS, loaded.getChecks().getFirst().getStatus());
 		assertEquals(List.of("artifact-1"), loaded.getChecks().getFirst().getArtifactIds());
 		assertNotNull(loadedArtifact); assertEquals("validation-1", loadedArtifact.getValidationRunId());
+		assertNotNull(loadedGate); assertEquals(QualityGateDecision.PASS, loadedGate.getDecision());
+		assertEquals("validation-1", loadedGate.getValidationRunId());
 		assertEquals(1, new PostgresValidationRepository(restartedStore).findByTaskId("task-1").size());
 	}
 }

@@ -12,6 +12,7 @@ import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.feedback.PrFeedbackService;
+import com.aidevos.orchestrator.qualitygate.QualityGateService;
 import com.aidevos.orchestrator.workspace.Workspace;
 import com.aidevos.orchestrator.workspace.WorkspaceService;
 import com.aidevos.orchestrator.workspace.git.GitDiff;
@@ -35,6 +36,7 @@ public class ChangeService {
 	private final WorkspaceService workspaceService;
 	private final AuditService auditService;
 	private volatile PrFeedbackService feedbackService;
+	private volatile QualityGateService qualityGateService;
 
 	public ChangeService(ChangeRepository repository, WorkspaceService workspaceService,
 			AuditService auditService) {
@@ -49,12 +51,16 @@ public class ChangeService {
 		this.feedbackService = feedbackService;
 	}
 
+	@Autowired(required = false) @Lazy
+	public void setQualityGateService(QualityGateService service) { this.qualityGateService = service; }
+
 	/**
 	 * Snapshots the current working-tree diff of the workspace as a new change
 	 * set for the given task/execution. Never modifies the repository.
 	 */
 	public ChangeSet createChange(String taskId, String workspaceId, String projectId,
 			String executionId) {
+		if (qualityGateService != null) qualityGateService.assertAllowed(taskId);
 		Workspace workspace = workspaceService.getWorkspace(workspaceId)
 			.orElseThrow(() -> new ResourceNotFoundException("Workspace", workspaceId));
 		GitStatus gitStatus = workspaceService.checkGitStatus(workspaceId);

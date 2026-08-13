@@ -2,13 +2,13 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
-import { getSecurityReport, getValidations, startValidation, validationArtifactUrl } from '../api/validations'
+import { approveQualityGate, evaluateQualityGate, getQualityGates, getSecurityReport, getValidations, rejectQualityGate, startValidation, validationArtifactUrl } from '../api/validations'
 import AsyncState from '../components/AsyncState.vue'
 import ConsoleCard from '../components/ConsoleCard.vue'
 import SectionHeader from '../components/SectionHeader.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import SecurityReportDrawer from '../components/SecurityReportDrawer.vue'
-import type { SecurityReport, ValidationRun } from '../types/validation'
+import type { QualityGateResult, SecurityReport, ValidationRun } from '../types/validation'
 
 const runs = ref<ValidationRun[]>([])
 const loading = ref(true)
@@ -16,6 +16,7 @@ const submitting = ref(false)
 const errorMessage = ref<string | null>(null)
 const taskId = ref('')
 const securityReport=ref<SecurityReport|null>(null)
+const gates=ref<Record<string,QualityGateResult|undefined>>({})
 
 const running = computed(() => runs.value.filter((run) => run.status === 'RUNNING').length)
 const passed = computed(() => runs.value.filter((run) => run.decision === 'PASS').length)
@@ -27,6 +28,8 @@ async function load(): Promise<void> {
   errorMessage.value = null
   try {
     runs.value = await getValidations()
+    const entries=await Promise.all(runs.value.map(async run=>[run.validationRunId,(await getQualityGates(run.validationRunId))[0]] as const))
+    gates.value=Object.fromEntries(entries)
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : 'Unable to load validations.'
   } finally {
@@ -65,6 +68,8 @@ function command(check: ValidationRun['checks'][number]): string {
   return Array.isArray(value) ? value.join(' ') : typeof value === 'string' ? value : '—'
 }
 async function openSecurityReport(id:unknown){if(typeof id!=='string')return;try{securityReport.value=await getSecurityReport(id)}catch(error){ElMessage.error(error instanceof Error?error.message:'Unable to load security report.')}}
+async function runGate(runId:string){try{gates.value[runId]=await evaluateQualityGate(runId);ElMessage.success(`Quality Gate: ${gates.value[runId]?.decision}`)}catch(error){ElMessage.error(error instanceof Error?error.message:'Quality Gate failed')}}
+async function reviewGate(gate:QualityGateResult,approve:boolean){try{gates.value[gate.validationRunId]=approve?await approveQualityGate(gate.gateResultId):await rejectQualityGate(gate.gateResultId);ElMessage.success(approve?'Risk approved':'Risk rejected')}catch(error){ElMessage.error(error instanceof Error?error.message:'Review failed')}}
 
 onMounted(load)
 </script>
@@ -105,6 +110,7 @@ onMounted(load)
           <el-table-column type="expand">
             <template #default="scope">
               <div class="check-list">
+                <article class="check-card quality-gate"><div class="check-card__header"><div><strong>QUALITY GATE</strong><span>Policy {{gates[scope.row.validationRunId]?.policyVersion||'v1'}}</span></div><StatusBadge :status="gates[scope.row.validationRunId]?.decision||'NOT RUN'" size="small"/></div><p>{{gates[scope.row.validationRunId]?.decision==='PASS'?'READY FOR CHANGESET':gates[scope.row.validationRunId]?.decision==='BLOCK'?'BLOCKED':gates[scope.row.validationRunId]?.decision==='REQUIRE_APPROVAL'?'REVIEW REQUIRED':'Quality Gate has not run.'}}</p><ul v-if="gates[scope.row.validationRunId]?.reasons.length"><li v-for="reason in gates[scope.row.validationRunId]?.reasons" :key="reason.code+reason.sourceId">{{reason.message}}</li></ul><el-button v-if="!gates[scope.row.validationRunId]" type="primary" @click="runGate(scope.row.validationRunId)">Evaluate Gate</el-button><template v-else-if="gates[scope.row.validationRunId]?.decision==='REQUIRE_APPROVAL'"><el-button type="warning" @click="reviewGate(gates[scope.row.validationRunId]!,true)">Review Risk · Approve</el-button><el-button @click="reviewGate(gates[scope.row.validationRunId]!,false)">Reject</el-button></template></article>
                 <article v-for="check in scope.row.checks" :key="check.checkId" class="check-card">
                   <div class="check-card__header">
                     <div><strong>{{ check.name }}</strong><span>{{ check.type }}</span></div>

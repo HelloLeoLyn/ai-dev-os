@@ -16,6 +16,7 @@ import com.aidevos.orchestrator.workspace.WorkspaceRepository;
 import com.aidevos.orchestrator.validation.ValidationArtifactRepository;
 import com.aidevos.orchestrator.validation.ValidationRepository;
 import com.aidevos.orchestrator.validation.security.SecurityReportRepository;
+import com.aidevos.orchestrator.qualitygate.QualityGateRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -108,5 +109,9 @@ public class PostgresRepositoryAutoConfiguration {
 	@Bean
 	SecurityReportRepository securityReportRepository(DataSource dataSource,ObjectMapper mapper){
 		return new PostgresSecurityReportRepository(dataSource,mapper);
+	}
+
+	@Bean QualityGateRepository qualityGateRepository(DataSource dataSource,ObjectMapper mapper){
+		return new PostgresQualityGateRepository(dataSource,mapper);
 	}
 }

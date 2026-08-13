@@ -14,10 +14,13 @@ import com.aidevos.orchestrator.change.ChangeService;
 import com.aidevos.orchestrator.change.ChangeSet;
 import com.aidevos.orchestrator.change.ChangeStatus;
 import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
+import com.aidevos.orchestrator.qualitygate.QualityGateService;
 import com.aidevos.orchestrator.workspace.Workspace;
 import com.aidevos.orchestrator.workspace.WorkspaceService;
 import com.aidevos.orchestrator.workspace.git.GitCommandExecutor;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 
 /**
  * Git commit flow for approved change sets: APPROVED ChangeSet -> git commit
@@ -32,6 +35,7 @@ public class CommitService {
 	private final WorkspaceService workspaceService;
 	private final GitCommandExecutor gitCommandExecutor;
 	private final AuditService auditService;
+	private volatile QualityGateService qualityGateService;
 
 	public CommitService(CommitRepository repository, ChangeService changeService,
 			WorkspaceService workspaceService, GitCommandExecutor gitCommandExecutor,
@@ -42,6 +46,7 @@ public class CommitService {
 		this.gitCommandExecutor = gitCommandExecutor;
 		this.auditService = auditService;
 	}
+	@Autowired(required=false) @Lazy public void setQualityGateService(QualityGateService service){this.qualityGateService=service;}
 
 	/**
 	 * Commits the workspace changes behind an APPROVED change set and records
@@ -50,6 +55,7 @@ public class CommitService {
 	public CommitRecord commit(String changeId) {
 		ChangeSet change = changeService.getChange(changeId)
 			.orElseThrow(() -> new ResourceNotFoundException("Change", changeId));
+		if (qualityGateService != null) qualityGateService.assertAllowed(change.getTaskId());
 		if (change.getStatus() != ChangeStatus.APPROVED) {
 			throw new IllegalStateException("Only an APPROVED change can be committed "
 				+ "(current: " + change.getStatus() + ")");

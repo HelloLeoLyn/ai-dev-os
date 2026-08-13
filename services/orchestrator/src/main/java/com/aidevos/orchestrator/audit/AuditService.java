@@ -221,6 +221,15 @@ public class AuditService {
 				+ value(toStatus) + ":" + UUID.randomUUID()));
 	}
 
+	public void qualityGateEvent(EventType type, String taskId, String validationRunId,
+			String gateResultId, String approvalId, String summary, Map<String, Object> metadata) {
+		String aggregateId = gateResultId == null ? validationRunId : gateResultId;
+		record(event(type, "quality-gate-result", aggregateId, null, null, taskId,
+			null, null, null, null, null, null, null, null, null, approvalId,
+			"SYSTEM", "quality-gate-service", summary, metadata == null ? Map.of() : metadata,
+			type + ":quality-gate:" + aggregateId + ":" + UUID.randomUUID()));
+	}
+
 	public void agentPlanEvent(EventType type, String planId, String taskId, String agentId,
 			int step, String fromStatus, String toStatus, String summary,
 			Map<String, Object> metadata) {

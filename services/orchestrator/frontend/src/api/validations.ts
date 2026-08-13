@@ -1,5 +1,5 @@
 import { apiClient } from './client'
-import type { SecurityFinding, SecurityReport, ValidationRun } from '../types/validation'
+import type { QualityGateResult, SecurityFinding, SecurityReport, ValidationRun } from '../types/validation'
 
 export function getValidations(): Promise<ValidationRun[]> {
   return apiClient.get<ValidationRun[]>('/api/validations')
@@ -24,3 +24,7 @@ export function startValidation(taskId: string): Promise<ValidationRun> {
 export function validationArtifactUrl(artifactId: string): string {
   return `/api/validation-artifacts/${encodeURIComponent(artifactId)}`
 }
+export function getQualityGates(runId:string):Promise<QualityGateResult[]>{return apiClient.get(`/api/validations/${encodeURIComponent(runId)}/quality-gates`)}
+export function evaluateQualityGate(runId:string):Promise<QualityGateResult>{return apiClient.post(`/api/validations/${encodeURIComponent(runId)}/quality-gate`)}
+export function approveQualityGate(id:string):Promise<QualityGateResult>{return apiClient.post(`/api/quality-gates/${encodeURIComponent(id)}/approve`,{reviewer:'console-user'})}
+export function rejectQualityGate(id:string):Promise<QualityGateResult>{return apiClient.post(`/api/quality-gates/${encodeURIComponent(id)}/reject`,{reviewer:'console-user'})}

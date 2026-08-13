@@ -14,10 +14,13 @@ import com.aidevos.orchestrator.commit.CommitRecord;
 import com.aidevos.orchestrator.commit.CommitService;
 import com.aidevos.orchestrator.commit.CommitStatus;
 import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
+import com.aidevos.orchestrator.qualitygate.QualityGateService;
 import com.aidevos.orchestrator.workspace.Workspace;
 import com.aidevos.orchestrator.workspace.WorkspaceService;
 import com.aidevos.orchestrator.workspace.git.GitCommandExecutor;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 
 /**
  * Remote git integration for committed change sets: CommitRecord SUCCESS ->
@@ -34,6 +37,7 @@ public class RemoteGitService {
 	private final WorkspaceService workspaceService;
 	private final GitCommandExecutor gitCommandExecutor;
 	private final AuditService auditService;
+	private volatile QualityGateService qualityGateService;
 
 	public RemoteGitService(RemoteRepository repository, CommitService commitService,
 			WorkspaceService workspaceService, GitCommandExecutor gitCommandExecutor,
@@ -44,6 +48,7 @@ public class RemoteGitService {
 		this.gitCommandExecutor = gitCommandExecutor;
 		this.auditService = auditService;
 	}
+	@Autowired(required=false) @Lazy public void setQualityGateService(QualityGateService service){this.qualityGateService=service;}
 
 	/**
 	 * Pushes the branch of a SUCCESS commit to the given remote (default
@@ -52,6 +57,7 @@ public class RemoteGitService {
 	public RemoteBranchRecord push(String commitId, String remote) {
 		CommitRecord commit = commitService.getCommit(commitId)
 			.orElseThrow(() -> new ResourceNotFoundException("Commit", commitId));
+		if (qualityGateService != null) qualityGateService.assertAllowed(commit.getTaskId());
 		if (commit.getStatus() != CommitStatus.SUCCESS) {
 			throw new IllegalStateException("Only a SUCCESS commit can be pushed "
 				+ "(current: " + commit.getStatus() + ")");
