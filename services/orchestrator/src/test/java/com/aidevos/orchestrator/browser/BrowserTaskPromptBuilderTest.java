@@ -20,5 +20,7 @@ class BrowserTaskPromptBuilderTest {
 
 		assertTrue(prompt.contains("codeChanges"));
 		assertTrue(prompt.contains("login fix"));
+		assertTrue(prompt.contains("\"succeeded\":true"));
+		assertTrue(prompt.contains("assertion mismatch must never be reported as succeeded=true"));
 	}
 }

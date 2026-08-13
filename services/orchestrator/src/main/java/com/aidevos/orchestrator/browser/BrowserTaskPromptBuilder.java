@@ -41,7 +41,8 @@ public class BrowserTaskPromptBuilder {
 			Browser operation: %s
 
 			Return only one JSON object with this shape:
-			{"output":"short result summary","artifacts":[{"type":"screenshot","name":"screenshot.png","mediaType":"image/png","uri":"path-or-uri"}]}
+			{"succeeded":true,"output":"short result summary","errorMessage":null,"artifacts":[{"type":"screenshot","name":"screenshot.png","mediaType":"image/png","uri":"path-or-uri"}]}
+			Set succeeded=false and provide errorMessage when the requested action or assertion does not succeed. A browser tool call failure or assertion mismatch must never be reported as succeeded=true.
 			Use an empty artifacts array when the operation produces no file. Preserve any screenshot path or URI returned by the browser tool.
 			""".formatted(description == null ? "" : description,
 				writeJson(inputParameters(parameters)), writeJson(operation));

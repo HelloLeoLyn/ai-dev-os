@@ -15,6 +15,7 @@ import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.ObjectMapper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -122,5 +123,26 @@ class BrowserTestExecutorTest {
 
 		assertTrue(!result.succeeded());
 		assertTrue(result.errorMessage().contains("status error"));
+	}
+
+	@Test
+	void openClawExecutorReportsStructuredAssertionFailure() {
+		OpenClawTaskService taskService = mock(OpenClawTaskService.class);
+		ObjectMapper mapper = new ObjectMapper();
+		OpenClawTaskResult taskResult = new OpenClawTaskResult("run-1", "session-1", "ok",
+			"{\"succeeded\":false,\"output\":\"assertion failed\","
+				+ "\"errorMessage\":\"Expected Saved but was Error\",\"artifacts\":["
+				+ "{\"type\":\"screenshot\",\"uri\":\"/tmp/failure.png\"}]}");
+		when(taskService.execute(any(OpenClawTaskRequest.class)))
+			.thenReturn(CompletableFuture.completedFuture(taskResult));
+		OpenClawBrowserTestExecutor executor = new OpenClawBrowserTestExecutor(taskService,
+			new BrowserTaskPromptBuilder(mapper), new BrowserResultMapper(mapper), mapper,
+			"browser-agent");
+
+		BrowserTestResult result = executor.execute("test-1", "https://example.com");
+
+		assertFalse(result.succeeded());
+		assertEquals("Expected Saved but was Error", result.errorMessage());
+		assertEquals("/tmp/failure.png", result.screenshotPath());
 	}
 }

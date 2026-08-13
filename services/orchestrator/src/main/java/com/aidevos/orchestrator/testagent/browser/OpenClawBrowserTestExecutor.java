@@ -62,12 +62,35 @@ public class OpenClawBrowserTestExecutor implements BrowserTestExecutor {
 			ExecutionResult holder = new ExecutionResult();
 			resultMapper.map(taskResult.output(), holder);
 			String screenshot = firstScreenshot(holder.getArtifacts());
+			JsonNode envelope = browserEnvelope(taskResult.output());
+			if (envelope != null && envelope.path("succeeded").isBoolean()
+					&& !envelope.path("succeeded").asBoolean()) {
+				String error = envelope.path("errorMessage").asText();
+				if (error.isBlank()) {
+					error = holder.getOutput() == null || holder.getOutput().isBlank()
+						? "OpenClaw browser operation failed" : holder.getOutput();
+				}
+				return BrowserTestResult.failure(holder.getOutput(), error, screenshot);
+			}
 			return BrowserTestResult.success(holder.getOutput(), screenshot);
 		}
 		catch (RuntimeException exception) {
 			String error = exception.getMessage() == null || exception.getMessage().isBlank()
 				? exception.getClass().getSimpleName() : exception.getMessage();
 			return BrowserTestResult.failure(null, error, null);
+		}
+	}
+
+	private JsonNode browserEnvelope(String output) {
+		if (output == null || output.isBlank()) {
+			return null;
+		}
+		try {
+			JsonNode root = objectMapper.readTree(output);
+			return root.isObject() ? root : null;
+		}
+		catch (Exception ignored) {
+			return null;
 		}
 	}
 
