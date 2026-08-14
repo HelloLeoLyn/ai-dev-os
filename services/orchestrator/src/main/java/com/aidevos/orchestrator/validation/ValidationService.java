@@ -92,6 +92,11 @@ public class ValidationService {
 			run.getChecks().add(executeCheck(run, workspacePath, capabilities, type));
 			repository.save(run);
 		}
+		if (capabilities.containsKey("engineeringPlatformProjectYaml")) {
+			run.getChecks().add(executeCheck(run, workspacePath, capabilities,
+				ValidationCheckType.CONTRACT));
+			repository.save(run);
+		}
 		audit(run, EventType.SECURITY_VALIDATION_STARTED, null, ValidationStatus.RUNNING,
 			"Security validation started", Map.of("scannerCount", SECURITY_SCANNERS.size()));
 		for (String scanner : SECURITY_SCANNERS) {

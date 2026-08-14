@@ -109,7 +109,8 @@ public class ToolRouter {
 			}
 			ToolResult completed = withApproval(result.withInvocation(invocation), approvalId);
 			auditService.toolEvent(completed.success() ? EventType.TOOL_COMPLETED : EventType.TOOL_FAILED,
-				invocation, approvalId, completed.success() ? "COMPLETED" : "FAILED", completed.code());
+				invocation, approvalId, completed.success() ? "COMPLETED" : "FAILED", completed.code(),
+				completed.metadata());
 			return completed;
 		}
 		catch (TimeoutException exception) {

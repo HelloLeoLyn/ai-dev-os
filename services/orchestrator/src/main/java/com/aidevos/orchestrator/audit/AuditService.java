@@ -115,10 +115,21 @@ public class AuditService {
 
 	public void toolEvent(EventType type, ToolInvocation invocation, String approvalId,
 			String status, String resultCode) {
+		toolEvent(type, invocation, approvalId, status, resultCode, Map.of());
+	}
+
+	public void toolEvent(EventType type, ToolInvocation invocation, String approvalId,
+			String status, String resultCode, Map<String, Object> resultMetadata) {
 		Map<String, Object> metadata = new java.util.LinkedHashMap<>();
 		metadata.put("providerId", invocation.providerId());
 		metadata.put("toolName", invocation.toolName());
 		if (resultCode != null) metadata.put("resultCode", resultCode);
+		for (String key : java.util.List.of("operation", "exitCode", "projectYaml",
+				"outputPath", "projectDir", "durationMs")) {
+			if (resultMetadata != null && resultMetadata.containsKey(key)) {
+				metadata.put(key, resultMetadata.get(key));
+			}
+		}
 		record(event(type, "tool-invocation", invocation.invocationId(), null, status, null, null,
 			null, null, null, null, invocation.jobId(), invocation.executionId(), null,
 			invocation.invocationId(), approvalId, "SYSTEM", invocation.providerId(), type.name(),

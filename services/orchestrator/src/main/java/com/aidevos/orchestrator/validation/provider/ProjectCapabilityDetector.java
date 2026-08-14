@@ -21,7 +21,11 @@ public class ProjectCapabilityDetector {
 		Map<String, Object> result = new LinkedHashMap<>();
 		Path maven = firstFile(workspace, List.of("pom.xml", "server/pom.xml", "backend/pom.xml"));
 		Path frontend = packageDirectory(workspace);
+		Path engineeringPlatformManifest = firstFile(workspace, List.of("project.yaml"));
 		if (maven != null) result.put("mavenDirectory", maven.getParent().toString());
+		if (engineeringPlatformManifest != null) {
+			result.put("engineeringPlatformProjectYaml", engineeringPlatformManifest.toString());
+		}
 		if (frontend != null) {
 			result.put("frontendDirectory", frontend.toString());
 			result.put("packageManager", packageManager(frontend));
