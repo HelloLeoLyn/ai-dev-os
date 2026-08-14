@@ -21,4 +21,15 @@ describe('Backlog Center', () => {
     expect(view).toContain('ROADMAP')
     expect(view).toContain('Source Reference')
   })
+  it('uses dropdown command values for status changes and keeps narrow columns readable', () => {
+    expect(view).toContain('@command="changeStatus(row, $event as BacklogStatus)"')
+    expect(view).toContain(':command="next"')
+    expect(view).toContain('label-class-name="nowrap-column"')
+    expect(view).toContain('white-space:nowrap')
+  })
+  it('renders block actions through the state-machine availability guards', () => {
+    expect(view).toContain('canBlockBacklog(row.status)')
+    expect(view).toContain('canUnblockBacklog(row.status)')
+    expect(view).not.toContain("row.status !== 'BLOCKED'")
+  })
 })

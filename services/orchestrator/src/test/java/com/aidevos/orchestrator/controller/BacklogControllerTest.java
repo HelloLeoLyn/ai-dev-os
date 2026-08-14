@@ -3,8 +3,14 @@ package com.aidevos.orchestrator.controller;
 import java.time.Instant;
 import java.util.List;
 import com.aidevos.orchestrator.backlog.*;
+import com.aidevos.orchestrator.audit.AuditService;
+import com.aidevos.orchestrator.audit.InMemoryAuditRepository;
 import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
 import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
+import com.aidevos.orchestrator.project.ProjectService;
+import com.aidevos.orchestrator.project.ProjectTaskService;
+import com.aidevos.orchestrator.taskcenter.TaskCenterService;
+import com.aidevos.orchestrator.workspace.WorkspaceService;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import static org.mockito.ArgumentMatchers.*;
@@ -14,6 +20,24 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 class BacklogControllerTest {
+	@Test void changesIdeaToPlannedThroughRealHttpContract() throws Exception {
+		InMemoryBacklogRepository repository = new InMemoryBacklogRepository();
+		BacklogService service = new BacklogService(repository, mock(ProjectService.class),
+			mock(WorkspaceService.class), mock(ProjectTaskService.class),
+			mock(TaskCenterService.class), new AuditService(new InMemoryAuditRepository()));
+		BacklogItem item = service.create(new CreateBacklogRequest("Work", null,
+			BacklogStatus.IDEA, BacklogPriority.LOW, null, null, BacklogSourceType.MANUAL,
+			null, null, List.of(), List.of()));
+
+		mvc(service).perform(post("/api/backlog/{id}/status", item.getBacklogItemId())
+				.contentType("application/json").content("{\"status\":\"PLANNED\"}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.status").value("PLANNED"));
+
+		org.junit.jupiter.api.Assertions.assertEquals(BacklogStatus.PLANNED,
+			repository.get(item.getBacklogItemId()).getStatus());
+	}
+
 	@Test void supportsCrudStatusAndFilters() throws Exception {
 		BacklogService service = mock(BacklogService.class); BacklogItem item = item();
 		when(service.create(any())).thenReturn(item); when(service.get("backlog-1")).thenReturn(item);

@@ -9,7 +9,9 @@ export function updateBacklog(id: string, request: Omit<BacklogDraft, 'status' |
   return apiClient.put(`/api/backlog/${encodeURIComponent(id)}`, request)
 }
 export function changeBacklogStatus(id: string, status: BacklogStatus, blockedReason?: string): Promise<BacklogItem> {
-  return apiClient.post(`/api/backlog/${encodeURIComponent(id)}/status`, { status, blockedReason })
+  const request: { status: BacklogStatus; blockedReason?: string } = { status }
+  if (blockedReason !== undefined) request.blockedReason = blockedReason
+  return apiClient.post(`/api/backlog/${encodeURIComponent(id)}/status`, request)
 }
 export function convertBacklog(id: string, request: ConvertBacklogRequest): Promise<BacklogConversionResult> {
   return apiClient.post(`/api/backlog/${encodeURIComponent(id)}/convert-to-task`, request)

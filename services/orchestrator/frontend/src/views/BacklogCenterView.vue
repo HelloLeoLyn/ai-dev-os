@@ -8,6 +8,7 @@ import SectionHeader from '../components/SectionHeader.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import { changeBacklogStatus, convertBacklog, createBacklog, getBacklog, updateBacklog } from '../api/backlog'
 import { getProjects, getProjectWorkspaces } from '../api/projects'
+import { canBlockBacklog, canUnblockBacklog } from '../services/backlogActions'
 import type { BacklogDraft, BacklogItem, BacklogPriority, BacklogSourceType, BacklogStatus, ConvertBacklogRequest } from '../types/backlog'
 import type { Project } from '../types/project'
 import type { Workspace } from '../types/workspace'
@@ -34,6 +35,7 @@ const summary = computed(() => Object.fromEntries(statuses.map(status => [status
 const dependencyOptions = computed(() => items.value.filter(item => item.backlogItemId !== editingId.value))
 const transitions: Partial<Record<BacklogStatus, BacklogStatus[]>> = { IDEA: ['PLANNED'], PLANNED: ['READY'], READY: ['PLANNED'], BLOCKED: ['PLANNED', 'READY'] }
 function nextStatuses(item: BacklogItem): BacklogStatus[] { return transitions[item.status] ?? [] }
+function changeStatus(item: BacklogItem, status: BacklogStatus): void { void setStatus(item, status) }
 
 function emptyDraft(): BacklogDraft {
   return { title: '', description: '', status: 'IDEA', priority: 'MEDIUM', projectId: '', workspaceId: '', sourceType: 'MANUAL', sourceReference: '', blockedReason: '', dependsOn: [], tags: [] }
@@ -121,16 +123,16 @@ onMounted(async () => { try { projects.value = (await getProjects()).filter(proj
           <el-table-column label="Priority"><template #default="{ row }"><StatusBadge :status="row.priority" /></template></el-table-column>
           <el-table-column label="Status"><template #default="{ row }"><StatusBadge :status="row.status" /></template></el-table-column>
           <el-table-column prop="projectId" label="Project" min-width="150" />
-          <el-table-column prop="sourceType" label="Source" />
-          <el-table-column label="Dependencies"><template #default="{ row }">{{ row.dependsOn.length }}</template></el-table-column>
+          <el-table-column prop="sourceType" label="Source" min-width="110" class-name="nowrap-column" label-class-name="nowrap-column" />
+          <el-table-column label="Dependencies" min-width="130" class-name="nowrap-column" label-class-name="nowrap-column"><template #default="{ row }">{{ row.dependsOn.length }}</template></el-table-column>
           <el-table-column label="Updated" min-width="170"><template #default="{ row }">{{ format(row.updatedAt) }}</template></el-table-column>
           <el-table-column label="Actions" width="330" fixed="right"><template #default="{ row }">
             <el-button size="small" :disabled="['CONVERTED','DONE','CANCELLED'].includes(row.status)" @click.stop="openEdit(row)">Edit</el-button>
-            <el-button v-if="row.status !== 'BLOCKED'" size="small" :disabled="['CONVERTED','DONE','CANCELLED'].includes(row.status)" @click.stop="block(row)">Block</el-button>
-            <el-button v-else size="small" @click.stop="setStatus(row, 'PLANNED')">Unblock</el-button>
-            <el-dropdown v-if="nextStatuses(row).length" trigger="click" @click.stop>
+            <el-button v-if="canBlockBacklog(row.status)" size="small" @click.stop="block(row)">Block</el-button>
+            <el-button v-if="canUnblockBacklog(row.status)" size="small" @click.stop="setStatus(row, 'PLANNED')">Unblock</el-button>
+            <el-dropdown v-if="nextStatuses(row).length" trigger="click" @click.stop @command="changeStatus(row, $event as BacklogStatus)">
               <el-button size="small">Change Status</el-button>
-              <template #dropdown><el-dropdown-menu><el-dropdown-item v-for="next in nextStatuses(row)" :key="next" @click="setStatus(row, next)">{{ next }}</el-dropdown-item></el-dropdown-menu></template>
+              <template #dropdown><el-dropdown-menu><el-dropdown-item v-for="next in nextStatuses(row)" :key="next" :command="next">{{ next }}</el-dropdown-item></el-dropdown-menu></template>
             </el-dropdown>
             <el-button v-if="row.status === 'READY'" size="small" type="primary" @click.stop="openConvert(row)">Convert</el-button>
             <el-button v-if="!['CONVERTED','DONE','CANCELLED'].includes(row.status)" size="small" type="danger" plain @click.stop="setStatus(row, 'CANCELLED')">Cancel</el-button>
@@ -189,5 +191,5 @@ onMounted(async () => { try { projects.value = (await getProjects()).filter(proj
 </template>
 
 <style scoped>
-.summary-grid{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:12px}.filters{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}.detail-grid{margin:16px 0}@media(max-width:900px){.summary-grid{grid-template-columns:repeat(2,1fr)}}
+.summary-grid{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:12px}.filters{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}.detail-grid{margin:16px 0}:deep(.nowrap-column .cell){white-space:nowrap}@media(max-width:900px){.summary-grid{grid-template-columns:repeat(2,1fr)}}
 </style>
