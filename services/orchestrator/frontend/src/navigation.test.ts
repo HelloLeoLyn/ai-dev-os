@@ -5,7 +5,7 @@ describe('console navigation', () => {
   it('groups the product routes by workspace, execution, AI and operations', () => {
     expect(navigationGroups.map((group) => group.label)).toEqual(['Workspace', 'Execution', 'AI', 'Operations'])
     expect(navigationGroups.find((group) => group.label === 'Workspace')?.items.map((item) => item.label))
-      .toEqual(['Dashboard', 'Projects', 'Tasks', 'Workspaces'])
+      .toEqual(['Dashboard', 'Projects', 'Tasks', 'Backlog', 'Workspaces'])
     expect(navigationGroups.find((group) => group.label === 'AI')?.items).toEqual(expect.arrayContaining([
       { to: '/agents', label: 'Agents' }, { to: '/models', label: 'Models' },
     ]))

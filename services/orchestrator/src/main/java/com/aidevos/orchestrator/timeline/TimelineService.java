@@ -147,6 +147,9 @@ public class TimelineService {
 	}
 
 	private String sourceType(EventRecord event) {
+		if ("backlog-item".equals(event.aggregateType())) {
+			return "BACKLOG";
+		}
 		if ("validation-run".equals(event.aggregateType())) {
 			return "VALIDATION";
 		}
@@ -169,6 +172,9 @@ public class TimelineService {
 	}
 
 	private String sourceId(EventRecord event) {
+		if ("backlog-item".equals(event.aggregateType())) {
+			return event.aggregateId();
+		}
 		if ("validation-run".equals(event.aggregateType())) {
 			return event.aggregateId();
 		}

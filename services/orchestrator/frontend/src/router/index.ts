@@ -30,6 +30,7 @@ const PlanRunTimelineView = () => import('../views/PlanRunTimelineView.vue')
 const TimelineConsoleView = () => import('../views/TimelineConsoleView.vue')
 const TestsView = () => import('../views/TestsView.vue')
 const NetworkSettingsView = () => import('../views/NetworkSettingsView.vue')
+const BacklogCenterView = () => import('../views/BacklogCenterView.vue')
 
 const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/dashboard' },
@@ -73,6 +74,7 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'Execution Record Details' },
   },
   { path: '/tasks', component: TasksView, meta: { title: 'Tasks' } },
+  { path: '/backlog', component: BacklogCenterView, meta: { title: 'Backlog Center' } },
   { path: '/tasks/:taskId', component: TasksView, meta: { title: 'Task Detail' } },
   { path: '/tasks/:taskId/plan', component: TaskPlanView, meta: { title: 'Task Plan' } },
   { path: '/tasks/:taskId/execution', component: TaskExecutionView, meta: { title: 'Task Execution' } },

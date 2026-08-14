@@ -650,6 +650,14 @@ public class AuditService {
 			"USER_OPERATION:task:" + taskId + ":" + UUID.randomUUID()));
 	}
 
+	public void backlogEvent(EventType type, String backlogItemId, String taskId,
+			String fromStatus, String toStatus, String summary, Map<String, Object> metadata) {
+		record(event(type, "backlog-item", backlogItemId, fromStatus, toStatus, taskId,
+			null, null, null, null, null, null, null, null, null, null, "USER",
+			"backlog-center", summary, metadata == null ? Map.of() : Map.copyOf(metadata),
+			type + ":backlog:" + backlogItemId + ":" + UUID.randomUUID()));
+	}
+
 	/**
 	 * Records an autonomous optimization event (OPTIMIZATION_STARTED /
 	 * OPTIMIZATION_COMPLETED / OPTIMIZATION_RECOMMENDED / AGENT_SCORE_UPDATED)

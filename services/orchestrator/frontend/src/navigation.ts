@@ -4,7 +4,8 @@ export interface NavigationGroup { label: string; items: NavigationItem[] }
 export const navigationGroups: NavigationGroup[] = [
   { label: 'Workspace', items: [
     { to: '/dashboard', label: 'Dashboard' }, { to: '/projects', label: 'Projects' },
-    { to: '/tasks', label: 'Tasks' }, { to: '/workspaces', label: 'Workspaces' },
+    { to: '/tasks', label: 'Tasks' }, { to: '/backlog', label: 'Backlog' },
+    { to: '/workspaces', label: 'Workspaces' },
   ] },
   { label: 'Execution', items: [
     { to: '/executions', label: 'Executions' }, { to: '/jobs', label: 'Jobs' },
