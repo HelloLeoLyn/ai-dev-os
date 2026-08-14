@@ -29,6 +29,7 @@ const WorkspacesView = () => import('../views/WorkspaceView.vue')
 const PlanRunTimelineView = () => import('../views/PlanRunTimelineView.vue')
 const TimelineConsoleView = () => import('../views/TimelineConsoleView.vue')
 const TestsView = () => import('../views/TestsView.vue')
+const NetworkSettingsView = () => import('../views/NetworkSettingsView.vue')
 
 const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/dashboard' },
@@ -98,6 +99,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/observability', component: ObservabilityView, meta: { title: 'Observability' } },
   { path: '/mcp/plugins', component: McpPluginsView, meta: { title: 'MCP Plugins' } },
   { path: '/tests', component: TestsView, meta: { title: 'Validation Center' } },
+  { path: '/settings/network', component: NetworkSettingsView, meta: { title: 'Network / Proxy' } },
 ]
 
 const router = createRouter({

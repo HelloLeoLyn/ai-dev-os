@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -20,25 +21,33 @@ import com.aidevos.orchestrator.executor.command.policy.PolicyDecision;
 import com.aidevos.orchestrator.executor.command.policy.PolicyAction;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import com.aidevos.orchestrator.network.ProxyEnvironmentService;
 
 @Component
 public class CommandExecutor {
 
 	private final CommandPolicy commandPolicy;
 	private final ApprovalGate approvalGate;
+	private final ProxyEnvironmentService proxyEnvironmentService;
 
 	public CommandExecutor() {
-		this(options -> PolicyDecision.allow("policy-disabled"), new ApprovalGate());
+		this(options -> PolicyDecision.allow("policy-disabled"), new ApprovalGate(), null);
 	}
 
 	public CommandExecutor(CommandPolicy commandPolicy) {
-		this(commandPolicy, new ApprovalGate());
+		this(commandPolicy, new ApprovalGate(), null);
+	}
+
+	public CommandExecutor(CommandPolicy commandPolicy, ApprovalGate approvalGate) {
+		this(commandPolicy, approvalGate, null);
 	}
 
 	@Autowired
-	public CommandExecutor(CommandPolicy commandPolicy, ApprovalGate approvalGate) {
+	public CommandExecutor(CommandPolicy commandPolicy, ApprovalGate approvalGate,
+			ProxyEnvironmentService proxyEnvironmentService) {
 		this.commandPolicy = commandPolicy;
 		this.approvalGate = approvalGate;
+		this.proxyEnvironmentService = proxyEnvironmentService;
 	}
 
 	public CommandResult execute(List<String> command) {
@@ -62,6 +71,13 @@ public class CommandExecutor {
 		Process process = null;
 		try {
 			ProcessBuilder processBuilder = new ProcessBuilder(options.getCommand());
+			if (options.isRuntimeNetworkEnabled() && proxyEnvironmentService != null) {
+				proxyEnvironmentService.applyTo(processBuilder.environment());
+			}
+			for (Map.Entry<String, String> entry : options.getEnvironment().entrySet()) {
+				if (entry.getValue() == null) processBuilder.environment().remove(entry.getKey());
+				else processBuilder.environment().put(entry.getKey(), entry.getValue());
+			}
 			if (options.getWorkingDirectory() != null && !options.getWorkingDirectory().isBlank()) {
 				processBuilder.directory(new File(options.getWorkingDirectory()));
 			}

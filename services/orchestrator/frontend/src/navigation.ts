@@ -17,6 +17,7 @@ export const navigationGroups: NavigationGroup[] = [
   ] },
   { label: 'Operations', items: [
     { to: '/schedules', label: 'Schedules' }, { to: '/tests', label: 'Validation' },
+    { to: '/settings/network', label: 'Network / Proxy' },
   ] },
 ]
 

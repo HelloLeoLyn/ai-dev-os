@@ -1,6 +1,7 @@
 package com.aidevos.orchestrator.audit;
 
 public enum EventType {
+	NETWORK_SETTINGS_UPDATED,
 	PLAN_CREATED,
 	PLAN_VALIDATION_FAILED,
 	PLAN_APPROVAL_REQUESTED,

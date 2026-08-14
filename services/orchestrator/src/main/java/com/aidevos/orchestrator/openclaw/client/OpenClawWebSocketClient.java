@@ -19,6 +19,7 @@ import com.aidevos.orchestrator.openclaw.config.OpenClawProperties;
 import com.aidevos.orchestrator.openclaw.model.GatewayEvent;
 import com.aidevos.orchestrator.openclaw.model.GatewayRequest;
 import com.aidevos.orchestrator.openclaw.model.GatewayResponse;
+import com.aidevos.orchestrator.network.NetworkAwareHttpClientFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
@@ -34,7 +35,9 @@ public class OpenClawWebSocketClient implements OpenClawClient, WebSocket.Listen
 
 	private final ObjectMapper objectMapper;
 
-	private final HttpClient httpClient;
+	private final HttpClient explicitHttpClient;
+
+	private final NetworkAwareHttpClientFactory httpClientFactory;
 
 	private final OpenClawDeviceIdentityStore deviceIdentityStore;
 
@@ -51,16 +54,26 @@ public class OpenClawWebSocketClient implements OpenClawClient, WebSocket.Listen
 	private volatile String connectRequestId;
 
 	@Autowired
+	public OpenClawWebSocketClient(OpenClawProperties properties, ObjectMapper objectMapper,
+			NetworkAwareHttpClientFactory httpClientFactory) {
+		this.properties = properties;
+		this.objectMapper = objectMapper;
+		this.explicitHttpClient = null;
+		this.httpClientFactory = httpClientFactory;
+		this.deviceIdentityStore = new OpenClawDeviceIdentityStore(
+				properties.getDeviceIdentityPath(), objectMapper);
+	}
+
 	public OpenClawWebSocketClient(OpenClawProperties properties, ObjectMapper objectMapper) {
 		this(properties, objectMapper, HttpClient.newBuilder()
-			.connectTimeout(properties.getConnectTimeout())
-			.build());
+			.connectTimeout(properties.getConnectTimeout()).build());
 	}
 
 	OpenClawWebSocketClient(OpenClawProperties properties, ObjectMapper objectMapper, HttpClient httpClient) {
 		this.properties = properties;
 		this.objectMapper = objectMapper;
-		this.httpClient = httpClient;
+		this.explicitHttpClient = httpClient;
+		this.httpClientFactory = null;
 		this.deviceIdentityStore = new OpenClawDeviceIdentityStore(
 				properties.getDeviceIdentityPath(), objectMapper);
 	}
@@ -75,7 +88,9 @@ public class OpenClawWebSocketClient implements OpenClawClient, WebSocket.Listen
 		}
 
 		connectFuture = new CompletableFuture<>();
-		httpClient.newWebSocketBuilder()
+		HttpClient client = explicitHttpClient != null ? explicitHttpClient
+			: httpClientFactory.client(properties.getConnectTimeout());
+		client.newWebSocketBuilder()
 			.connectTimeout(properties.getConnectTimeout())
 			.header("Origin", "http://127.0.0.1:18789")
 			.buildAsync(URI.create(properties.getGatewayUrl()), this)
