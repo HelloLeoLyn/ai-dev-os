@@ -41,6 +41,7 @@ npm run dev
 | frontend | 8080 | nginx 托管 Vue 前端，`/api` 反向代理到 orchestrator |
 
 ```bash
+./services/orchestrator/scripts/database/ensure-postgres-volume.sh
 docker compose up -d --build
 docker compose ps
 curl http://127.0.0.1:18080/actuator/health
@@ -50,9 +51,11 @@ curl http://127.0.0.1:8080
 停止：
 
 ```bash
-docker compose down          # 保留数据卷
-docker compose down -v       # 同时删除数据库数据卷
+docker compose down          # external 数据卷保持独立存在
 ```
+
+禁止使用 `docker compose down -v` 作为日常停止方式。正式数据的备份、恢复和
+升级流程见 [运行数据生命周期](../operation/data-lifecycle.md)。
 
 ## 3. 生产环境变量
 
@@ -72,7 +75,7 @@ docker compose down -v       # 同时删除数据库数据卷
 ## 4. 数据库初始化
 
 首次启动时，应用通过内置迁移运行器自动执行
-`services/orchestrator/src/main/resources/db/migration/V*.sql`（Flyway 风格 SQL）：
+`services/orchestrator/src/main/resources/db/migration/V*.sql`（版本化 SQL）：
 
 - 已应用版本记录在 `schema_migrations` 表
 - 迁移是幂等的（`CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS`）
@@ -86,24 +89,9 @@ psql "$POSTGRES_URL" -f services/orchestrator/src/main/resources/db/migration/V1
 
 ## 5. 备份恢复
 
-### 备份
-
-```bash
-docker compose exec postgres pg_dump -U ai_dev_os -d ai_dev_os -Fc > ai_dev_os.dump
-```
-
-### 恢复
-
-```bash
-docker compose exec -T postgres pg_restore -U ai_dev_os -d ai_dev_os --clean --if-exists < ai_dev_os.dump
-```
-
-或使用 SQL 格式：
-
-```bash
-docker compose exec postgres pg_dump -U ai_dev_os -d ai_dev_os > ai_dev_os.sql
-docker compose exec -T postgres psql -U ai_dev_os -d ai_dev_os < ai_dev_os.sql
-```
+正式备份和恢复使用 `services/orchestrator/scripts/database/` 下的管理员脚本。
+脚本生成 metadata 和 checksum，并在覆盖恢复前强制制作 safety backup。完整流程见
+[运行数据生命周期](../operation/data-lifecycle.md)。
 
 ## 6. 健康检查
 

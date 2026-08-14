@@ -31,7 +31,7 @@
 
 1. 确认 PostgreSQL 可达，且 `AI_DEV_OS_PERSISTENCE_TYPE=postgresql`。
 2. 启动应用。启动时 `PostgresDocumentStore` 会自动按版本顺序应用
-   `classpath:/db/migration/V*.sql`（V1～V7），并记录到 `schema_migrations`；
+   `classpath:/db/migration/V*.sql` 中的全部版本，并记录到 `schema_migrations`；
    已应用的版本会跳过，重复启动幂等。
 3. 等待 `GET /api/health/readiness` 返回 `200` 与 `{"status":"READY"}`，
    再接入流量。迁移未完成或应用未完成启动时返回 `503 NOT_READY`。
@@ -50,8 +50,8 @@
 readiness 门禁：
 
 - `startupComplete=false`：应用尚未完成启动（`ApplicationReadyEvent` 未触发）。
-- `migrations=pending`：PostgreSQL 模式下 `schema_migrations` 未包含全部
-  V1～V7 版本。
+- `migrations=pending`：PostgreSQL 模式下 `schema_migrations` 未包含应用内置的
+  全部 migration 版本。
 
 建议 Kubernetes / Docker Compose 使用：
 
@@ -151,12 +151,11 @@ lease；step Job 使用确定性 ID + `createIfAbsent` 幂等，因此不会创�
 
 ## 5.1 升级
 
-1. 备份数据库（`pg_dump` 或快照）。
+1. 执行 `scripts/database/upgrade-preflight.sh`，完成兼容性检查和升级前备份。
 2. 部署新版本镜像；启动时自动应用新增 migration，`schema_migrations`
    保证只应用一次且幂等。
 3. 等待新实例 readiness 通过后滚动切换。
-4. 升级后查询 `SELECT version,name FROM schema_migrations ORDER BY version`
-   确认迁移版本完整。
+4. 执行 `scripts/database/post-upgrade-check.sh`，确认 migration、readiness 与数据完整性。
 
 ## 5.2 回滚
 
@@ -175,3 +174,4 @@ lease；step Job 使用确定性 ID + `createIfAbsent` 幂等，因此不会创�
 - readiness 门禁覆盖“启动完成 + 迁移完成”；恢复扫描由 `LeaseReaper` 周期性
   执行（每 `AI_DEV_OS_LEASE_REAPER_INTERVAL`），不是一次性启动扫描。
 - in-memory 模式仅用于开发；生产必须使用 `postgresql` 模式。
+- 完整备份、恢复、external volume 与升级门禁见 [运行数据生命周期](data-lifecycle.md)。

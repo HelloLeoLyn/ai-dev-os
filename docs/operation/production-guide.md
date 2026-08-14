@@ -123,7 +123,7 @@ curl -s http://127.0.0.1:18080/api/metrics
 
 ```bash
 # 查看迁移版本
-SELECT version, description, success FROM schema_migrations ORDER BY version;
+SELECT version, name, applied_at FROM schema_migrations ORDER BY version;
 
 # 查看待重试的 outbox 消息
 SELECT * FROM audit_outbox WHERE published_at IS NULL ORDER BY created_at;
@@ -145,16 +145,11 @@ SELECT * FROM audit_outbox WHERE published_at IS NULL ORDER BY created_at;
 
 ## 4.2 备份方式
 
-```bash
-# 逻辑备份（推荐定期执行）
-pg_dump -h localhost -U ai_dev_os -Fc -f ai-dev-os-$(date +%Y%m%d).dump ai_dev_os
-
-# 恢复
-pg_restore -h localhost -U ai_dev_os -d ai_dev_os ai-dev-os-YYYYMMDD.dump
-```
+正式备份和恢复必须使用 `services/orchestrator/scripts/database/` 下的受控脚本，
+以生成 metadata、校验 SHA-256，并在恢复前制作 safety backup。详见
+[运行数据生命周期](data-lifecycle.md)。
 
 ## 4.3 建议
 
-- 每日全量备份 + 启用 WAL 归档实现时间点恢复。
-- 备份保留期建议 ≥ 30 天，并定期演练恢复。
-- 升级前先备份；升级后核对 `schema_migrations` 与健康检查。
+- V1 为管理员手动全量备份/恢复；定时备份、Retention、WAL/PITR 后续实现。
+- 升级前必须运行 preflight；升级后必须运行 post-upgrade check。

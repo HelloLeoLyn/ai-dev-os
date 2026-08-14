@@ -55,6 +55,8 @@ services:
 
 volumes:
   postgres-data:
+    external: true
+    name: ai-dev-os_postgres-data
 
 networks:
   aidevos-network:
