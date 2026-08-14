@@ -45,8 +45,8 @@ export class TaskPollingMonitor {
 
   constructor(private readonly options: TaskPollingMonitorOptions) {
     this.intervalMs = options.intervalMs ?? 4000
-    this.schedule = options.schedule ?? setTimeout
-    this.cancel = options.cancel ?? clearTimeout
+    this.schedule = options.schedule ?? ((callback, delay) => globalThis.setTimeout(callback, delay))
+    this.cancel = options.cancel ?? ((timer) => globalThis.clearTimeout(timer))
   }
 
   start(): void {

@@ -32,6 +32,33 @@ function harness(initialTasks: StoredTaskMonitor[] = [], terminalKeys: string[] 
 }
 
 describe('TaskPollingMonitor', () => {
+  it('calls browser timers with the global object as their receiver', () => {
+    const originalSetTimeout = globalThis.setTimeout
+    const originalClearTimeout = globalThis.clearTimeout
+    const timer = 123 as unknown as ReturnType<typeof setTimeout>
+    const setTimeoutSpy = vi.fn(function (this: typeof globalThis) {
+      if (this !== globalThis) throw new TypeError('Illegal invocation')
+      return timer
+    })
+    const clearTimeoutSpy = vi.fn(function (this: typeof globalThis) {
+      if (this !== globalThis) throw new TypeError('Illegal invocation')
+    })
+    globalThis.setTimeout = setTimeoutSpy as unknown as typeof setTimeout
+    globalThis.clearTimeout = clearTimeoutSpy as typeof clearTimeout
+
+    try {
+      const h = harness()
+      expect(() => h.monitor.start()).not.toThrow()
+      expect(() => h.monitor.track(task('running', 'RUNNING'))).not.toThrow()
+      expect(setTimeoutSpy).toHaveBeenCalledOnce()
+      expect(() => h.monitor.stop()).not.toThrow()
+      expect(clearTimeoutSpy).toHaveBeenCalledWith(timer)
+    } finally {
+      globalThis.setTimeout = originalSetTimeout
+      globalThis.clearTimeout = originalClearTimeout
+    }
+  })
+
   it('notifies once and stops polling for RUNNING -> SUCCESS', async () => {
     const h = harness()
     h.monitor.track(task('one', 'RUNNING'))
