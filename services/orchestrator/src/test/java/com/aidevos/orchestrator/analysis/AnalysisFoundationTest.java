@@ -49,10 +49,34 @@ class AnalysisFoundationTest {
 		assertEquals(service.fingerprint("t","e","v",new ObjectMapper().readTree("{\"b\":2,\"a\":1}")),
 			service.fingerprint("t","e","v",new ObjectMapper().readTree("{\"a\":1,\"b\":2}")));
 	}
-	@Test void evidenceCrossingExecutionBoundaryIsRejected() {
+	@Test void commandNameCannotMasqueradeAsExecutionEvidence() {
 		Finding invalid = new Finding("f", "t", "s", "c", Level.HIGH, .8, List.of(),
-			List.of(new EvidenceRef(EvidenceType.EXECUTION_RECORD,"other",null,null,null,null,null)));
-		assertThrows(IllegalArgumentException.class, () -> validator.validate(List.of(invalid), List.of(), execution));
+			List.of(new EvidenceRef(EvidenceType.EXECUTION_RECORD,"git diff --check",null,null,null,null,null)));
+		IllegalArgumentException error=assertThrows(IllegalArgumentException.class,
+			() -> validator.validate(List.of(invalid), List.of(), execution));
+		assertEquals("execution evidence ref does not match source execution record",error.getMessage());
+	}
+	@Test void currentExecutionEvidenceIsAcceptedAndAnotherExecutionIsRejected() {
+		validator.validate(List.of(findingWith(new EvidenceRef(EvidenceType.EXECUTION_RECORD,
+			"execution-1",null,null,null,null,null))),List.of(),execution);
+		assertThrows(IllegalArgumentException.class,()->validator.validate(List.of(findingWith(
+			new EvidenceRef(EvidenceType.EXECUTION_RECORD,"execution-2",null,null,null,null,null))),List.of(),execution));
+	}
+	@Test void artifactEvidenceMustBelongToSourceExecution() {
+		validator.validate(List.of(findingWith(new EvidenceRef(EvidenceType.ARTIFACT,
+			"codex-events.jsonl",null,null,null,null,null))),List.of(),execution);
+		IllegalArgumentException error=assertThrows(IllegalArgumentException.class,()->validator.validate(
+			List.of(findingWith(new EvidenceRef(EvidenceType.ARTIFACT,"missing.json",null,null,null,null,null))),List.of(),execution));
+		assertEquals("artifact evidence ref is not available from source execution",error.getMessage());
+	}
+	@Test void sourceFileEvidenceMustRemainWorkspaceRelative() {
+		validator.validate(List.of(findingWith(new EvidenceRef(EvidenceType.SOURCE_FILE,
+			"jjx-web/src/views/system/user/index.vue",null,null,null,null,null))),List.of(),execution);
+		for(String ref:List.of("/home/administrator/jjx/file","../other-task/file")) {
+			IllegalArgumentException error=assertThrows(IllegalArgumentException.class,()->validator.validate(
+				List.of(findingWith(new EvidenceRef(EvidenceType.SOURCE_FILE,ref,null,null,null,null,null))),List.of(),execution));
+			assertEquals("source file evidence escapes workspace boundary",error.getMessage());
+		}
 	}
 	@Test void duplicateProjectionKeyIsIdempotentInMemory() {
 		InMemoryAnalysisInsightRepository repository=new InMemoryAnalysisInsightRepository();
@@ -69,6 +93,7 @@ class AnalysisFoundationTest {
 	}
 
 	private Finding finding() { return new Finding("finding-1","Finding","Summary","QUALITY",Level.HIGH,.9,List.of("src"),List.of()); }
+	private Finding findingWith(EvidenceRef evidence) { return new Finding("finding-1","Finding","Summary","QUALITY",Level.HIGH,.9,List.of("src"),List.of(evidence)); }
 	private Recommendation recommendation(String id, ExecutionMode mode, boolean approval) {
 		return new Recommendation(id,List.of("finding-1"),"Recommendation","Because",Level.HIGH,
 			Level.MEDIUM,Level.HIGH,List.of("src"),List.of(),mode,approval,List.of(),.8,
@@ -76,7 +101,9 @@ class AnalysisFoundationTest {
 				List.of("src"),List.of(),mode,approval,EstimatedComplexity.SMALL));
 	}
 	private ExecutionRecord execution() { ExecutionRecord value=new ExecutionRecord(); value.setId("execution-1");
-		ExecutionArtifact artifact=new ExecutionArtifact(); artifact.setName("analysis-result.json"); value.setArtifacts(List.of(artifact)); return value; }
+		ExecutionArtifact analysis=new ExecutionArtifact(); analysis.setName("analysis-result.json");
+		ExecutionArtifact events=new ExecutionArtifact(); events.setName("codex-events.jsonl");
+		value.setArtifacts(List.of(analysis,events)); return value; }
 	private AnalysisInsightSet insight(String id, Status status) { Instant now=Instant.now(); return new AnalysisInsightSet(id,"t","e","p","w",List.of(),
 		AnalysisEnums.ExtractorType.STRUCTURED,"v","1",status,null,null,null,List.of(),List.of(),now,now); }
 }

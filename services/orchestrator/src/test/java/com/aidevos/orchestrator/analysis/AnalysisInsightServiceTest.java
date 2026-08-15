@@ -61,6 +61,19 @@ class AnalysisInsightServiceTest {
 		service.retry("task-1");
 		assertEquals(1,executions.getAll().size()); verify(runs,atLeastOnce()).get("run-1");
 	}
+	@Test void invalidHistoricalEvidenceRetryIsStableAndDoesNotFingerprintOrRerunTask() {
+		eligible(); executions.save(execution(invalidEvidencePayload()));
+		AnalysisInsightSet first=service.project("task-1"), retried=service.retry("task-1");
+		assertEquals(AnalysisEnums.Status.FAILED,first.status());
+		assertEquals(first.analysisId(),retried.analysisId()); assertNull(retried.contentFingerprint());
+		assertEquals(1,insights.findByProjectId("project-1").size()); assertEquals(1,executions.getAll().size());
+		assertEquals(TaskStatus.SUCCESS,tasks.get("task-1").getStatus());
+	}
+	@Test void validArtifactAndSourceFileEvidenceProjectsWithFingerprint() {
+		eligible(); executions.save(execution(validEvidencePayload()));
+		AnalysisInsightSet result=service.project("task-1");
+		assertEquals(AnalysisEnums.Status.SUCCEEDED,result.status()); assertNotNull(result.contentFingerprint());
+	}
 	@Test void recoveryMarksRunningAsInterruptedAndLeavesTaskSuccess() {
 		eligible(); Instant now=Instant.now(); insights.save(new AnalysisInsightSet("analysis-1","task-1",
 			"execution-1","project-1","workspace-1",List.of(),AnalysisEnums.ExtractorType.STRUCTURED,
@@ -79,8 +92,13 @@ class AnalysisInsightServiceTest {
 		List.of(),List.of(),snapshot,Instant.now()); return new PlanRun("run-1","approval-1","task-1",plan,List.of(),Instant.now()); }
 	private ExecutionRecord execution(String content) { ExecutionArtifact artifact=new ExecutionArtifact();
 		artifact.setType("analysis-result"); artifact.setName("analysis-result.json"); artifact.setMediaType("application/json"); artifact.setContent(content);
+		ExecutionArtifact events=new ExecutionArtifact(); events.setType("codex-events"); events.setName("codex-events.jsonl"); events.setContent("event");
 		ExecutionRecord value=new ExecutionRecord(); value.setId("execution-1"); value.setTaskId("task-1"); value.setStatus("SUCCESS");
-		value.setCompletedAt(Instant.now()); value.setArtifacts(List.of(artifact)); return value; }
+		value.setCompletedAt(Instant.now()); value.setArtifacts(List.of(artifact,events)); return value; }
+	private String invalidEvidencePayload() { return validPayload().replace("\"evidenceRefs\":[]",
+		"\"evidenceRefs\":[{\"type\":\"EXECUTION_RECORD\",\"ref\":\"git diff --check\",\"label\":null,\"artifactType\":null,\"uri\":null,\"line\":null,\"contentHash\":null}]"); }
+	private String validEvidencePayload() { return validPayload().replace("\"evidenceRefs\":[]",
+		"\"evidenceRefs\":[{\"type\":\"SOURCE_FILE\",\"ref\":\"jjx-web/src/views/system/user/index.vue\",\"label\":null,\"artifactType\":null,\"uri\":null,\"line\":null,\"contentHash\":null},{\"type\":\"ARTIFACT\",\"ref\":\"codex-events.jsonl\",\"label\":null,\"artifactType\":\"codex-events\",\"uri\":null,\"line\":null,\"contentHash\":null}]"); }
 	private String validPayload() { return """
 		{"schemaVersion":"1.0","summary":"ok","findings":[{"findingId":"f1","title":"Finding","summary":"Summary","category":"QUALITY","severity":"HIGH","confidence":0.9,"scope":["src"],"evidenceRefs":[]}],"recommendations":[{"recommendationId":"r1","findingIds":["f1"],"title":"Recommendation","rationale":"Reason","priority":"HIGH","risk":"MEDIUM","benefit":"HIGH","scope":["src"],"dependencies":[],"suggestedExecutionMode":"READ_WRITE","approvalRequired":false,"evidenceRefs":[],"confidence":0.8,"recommendedNextAction":{"actionId":"a1","title":"Act","description":"Description","goal":"Goal","acceptanceCriteria":["Done"],"scope":["src"],"dependencies":[],"suggestedExecutionMode":"READ_WRITE","approvalRequired":false,"estimatedComplexity":"SMALL"}}]}
 		"""; }

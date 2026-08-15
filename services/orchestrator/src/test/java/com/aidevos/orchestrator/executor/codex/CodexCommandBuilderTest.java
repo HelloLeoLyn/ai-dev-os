@@ -64,6 +64,18 @@ class CodexCommandBuilderTest {
 		assertEquals("/tmp/analysis-schema.json", command.get(command.indexOf("--output-schema") + 1));
 	}
 
+	@Test
+	void projectAnalysisPromptDefinesSafeEvidenceReferences() {
+		CodexCommandBuilder builder=new CodexCommandBuilder(properties("codex",CodexApprovalPolicy.NEVER),
+			new CoderPromptBuilder(),schemaProvider("/tmp/schema.json","/tmp/analysis-schema.json"));
+		ExecutionContext context=new ExecutionContext(); context.setDescription("Analyze safely");
+		context.getParameters().put("taskType","project-analysis");
+		String prompt=builder.build(context,"/workspace/project",CodexSandbox.READ_ONLY).getLast();
+		assertTrue(prompt.contains("use only SOURCE_FILE or ARTIFACT"));
+		assertTrue(prompt.contains("git diff --check")); assertTrue(prompt.contains("codex-events.jsonl"));
+		assertTrue(prompt.contains("empty evidenceRefs array is valid"));
+	}
+
 	private CodexProperties properties(String executable, CodexApprovalPolicy policy) {
 		CodexProperties properties = new CodexProperties();
 		properties.setExecutable(executable);

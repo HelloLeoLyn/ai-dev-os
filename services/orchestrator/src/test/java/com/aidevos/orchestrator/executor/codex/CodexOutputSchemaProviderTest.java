@@ -49,6 +49,20 @@ class CodexOutputSchemaProviderTest {
 		}
 	}
 
+	@Test
+	void projectAnalysisEvidenceOnlyAllowsSourceFilesAndArtifacts() throws IOException {
+		CodexOutputSchemaProvider provider=new CodexOutputSchemaProvider(); provider.initialize();
+		try {
+			JsonNode evidence=objectMapper.readTree(Files.readString(Path.of(provider.path(true))))
+				.path("$defs").path("evidence");
+			Set<String> allowed=new HashSet<>(); evidence.path("properties").path("type").path("enum")
+				.forEach(value->allowed.add(value.asText()));
+			assertEquals(Set.of("SOURCE_FILE","ARTIFACT"),allowed);
+			assertTrue(evidence.path("properties").path("ref").path("description").asText()
+				.contains("workspace-relative"));
+		} finally { provider.cleanup(); }
+	}
+
 	private void assertStrictObjectSchemas(JsonNode node, String path) {
 		if (isObjectSchema(node)) {
 			JsonNode properties = node.get("properties");

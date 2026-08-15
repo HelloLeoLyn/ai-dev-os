@@ -48,15 +48,17 @@ public class AnalysisPayloadValidator {
 			required(ref.ref(), "evidence.ref");
 			switch (ref.type()) {
 				case EXECUTION_RECORD -> {
-					if (!source.getId().equals(ref.ref())) fail("evidence crosses execution boundary");
+					if (!source.getId().equals(ref.ref()))
+						fail("execution evidence ref does not match source execution record");
 				}
 				case ARTIFACT -> {
 					boolean found = source.getArtifacts().stream().anyMatch(a -> artifactMatches(a, ref));
-					if (!found) fail("evidence references unavailable artifact");
+					if (!found) fail("artifact evidence ref is not available from source execution");
 				}
 				case SOURCE_FILE -> {
 					Path path = Path.of(ref.ref()).normalize();
-					if (path.isAbsolute() || path.startsWith("..")) fail("source evidence escapes workspace");
+					if (path.isAbsolute() || path.startsWith(".."))
+						fail("source file evidence escapes workspace boundary");
 				}
 				case TIMELINE_EVENT, MEMORY, URL -> fail("unsupported evidence authority in V0.1");
 			}
