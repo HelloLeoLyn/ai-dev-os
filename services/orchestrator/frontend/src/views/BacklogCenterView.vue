@@ -9,6 +9,7 @@ import StatusBadge from '../components/StatusBadge.vue'
 import { changeBacklogStatus, convertBacklog, createBacklog, getBacklog, updateBacklog } from '../api/backlog'
 import { getProjects, getProjectWorkspaces } from '../api/projects'
 import { canBlockBacklog, canUnblockBacklog } from '../services/backlogActions'
+import { backlogNextAction } from '../services/backlogWorkflow'
 import type { BacklogDraft, BacklogItem, BacklogPriority, BacklogSourceType, BacklogStatus, ConvertBacklogRequest } from '../types/backlog'
 import type { Project } from '../types/project'
 import type { Workspace } from '../types/workspace'
@@ -32,6 +33,7 @@ const priorities: BacklogPriority[] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
 const sources: BacklogSourceType[] = ['MANUAL', 'LESSON', 'ROADMAP', 'TASK', 'SYSTEM']
 const draft = reactive<BacklogDraft>(emptyDraft())
 const conversion = reactive<ConvertBacklogRequest>({ goal: '', plannerName: 'hermes', projectId: '', workspaceId: '', executionMode: 'READ_ONLY' })
+const executionModeConfirmed = ref(false)
 const summary = computed(() => Object.fromEntries(statuses.map(status => [status, items.value.filter(item => item.status === status).length])))
 const dependencyOptions = computed(() => items.value.filter(item => item.backlogItemId !== editingId.value))
 const transitions: Partial<Record<BacklogStatus, BacklogStatus[]>> = { IDEA: ['PLANNED'], PLANNED: ['READY'], READY: ['PLANNED'], BLOCKED: ['PLANNED', 'READY'] }
@@ -57,6 +59,7 @@ async function loadWorkspaces(projectId: string): Promise<void> {
 }
 watch(() => draft.projectId, async id => { draft.workspaceId = ''; await loadWorkspaces(id) })
 watch(() => conversion.projectId, async id => { conversion.workspaceId = ''; await loadWorkspaces(id) })
+watch(() => conversion.executionMode, () => { executionModeConfirmed.value = false })
 function openCreate(): void { editingId.value = null; Object.assign(draft, emptyDraft()); editorOpen.value = true }
 function openDetail(item: BacklogItem): void { selected.value = item; detailOpen.value = true }
 async function openEdit(item: BacklogItem): Promise<void> {
@@ -90,12 +93,14 @@ async function block(item: BacklogItem): Promise<void> {
 }
 function openConvert(item: BacklogItem): void {
   selected.value = item
-  Object.assign(conversion, { goal: '', plannerName: 'hermes', projectId: item.projectId ?? '', workspaceId: item.workspaceId ?? '', executionMode: 'READ_ONLY' })
+  Object.assign(conversion, { goal: item.recommendationContext?.goal ?? '', plannerName: 'hermes', projectId: item.projectId ?? '', workspaceId: item.workspaceId ?? '', executionMode: item.recommendationContext?.suggestedExecutionMode ?? 'READ_ONLY' })
+  executionModeConfirmed.value = false
   if (item.projectId) void loadWorkspaces(item.projectId).then(() => { conversion.workspaceId = item.workspaceId ?? '' })
   convertOpen.value = true
 }
 async function submitConvert(): Promise<void> {
   if (!selected.value || !conversion.goal.trim() || !conversion.projectId || !conversion.workspaceId) return void ElMessage.error('Goal, Project and Workspace are required.')
+  if (!executionModeConfirmed.value) return void ElMessage.error('Confirm the selected execution mode before creating the Task.')
   saving.value = true
   try {
     const result = await convertBacklog(selected.value.backlogItemId, conversion)
@@ -156,12 +161,15 @@ onMounted(async () => { try { projects.value = (await getProjects()).filter(proj
           <el-descriptions-item label="Project">{{ selected.projectId || '—' }}</el-descriptions-item>
           <el-descriptions-item label="Workspace">{{ selected.workspaceId || '—' }}</el-descriptions-item>
           <el-descriptions-item label="Source">{{ selected.sourceType }} · {{ selected.sourceReference || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="Next Action">{{ backlogNextAction(selected) }}</el-descriptions-item>
+          <el-descriptions-item v-if="selected.recommendationContext" label="Source Recommendation">{{ selected.recommendationContext.recommendationId }}</el-descriptions-item>
           <el-descriptions-item label="Dependencies">{{ selected.dependsOn.join(', ') || '—' }}</el-descriptions-item>
           <el-descriptions-item label="Blocked Reason">{{ selected.blockedReason || '—' }}</el-descriptions-item>
           <el-descriptions-item label="Created">{{ format(selected.createdAt) }}</el-descriptions-item>
           <el-descriptions-item label="Updated">{{ format(selected.updatedAt) }}</el-descriptions-item>
         </el-descriptions>
         <el-button v-if="selected.convertedTaskId" type="primary" @click="router.push(`/tasks/${encodeURIComponent(selected!.convertedTaskId!)}`)">Open Task Detail</el-button>
+        <RouterLink v-if="selected.recommendationContext" class="source-link" :to="`/tasks/${encodeURIComponent(selected.recommendationContext.sourceTaskId)}/analysis`">Open Source Analysis →</RouterLink>
       </template>
     </el-drawer>
 
@@ -185,17 +193,21 @@ onMounted(async () => { try { projects.value = (await getProjects()).filter(proj
     <el-dialog v-model="convertOpen" title="Convert to Task" width="620px">
       <el-alert type="info" :closable="false" title="Creates a Task and Plan/Approval; it never approves or executes the Task." />
       <el-form label-position="top">
+        <section v-if="selected?.recommendationContext" class="recommendation-context"><p class="context-title">Recommendation Context</p><dl><div><dt>Source Recommendation</dt><dd>{{ selected.recommendationContext.recommendationId }}</dd></div><div><dt>Risk</dt><dd><StatusBadge :status="selected.recommendationContext.risk" /></dd></div><div><dt>Suggested Execution Mode</dt><dd><StatusBadge :status="selected.recommendationContext.suggestedExecutionMode" /></dd></div><div><dt>Approval</dt><dd>{{ selected.recommendationContext.approvalRequired ? 'Approval Required' : 'Plan approval remains authoritative' }}</dd></div></dl><div><strong>Scope</strong><p>{{ selected.recommendationContext.scope.join(', ') || '—' }}</p></div><div><strong>Acceptance Criteria</strong><ul><li v-for="criterion in selected.recommendationContext.acceptanceCriteria" :key="criterion">{{ criterion }}</li></ul></div></section>
         <el-form-item label="Goal" required><el-input v-model="conversion.goal" type="textarea" /></el-form-item>
         <el-form-item label="Planner"><el-input v-model="conversion.plannerName" /></el-form-item>
         <el-row :gutter="12"><el-col :span="12"><el-form-item label="Project" required><el-select v-model="conversion.projectId"><el-option v-for="project in projects" :key="project.projectId" :label="project.name" :value="project.projectId" /></el-select></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="Workspace" required><el-select v-model="conversion.workspaceId"><el-option v-for="workspace in workspaces" :key="workspace.workspaceId" :label="workspace.path" :value="workspace.workspaceId" /></el-select></el-form-item></el-col></el-row>
-        <el-form-item label="Execution Mode"><el-select v-model="conversion.executionMode"><el-option label="READ_ONLY" value="READ_ONLY" /><el-option label="READ_WRITE" value="READ_WRITE" /></el-select></el-form-item>
+        <div class="mode-comparison"><div><span>Suggested Execution Mode</span><strong>{{ selected?.recommendationContext?.suggestedExecutionMode || 'No recommendation' }}</strong></div><div><span>Selected Execution Mode</span><strong>{{ conversion.executionMode }}</strong></div><div><span>Approval</span><strong>{{ conversion.executionMode === 'READ_WRITE' || selected?.recommendationContext?.approvalRequired ? 'Required' : 'Plan approval remains authoritative' }}</strong></div></div>
+        <el-form-item label="Selected Execution Mode"><el-select v-model="conversion.executionMode"><el-option label="READ_ONLY" value="READ_ONLY" /><el-option label="READ_WRITE" value="READ_WRITE" /></el-select></el-form-item>
+        <el-alert v-if="conversion.executionMode === 'READ_WRITE'" type="warning" :closable="false" title="READ_WRITE still requires explicit Plan Approval. This selection is not authorization." />
+        <el-checkbox v-model="executionModeConfirmed">I confirm the selected execution mode for the new Task.</el-checkbox>
       </el-form>
-      <template #footer><el-button @click="convertOpen = false">Cancel</el-button><el-button type="primary" :loading="saving" @click="submitConvert">Create Task</el-button></template>
+      <template #footer><el-button @click="convertOpen = false">Cancel</el-button><el-button type="primary" :loading="saving" :disabled="!executionModeConfirmed" @click="submitConvert">Create Task</el-button></template>
     </el-dialog>
   </section>
 </template>
 
 <style scoped>
-.summary-grid{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:12px}.filters{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}.detail-grid{margin:16px 0}:deep(.nowrap-column .cell){white-space:nowrap}@media(max-width:900px){.summary-grid{grid-template-columns:repeat(2,1fr)}}
+.summary-grid{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:12px}.filters{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}.detail-grid{margin:16px 0}.source-link{display:inline-block;margin:1rem;color:var(--color-primary-strong);text-decoration:none}.recommendation-context{display:grid;gap:.75rem;margin:1rem 0;padding:.85rem;border:1px solid var(--color-border);border-radius:var(--radius-small)}.context-title{margin:0;font-weight:800}.recommendation-context dl,.mode-comparison{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.65rem;margin:0}.recommendation-context dt,.mode-comparison span{color:var(--color-text-muted);font-size:.72rem;text-transform:uppercase}.recommendation-context dd{margin:.25rem 0 0}.recommendation-context p,.recommendation-context ul{margin:.35rem 0 0}.mode-comparison{margin:1rem 0}.mode-comparison div{display:grid;gap:.3rem;padding:.7rem;border:1px solid var(--color-border);border-radius:var(--radius-small)}:deep(.nowrap-column .cell){white-space:nowrap}@media(max-width:900px){.summary-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:620px){.recommendation-context dl,.mode-comparison{grid-template-columns:1fr}}
 </style>

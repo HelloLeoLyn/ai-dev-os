@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
 
 import com.aidevos.orchestrator.agentcoordinator.AgentCoordinatorService;
 import com.aidevos.orchestrator.approval.ApprovalStatus;
@@ -100,9 +101,19 @@ public class TaskCenterService {
 	}
 
 	public TaskRecord createTask(CreateTaskRequest request, String workspacePath) {
-		String taskId = "task-" + UUID.randomUUID();
+		return createTask(request, workspacePath, null);
+	}
+
+	public synchronized TaskRecord createTask(CreateTaskRequest request, String workspacePath,
+			String sourceBacklogItemId) {
+		String taskId = sourceBacklogItemId == null || sourceBacklogItemId.isBlank()
+			? "task-" + UUID.randomUUID()
+			: "task-" + UUID.nameUUIDFromBytes(("backlog:" + sourceBacklogItemId.trim())
+				.getBytes(StandardCharsets.UTF_8));
+		TaskRecord existing = repository.get(taskId);
+		if (existing != null) return existing;
 		TaskRecord task = new TaskRecord(taskId, request.name(), request.description(),
-			request.projectId(), request.workspaceId(), request.executionMode());
+			request.projectId(), request.workspaceId(), request.executionMode(), sourceBacklogItemId);
 		repository.save(task);
 		auditService.taskSubmitted(taskId,
 			"User submitted task", Map.of("name", request.name(),

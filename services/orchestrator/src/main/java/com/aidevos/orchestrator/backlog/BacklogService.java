@@ -57,18 +57,28 @@ public class BacklogService {
 	}
 
 	public synchronized BacklogItem create(CreateBacklogRequest request) {
-		return createWithId("backlog-" + UUID.randomUUID(), request, false);
+		return createWithId("backlog-" + UUID.randomUUID(), request, false, null);
 	}
 
 	public synchronized BacklogItem createRecommendationCandidate(String stableId,
 			CreateBacklogRequest request) {
+		return createRecommendationCandidate(stableId, request, null);
+	}
+
+	public synchronized BacklogItem createRecommendationCandidate(String stableId,
+			CreateBacklogRequest request, BacklogRecommendationContext context) {
 		BacklogItem existing=repository.get(required(stableId,"Stable backlog id is required"));
-		if(existing!=null) return existing;
-		return createWithId(stableId, request, true);
+		if(existing!=null) {
+			if (existing.getRecommendationContext() == null && context != null) {
+				existing.setRecommendationContext(context); repository.save(existing);
+			}
+			return existing;
+		}
+		return createWithId(stableId, request, true, context);
 	}
 
 	private BacklogItem createWithId(String id, CreateBacklogRequest request,
-			boolean forceIdea) {
+			boolean forceIdea, BacklogRecommendationContext recommendationContext) {
 		require(request != null, "Backlog request is required");
 		String title = required(request.title(), "title is required");
 		BacklogStatus status = forceIdea ? BacklogStatus.IDEA
@@ -88,6 +98,7 @@ public class BacklogService {
 			context.projectId(), context.workspaceId(),
 			request.sourceType() == null ? BacklogSourceType.MANUAL : request.sourceType(),
 			normalize(request.sourceReference()), dependencies, values(request.tags()), now);
+		item.setRecommendationContext(recommendationContext);
 		if (status == BacklogStatus.BLOCKED) item.changeStatus(status, reason, now);
 		repository.save(item);
 		audit.backlogEvent(EventType.BACKLOG_CREATED, item.getBacklogItemId(), null,
@@ -174,7 +185,7 @@ public class BacklogService {
 		ExecutionMode mode = request.executionMode() == null ? ExecutionMode.READ_ONLY : request.executionMode();
 		CreateTaskRequest taskRequest = new CreateTaskRequest(item.getTitle(), item.getDescription(), goal,
 			normalize(request.plannerName()), projectId, workspaceId, mode);
-		TaskRecord task = projectTasks.createTask(projectId, taskRequest);
+		TaskRecord task = projectTasks.createTask(projectId, taskRequest, item.getBacklogItemId());
 		Instant now = clock.instant();
 		item.bindContext(projectId, workspaceId, now);
 		item.converted(task.getTaskId(), now);

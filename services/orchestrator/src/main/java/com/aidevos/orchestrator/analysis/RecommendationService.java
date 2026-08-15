@@ -15,6 +15,7 @@ import com.aidevos.orchestrator.backlog.BacklogPriority;
 import com.aidevos.orchestrator.backlog.BacklogService;
 import com.aidevos.orchestrator.backlog.BacklogSourceType;
 import com.aidevos.orchestrator.backlog.BacklogStatus;
+import com.aidevos.orchestrator.backlog.BacklogRecommendationContext;
 import com.aidevos.orchestrator.backlog.CreateBacklogRequest;
 import com.aidevos.orchestrator.outbox.OutboxTransactions;
 import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
@@ -89,7 +90,7 @@ public class RecommendationService {
 				return new RecommendationWorkItemResult(false,existing);
 			boolean created=existing==null;
 			BacklogItem item=created ? backlog.createRecommendationCandidate(backlogId,
-				backlogRequest(source,request)) : existing;
+				backlogRequest(source,request),backlogContext(source)) : existing;
 			RecommendationDecision changed=current.transition(RecommendationStatus.WORKITEM_CREATED,
 				null,null,null,item.getBacklogItemId(),clock.instant());
 			save(changed,current.version());
@@ -133,6 +134,13 @@ public class RecommendationService {
 		return new CreateBacklogRequest(title,description,BacklogStatus.IDEA,priority,
 			source.insight.projectId(),source.insight.workspaceId(),BacklogSourceType.TASK,
 			"recommendation:"+source.recommendation.recommendationId(),null,List.of(),tags(source));
+	}
+	private BacklogRecommendationContext backlogContext(Source source) {
+		RecommendedNextAction action=source.recommendation.recommendedNextAction();
+		return new BacklogRecommendationContext(source.recommendation.recommendationId(),
+			source.insight.analysisId(),source.insight.sourceTaskId(),action.goal(),
+			action.acceptanceCriteria(),source.recommendation.risk(),source.recommendation.scope(),
+			source.recommendation.suggestedExecutionMode(),source.recommendation.approvalRequired());
 	}
 	private String description(String base,RecommendedNextAction action,Recommendation recommendation) {
 		StringBuilder value=new StringBuilder(base).append("\n\nGoal:\n").append(action.goal());

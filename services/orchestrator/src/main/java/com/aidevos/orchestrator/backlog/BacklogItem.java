@@ -20,6 +20,7 @@ public class BacklogItem {
 	private Instant updatedAt;
 	private String convertedTaskId;
 	private Instant completedAt;
+	private BacklogRecommendationContext recommendationContext;
 
 	public BacklogItem() { }
 
@@ -95,6 +96,7 @@ public class BacklogItem {
 	public Instant getUpdatedAt() { return updatedAt; }
 	public String getConvertedTaskId() { return convertedTaskId; }
 	public Instant getCompletedAt() { return completedAt; }
+	public BacklogRecommendationContext getRecommendationContext() { return recommendationContext; }
 	public void setBacklogItemId(String value) { backlogItemId = value; }
 	public void setTitle(String value) { title = value; }
 	public void setDescription(String value) { description = value; }
@@ -111,4 +113,5 @@ public class BacklogItem {
 	public void setUpdatedAt(Instant value) { updatedAt = value; }
 	public void setConvertedTaskId(String value) { convertedTaskId = value; }
 	public void setCompletedAt(Instant value) { completedAt = value; }
+	public void setRecommendationContext(BacklogRecommendationContext value) { recommendationContext = value; }
 }

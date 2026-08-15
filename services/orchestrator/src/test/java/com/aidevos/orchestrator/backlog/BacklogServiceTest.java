@@ -114,7 +114,7 @@ class BacklogServiceTest {
 		BacklogItem item = service.create(create("Convert", BacklogStatus.READY, List.of()));
 		TaskRecord task = new TaskRecord("task-1", "Convert", null, "project-1", "workspace-1", ExecutionMode.READ_ONLY);
 		task.markPlanning("approval-1");
-		when(projectTasks.createTask(eq("project-1"), any())).thenReturn(task);
+		when(projectTasks.createTask(eq("project-1"), any(), eq(item.getBacklogItemId()))).thenReturn(task);
 		when(taskCenter.getTask("task-1")).thenReturn(Optional.of(task));
 		ConvertBacklogToTaskRequest request = new ConvertBacklogToTaskRequest("Implement", "hermes",
 			"project-1", "workspace-1", ExecutionMode.READ_ONLY);
@@ -124,7 +124,7 @@ class BacklogServiceTest {
 		assertEquals("task-1", duplicate.task().getTaskId());
 		assertEquals(BacklogStatus.CONVERTED, item.getStatus());
 		assertEquals(TaskStatus.PLANNING, task.getStatus());
-		verify(projectTasks, times(1)).createTask(eq("project-1"), any());
+		verify(projectTasks, times(1)).createTask(eq("project-1"), any(), eq(item.getBacklogItemId()));
 		EventRecord converted = events().stream().filter(event -> event.type() == EventType.BACKLOG_CONVERTED_TO_TASK).findFirst().orElseThrow();
 		assertEquals("task-1", converted.taskId()); assertEquals("backlog-item", converted.aggregateType());
 	}
@@ -132,12 +132,27 @@ class BacklogServiceTest {
 	@Test void linkedSuccessfulTaskMarksBacklogDoneButFailureDoesNot() {
 		BacklogItem item = service.create(create("Convert", BacklogStatus.READY, List.of()));
 		TaskRecord task = new TaskRecord("task-1", "Convert", null, "project-1", "workspace-1");
-		when(projectTasks.createTask(eq("project-1"), any())).thenReturn(task);
+		when(projectTasks.createTask(eq("project-1"), any(), eq(item.getBacklogItemId()))).thenReturn(task);
 		when(taskCenter.getTask("task-1")).thenReturn(Optional.of(task));
 		service.convertToTask(item.getBacklogItemId(), new ConvertBacklogToTaskRequest("Goal", "hermes", "project-1", "workspace-1", ExecutionMode.READ_ONLY));
 		task.markFailed("failed"); assertEquals(BacklogStatus.CONVERTED, service.get(item.getBacklogItemId()).getStatus());
 		task.markSuccess(); assertEquals(BacklogStatus.DONE, service.get(item.getBacklogItemId()).getStatus());
 		assertNotNull(item.getCompletedAt());
+	}
+
+	@Test void recommendationContextSurvivesOrdinaryUpdateAndManualItemsHaveNone() {
+		BacklogItem manual = service.create(create("Manual", BacklogStatus.IDEA, List.of()));
+		assertNull(manual.getRecommendationContext());
+		BacklogRecommendationContext context = new BacklogRecommendationContext("r1", "a1", "t1",
+			"Goal", List.of("Done"), com.aidevos.orchestrator.analysis.AnalysisEnums.Level.HIGH,
+			List.of("src"), ExecutionMode.READ_WRITE, false);
+		BacklogItem candidate = service.createRecommendationCandidate("backlog-rec",
+			create("Recommendation", BacklogStatus.IDEA, List.of()), context);
+		service.update(candidate.getBacklogItemId(), new UpdateBacklogRequest("Edited", "Safe edit",
+			BacklogPriority.HIGH, null, null, BacklogSourceType.TASK, "forged-looking-reference",
+			List.of(), List.of()));
+		assertSame(context, candidate.getRecommendationContext());
+		assertEquals("r1", candidate.getRecommendationContext().recommendationId());
 	}
 
 	private CreateBacklogRequest create(String title, BacklogStatus status, List<String> dependencies) {

@@ -231,8 +231,19 @@ class PostgresRepositoryIntegrationTest {
 		assertEquals("实现登录", loaded.getName());
 		assertEquals(TaskStatus.APPROVED, loaded.getStatus());
 		assertEquals("approval-1", loaded.getApprovalId());
+		assertNull(loaded.getSourceBacklogItemId());
 		assertEquals(1, repository.listByProject("project-1").size());
 		assertTrue(repository.list().stream().anyMatch(item -> "task-1".equals(item.getTaskId())));
+	}
+
+	@Test void taskSourceBacklogLineageSurvivesRepositoryRestart() {
+		PostgresTaskRepository first = new PostgresTaskRepository(jdbc);
+		TaskRecord task = TaskRecord.restore("task-lineage", "Converted", "Description", "project-1",
+			"workspace-1", ExecutionMode.READ_WRITE, TaskStatus.PLANNING, NOW, NOW,
+			"approval-1", null, null, "backlog-1");
+		first.save(task);
+		TaskRecord loaded = new PostgresTaskRepository(jdbc).get("task-lineage");
+		assertEquals("backlog-1", loaded.getSourceBacklogItemId());
 	}
 
 	@Test

@@ -72,6 +72,16 @@ class RecommendationServiceTest {
 		assertEquals(BacklogPriority.HIGH,item.getPriority());assertEquals(BacklogSourceType.TASK,item.getSourceType());
 		assertEquals("recommendation:r1",item.getSourceReference());assertTrue(item.getDescription().contains("Suggested Execution Mode: READ_WRITE"));
 		assertTrue(item.getDescription().contains("Dependency text"));assertTrue(item.getDependsOn().isEmpty());
+		assertNotNull(item.getRecommendationContext());
+		assertEquals("r1",item.getRecommendationContext().recommendationId());
+		assertEquals("analysis-1",item.getRecommendationContext().analysisId());
+		assertEquals("task-1",item.getRecommendationContext().sourceTaskId());
+		assertEquals("Goal",item.getRecommendationContext().goal());
+		assertEquals(List.of("Done"),item.getRecommendationContext().acceptanceCriteria());
+		assertEquals(Level.MEDIUM,item.getRecommendationContext().risk());
+		assertEquals(List.of("src"),item.getRecommendationContext().scope());
+		assertEquals(ExecutionMode.READ_WRITE,item.getRecommendationContext().suggestedExecutionMode());
+		assertTrue(item.getRecommendationContext().approvalRequired());
 		verifyNoInteractions(projectTasks,taskCenter);
 	}
 	@Test void userOverridesTitleDescriptionAndPriority(){BacklogItem item=service.createWorkItem("r1",

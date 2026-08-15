@@ -17,7 +17,7 @@ import com.aidevos.orchestrator.taskcenter.ExecutionMode;
 final class PostgresTaskRepository implements TaskRepository {
 
 	private static final String COLUMNS = "task_id,name,description,project_id,workspace_id,execution_mode,"
-		+ "status,approval_id,plan_run_id,error_message,created_at,updated_at";
+		+ "status,approval_id,plan_run_id,error_message,source_backlog_item_id,created_at,updated_at";
 
 	private final PostgresJdbc jdbc;
 
@@ -27,15 +27,15 @@ final class PostgresTaskRepository implements TaskRepository {
 
 	@Override
 	public void save(TaskRecord task) {
-		jdbc.update("INSERT INTO tasks(" + COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
+		jdbc.update("INSERT INTO tasks(" + COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) "
 			+ "ON CONFLICT(task_id) DO UPDATE SET name=EXCLUDED.name,"
 			+ "description=EXCLUDED.description,project_id=EXCLUDED.project_id,"
 			+ "workspace_id=EXCLUDED.workspace_id,execution_mode=EXCLUDED.execution_mode,status=EXCLUDED.status,"
 			+ "approval_id=EXCLUDED.approval_id,plan_run_id=EXCLUDED.plan_run_id,"
-			+ "error_message=EXCLUDED.error_message,updated_at=EXCLUDED.updated_at",
+			+ "error_message=EXCLUDED.error_message,source_backlog_item_id=EXCLUDED.source_backlog_item_id,updated_at=EXCLUDED.updated_at",
 			task.getTaskId(), task.getName(), task.getDescription(), task.getProjectId(),
 			task.getWorkspaceId(), task.getExecutionMode().name(), task.getStatus().name(), task.getApprovalId(),
-			task.getPlanRunId(), task.getErrorMessage(),
+			task.getPlanRunId(), task.getErrorMessage(), task.getSourceBacklogItemId(),
 			PostgresJdbc.timestamp(task.getCreatedAt()),
 			PostgresJdbc.timestamp(task.getUpdatedAt()));
 	}
@@ -65,6 +65,7 @@ final class PostgresTaskRepository implements TaskRepository {
 			TaskStatus.valueOf(result.getString("status")),
 			PostgresJdbc.instant(result, "created_at"),
 			PostgresJdbc.instant(result, "updated_at"), result.getString("approval_id"),
-			result.getString("plan_run_id"), result.getString("error_message"));
+			result.getString("plan_run_id"), result.getString("error_message"),
+			result.getString("source_backlog_item_id"));
 	}
 }

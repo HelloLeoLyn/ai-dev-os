@@ -4,6 +4,18 @@ export type BacklogStatus = 'IDEA' | 'PLANNED' | 'READY' | 'BLOCKED' | 'CONVERTE
 export type BacklogPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
 export type BacklogSourceType = 'MANUAL' | 'LESSON' | 'ROADMAP' | 'TASK' | 'SYSTEM'
 
+export interface BacklogRecommendationContext {
+  recommendationId: string
+  analysisId: string
+  sourceTaskId: string
+  goal: string
+  acceptanceCriteria: string[]
+  risk: BacklogPriority
+  scope: string[]
+  suggestedExecutionMode: ExecutionMode
+  approvalRequired: boolean
+}
+
 export interface BacklogItem {
   backlogItemId: string
   title: string
@@ -21,6 +33,7 @@ export interface BacklogItem {
   updatedAt: string
   convertedTaskId: string | null
   completedAt: string | null
+  recommendationContext?: BacklogRecommendationContext | null
 }
 
 export interface BacklogDraft {

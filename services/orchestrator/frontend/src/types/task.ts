@@ -33,6 +33,7 @@ export interface TaskRecord {
   projectId: string
   executionMode: ExecutionMode
   errorMessage: string | null
+  sourceBacklogItemId?: string | null
 }
 
 export type ExecutionMode = 'READ_ONLY' | 'READ_WRITE'

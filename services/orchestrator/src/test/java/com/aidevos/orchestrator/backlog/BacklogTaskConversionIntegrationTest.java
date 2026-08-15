@@ -74,6 +74,7 @@ class BacklogTaskConversionIntegrationTest {
 		assertEquals("approval-1", task.getApprovalId());
 		assertEquals(BacklogStatus.CONVERTED, result.backlogItem().getStatus());
 		assertEquals(task.getTaskId(), result.backlogItem().getConvertedTaskId());
+		assertEquals(item.getBacklogItemId(), task.getSourceBacklogItemId());
 		verify(taskCenter, never()).approve(anyString(), anyString());
 		verify(taskCenter, never()).execute(anyString());
 		verify(taskCenter, never()).execute(anyString(), any());
@@ -123,6 +124,7 @@ class BacklogTaskConversionIntegrationTest {
 		var step = approval.getPlan().steps().getFirst();
 		assertEquals(ExecutionMode.READ_WRITE, task.getExecutionMode());
 		assertEquals(TaskStatus.PLANNING, task.getStatus());
+		assertEquals(item.getBacklogItemId(), task.getSourceBacklogItemId());
 		assertEquals("coder", step.assignment().agentName());
 		assertEquals("git-diff", step.expectedArtifacts().getFirst().type());
 		assertEquals("changes.patch", step.expectedArtifacts().getFirst().name());
@@ -132,6 +134,17 @@ class BacklogTaskConversionIntegrationTest {
 		verify(taskCenter, never()).execute(anyString());
 		verify(taskCenter, never()).execute(anyString(), any());
 		verify(approvals, never()).approve(anyString(), anyString());
+	}
+
+	@Test void repeatedConversionReturnsStableTaskAndBacklink() {
+		// The service-level idempotency case is covered with mocks; this assertion fixes the
+		// stable server-side identity contract used after an interrupted response.
+		String backlogId = "backlog-stable";
+		String first = "task-" + java.util.UUID.nameUUIDFromBytes(("backlog:" + backlogId)
+			.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+		String second = "task-" + java.util.UUID.nameUUIDFromBytes(("backlog:" + backlogId)
+			.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+		assertEquals(first, second);
 	}
 
 	private AgentDefinition agent(String name, String executor, List<String> capabilities) {

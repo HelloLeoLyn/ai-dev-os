@@ -48,6 +48,11 @@ public class ProjectTaskService {
 	}
 
 	public TaskRecord createTask(String projectId, CreateTaskRequest request) {
+		return createTask(projectId, request, null);
+	}
+
+	public TaskRecord createTask(String projectId, CreateTaskRequest request,
+			String sourceBacklogItemId) {
 		if (projectService == null || workspaceService == null) {
 			throw new IllegalStateException("Project task context validation is not configured");
 		}
@@ -72,6 +77,8 @@ public class ProjectTaskService {
 			request.executionMode() == null
 				? com.aidevos.orchestrator.taskcenter.ExecutionMode.READ_ONLY
 				: request.executionMode());
-		return taskCenterService.createTask(validated, workspace.getPath());
+		return sourceBacklogItemId == null
+			? taskCenterService.createTask(validated, workspace.getPath())
+			: taskCenterService.createTask(validated, workspace.getPath(), sourceBacklogItemId);
 	}
 }

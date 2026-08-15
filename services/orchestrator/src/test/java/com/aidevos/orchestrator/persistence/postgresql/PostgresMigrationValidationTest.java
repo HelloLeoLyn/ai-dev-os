@@ -37,12 +37,12 @@ class PostgresMigrationValidationTest {
 	static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
 
 	@Test
-	void freshDatabaseAppliesAllMigrationsV1ThroughV28() throws Exception {
+	void freshDatabaseAppliesAllMigrationsV1ThroughV29() throws Exception {
 		PGSimpleDataSource dataSource = dataSource(POSTGRES.getDatabaseName());
 		new PostgresDocumentStore(dataSource, new ObjectMapper());
 
 		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
-				18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28),
+				18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29),
 			appliedVersions(dataSource));
 		for (String table : List.of("repository_documents", "audit_events",
 				"plan_version_freezes", "audit_outbox", "jobs", "execution_attempts",
@@ -60,6 +60,8 @@ class PostgresMigrationValidationTest {
 		}
 		assertTrue(columnNullable(dataSource, "workspaces", "repository_url"),
 			"workspaces repository_url must be nullable");
+		assertTrue(columnNullable(dataSource, "tasks", "source_backlog_item_id"));
+		assertTrue(indexExists(dataSource, "idx_tasks_source_backlog"));
 		assertEquals(1, count(dataSource, "SELECT COUNT(*) FROM information_schema.columns "
 			+ "WHERE table_schema='public' AND table_name='workspaces' "
 			+ "AND column_name='repository_url' AND column_default IS NULL"));
@@ -121,16 +123,18 @@ class PostgresMigrationValidationTest {
 				+ "VALUES ('plan:1','hash-old')");
 		}
 
-		// The full migration set upgrades V5..V28 in place.
+		// The full migration set upgrades through V29 in place.
 		new PostgresDocumentStore(dataSource, new ObjectMapper());
 
 		assertTrue(indexExists(dataSource, "idx_recommendation_decision_analysis"));
 		assertTrue(indexExists(dataSource, "idx_recommendation_decision_status"));
 		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
-				18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28),
+				18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29),
 			appliedVersions(dataSource));
 		assertTrue(columnNullable(dataSource, "workspaces", "repository_url"),
 			"upgraded workspaces repository_url must be nullable");
+		assertTrue(columnNullable(dataSource, "tasks", "source_backlog_item_id"));
+		assertTrue(indexExists(dataSource, "idx_tasks_source_backlog"));
 		assertEquals(1, count(dataSource, "SELECT COUNT(*) FROM information_schema.columns "
 			+ "WHERE table_schema='public' AND table_name='workspaces' "
 			+ "AND column_name='repository_url' AND column_default IS NULL"));
@@ -184,8 +188,32 @@ class PostgresMigrationValidationTest {
 		// Re-running the migration remains idempotent.
 		new PostgresDocumentStore(dataSource, new ObjectMapper());
 		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
-				18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28),
+				18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29),
 			appliedVersions(dataSource));
+	}
+
+	@Test
+	void v28DatabaseUpgradesToV29WithExistingTaskAndNullableLineage() throws Exception {
+		String database = "ai_dev_os_v28";
+		try (Connection connection = POSTGRES.createConnection("");
+				Statement statement = connection.createStatement()) {
+			statement.execute("DROP DATABASE IF EXISTS " + database);
+			statement.execute("CREATE DATABASE " + database);
+		}
+		PGSimpleDataSource dataSource = dataSource(database);
+		applyMigrations(dataSource, 28);
+		try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+			statement.execute("INSERT INTO tasks(task_id,name,project_id,execution_mode,status,created_at,updated_at) "
+				+ "VALUES ('task-before-v29','Existing','project-1','READ_ONLY','SUCCESS',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
+		}
+
+		new PostgresDocumentStore(dataSource, new ObjectMapper());
+
+		assertTrue(columnNullable(dataSource, "tasks", "source_backlog_item_id"));
+		assertTrue(indexExists(dataSource, "idx_tasks_source_backlog"));
+		assertEquals(1, count(dataSource, "SELECT COUNT(*) FROM tasks WHERE task_id='task-before-v29' "
+			+ "AND source_backlog_item_id IS NULL"));
+		assertTrue(appliedVersions(dataSource).contains(29));
 	}
 
 	private void applyMigrations(DataSource dataSource, int upToVersion) throws Exception {
