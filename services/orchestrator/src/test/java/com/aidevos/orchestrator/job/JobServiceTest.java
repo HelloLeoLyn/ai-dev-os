@@ -84,6 +84,30 @@ class JobServiceTest {
 	}
 
 	@Test
+	void shouldResumeTheSameJobMoreThanOnce() {
+		JobStore store = new JobStore();
+		JobWorker worker = mock(JobWorker.class);
+		when(worker.submit(any())).thenReturn(true);
+		JobService service = new JobService(store, worker);
+		ExecutionJob job = new ExecutionJob("job-1", task("coding"));
+		job.markRunning();
+		com.aidevos.orchestrator.execution.ExecutionResult first = new com.aidevos.orchestrator.execution.ExecutionResult();
+		first.setApprovalRequired(true); first.setApprovalId("approval-a");
+		job.markWaitingApproval(first, "record-1"); store.save(job);
+
+		assertEquals(true, service.resumeAfterApproval("job-1"));
+		assertEquals("job-1", store.get("job-1").getId());
+		job.markRunning();
+		com.aidevos.orchestrator.execution.ExecutionResult second = new com.aidevos.orchestrator.execution.ExecutionResult();
+		second.setApprovalRequired(true); second.setApprovalId("approval-b");
+		job.markWaitingApproval(second, "record-2"); store.save(job);
+
+		assertEquals(true, service.resumeAfterApproval("job-1"));
+		assertEquals("job-1", store.get("job-1").getId());
+		verify(worker, times(2)).submit(any());
+	}
+
+	@Test
 	void shouldSubmitIdempotentlyWithDeterministicJobId() {
 		JobStore store = new JobStore();
 		JobWorker worker = mock(JobWorker.class);

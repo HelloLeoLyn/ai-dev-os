@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 class CodingApprovalServiceTest {
@@ -34,6 +35,33 @@ class CodingApprovalServiceTest {
 
 		assertNull(service.requireApproval(context("task-1", null), "/workspace",
 			CodexSandbox.READ_ONLY));
+	}
+
+	@Test
+	void keepsAuthoritiesIndependentAcrossRepeatedResumeRequests() {
+		CodingApprovalService service = new CodingApprovalService(new ApprovalStore(), properties(true));
+		ExecutionContext context = context("task-1", "job-1");
+		CodingApprovalRequest first = service.requireApproval(context, "/workspace",
+			CodexSandbox.WORKSPACE_WRITE, "CODING", "WORKSPACE_WRITE");
+		assertNotNull(first);
+		assertEquals(first.getId(), service.requireApproval(context, "/workspace",
+			CodexSandbox.WORKSPACE_WRITE, "CODING", "WORKSPACE_WRITE").getId());
+		service.approve(first.getId());
+		assertNull(service.requireApproval(context, "/workspace", CodexSandbox.WORKSPACE_WRITE,
+			"CODING", "WORKSPACE_WRITE"));
+		assertEquals(ApprovalStatus.CONSUMED, first.getStatus());
+
+		CodingApprovalRequest second = service.requireApproval(context, "/workspace",
+			CodexSandbox.WORKSPACE_WRITE, "POLICY", "SPECIAL_OPERATION");
+		assertNotNull(second);
+		assertNotEquals(first.getId(), second.getId());
+		assertEquals("POLICY", second.getAuthority());
+		assertEquals("SPECIAL_OPERATION", second.getOperation());
+		assertEquals(ApprovalStatus.PENDING, second.getStatus());
+		service.approve(second.getId());
+		assertNull(service.requireApproval(context, "/workspace", CodexSandbox.WORKSPACE_WRITE,
+			"POLICY", "SPECIAL_OPERATION"));
+		assertEquals(ApprovalStatus.CONSUMED, second.getStatus());
 	}
 
 	private CodingApprovalProperties properties(boolean required) {

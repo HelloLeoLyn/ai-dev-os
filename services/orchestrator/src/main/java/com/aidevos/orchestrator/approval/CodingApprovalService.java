@@ -30,10 +30,15 @@ public class CodingApprovalService {
 
 	public CodingApprovalRequest requireApproval(ExecutionContext context, String workspace,
 			CodexSandbox sandbox) {
+		return requireApproval(context, workspace, sandbox, "CODING", "WORKSPACE_WRITE");
+	}
+
+	public CodingApprovalRequest requireApproval(ExecutionContext context, String workspace,
+			CodexSandbox sandbox, String authority, String operation) {
 		if (sandbox != CodexSandbox.WORKSPACE_WRITE || !properties.isRequiredForWorkspaceWrite()) {
 			return null;
 		}
-		CodingApprovalRequest existing = store.findReusable(context.getTaskId(), context.getJobId());
+		CodingApprovalRequest existing = store.findReusable(context.getTaskId(), context.getJobId(), authority, operation);
 		if (existing != null && existing.consume()) {
 			store.save(existing);
 			auditService.codingApprovalEvent(EventType.CODING_APPROVAL_CONSUMED, existing,
@@ -47,7 +52,7 @@ public class CodingApprovalService {
 		}
 		CodingApprovalRequest request = new CodingApprovalRequest(UUID.randomUUID().toString(),
 			context.getTaskId(), context.getJobId(), workspace, sandbox.cliValue(),
-			"Coder Agent requests write access to the workspace");
+			"Coder Agent requests write access to the workspace", authority, operation);
 		store.save(request);
 		auditService.codingApprovalEvent(EventType.CODING_APPROVAL_REQUESTED, request, null,
 			request.getStatus().name());

@@ -26,9 +26,10 @@ public class ApprovalStore implements CodingApprovalRepository {
 		return new ArrayList<>(requests.values());
 	}
 
-	public synchronized CodingApprovalRequest findReusable(String taskId, String jobId) {
+	public synchronized CodingApprovalRequest findReusable(String taskId, String jobId, String authority, String operation) {
 		return requests.values().stream()
 			.filter(request -> sameScope(request, taskId, jobId))
+			.filter(request -> authority.equals(request.getAuthority()) && operation.equals(request.getOperation()))
 			.filter(request -> request.getStatus() == ApprovalStatus.PENDING
 				|| request.getStatus() == ApprovalStatus.APPROVED)
 			.reduce((first, second) -> second)

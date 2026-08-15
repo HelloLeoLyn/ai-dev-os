@@ -73,11 +73,23 @@ public class AuditService {
 			String jobId, String approvalId, String attemptId, String executionRecordId,
 			String agent, String executor, String fromStatus, String toStatus,
 			String reason, String errorCode) {
+		executionFlow(event, taskId, planRunId, stepRunId, jobId, approvalId, attemptId,
+			executionRecordId, agent, executor, fromStatus, toStatus, reason, errorCode, null, null);
+	}
+
+	public void executionFlow(String event, String taskId, String planRunId, String stepRunId,
+			String jobId, String approvalId, String attemptId, String executionRecordId,
+			String agent, String executor, String fromStatus, String toStatus,
+			String reason, String errorCode, String authority, String operation) {
 		logger.info("AI_DEV_OS_FLOW event={} taskId={} planRunId={} stepRunId={} jobId={} approvalId={} "
 			+ "attemptId={} executionRecordId={} agent={} executor={} fromStatus={} toStatus={} reason={} errorCode={}",
 			event, value(taskId), value(planRunId), value(stepRunId), value(jobId), value(approvalId),
 			value(attemptId), value(executionRecordId), value(agent), value(executor), value(fromStatus),
 			value(toStatus), value(reason), value(errorCode));
+		if (authority != null || operation != null) {
+			logger.info("AI_DEV_OS_FLOW approvalId={} authority={} operation={} event={}",
+				value(approvalId), value(authority), value(operation), value(event));
+		}
 	}
 
 	private void flowEvent(EventRecord event) {
@@ -101,7 +113,9 @@ public class AuditService {
 				: event.metadata().get("executor").toString();
 			executionFlow(name, event.taskId(), event.planRunId(), event.stepRunId(), event.jobId(),
 				event.approvalId(), event.attemptId(), event.executionRecordId(), agent, executor,
-				event.fromStatus(), event.toStatus(), event.summary(), null);
+				event.fromStatus(), event.toStatus(), event.summary(), null,
+				event.metadata().get("authority") == null ? null : event.metadata().get("authority").toString(),
+				event.metadata().get("operation") == null ? null : event.metadata().get("operation").toString());
 			if (event.type() == EventType.JOB_RESUBMITTED) {
 				executionFlow("JOB_RESUME_REQUESTED", event.taskId(), event.planRunId(), event.stepRunId(),
 					event.jobId(), event.approvalId(), event.attemptId(), event.executionRecordId(),
@@ -212,7 +226,8 @@ public class AuditService {
 		record(event(type, "coding-approval", approval.getId(), fromStatus, toStatus,
 			approval.getTaskId(), null, null, null, null, null, approval.getJobId(), null, null,
 			null, approval.getId(), "SYSTEM", "coding-approval", type.name(),
-			Map.of("sandbox", approval.getSandbox()),
+			Map.of("sandbox", approval.getSandbox(), "authority", approval.getAuthority(),
+				"operation", approval.getOperation()),
 			type + ":coding-approval:" + approval.getId() + ":" + value(toStatus)));
 	}
 

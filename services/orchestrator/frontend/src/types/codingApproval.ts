@@ -7,6 +7,8 @@ export interface CodingApprovalRequest {
   workspace: string
   sandbox: string
   reason: string
+  authority: string
+  operation: string
   status: CodingApprovalStatus
   createdAt: string
   decidedAt: string | null

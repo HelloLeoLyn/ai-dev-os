@@ -5,6 +5,10 @@ export function getCodingApproval(id: string): Promise<CodingApprovalRequest> {
   return apiClient.get(`/api/approvals/${encodeURIComponent(id)}`)
 }
 
+export function getCodingApprovals(): Promise<CodingApprovalRequest[]> {
+  return apiClient.get('/api/approvals')
+}
+
 export function approveCodingApproval(id: string): Promise<CodingApprovalRequest> {
   return apiClient.post(`/api/approvals/${encodeURIComponent(id)}/approve`)
 }

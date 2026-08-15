@@ -25,7 +25,7 @@ class PostgresCodingApprovalRepository implements CodingApprovalRepository {
 	public void save(CodingApprovalRequest v){store.put(TYPE,v.getId(),PersistenceSnapshots.CodingApproval.of(v),v.getJobId()==null?"task:"+v.getTaskId():"job:"+v.getJobId());}
 	public CodingApprovalRequest get(String id){var v=store.get(TYPE,id,PersistenceSnapshots.CodingApproval.class);return v==null?null:v.value();}
 	public List<CodingApprovalRequest> getAll(){return store.all(TYPE,PersistenceSnapshots.CodingApproval.class).stream().map(PersistenceSnapshots.CodingApproval::value).toList();}
-	public CodingApprovalRequest findReusable(String taskId,String jobId){String key=jobId==null?"task:"+taskId:"job:"+jobId;return store.allBySecondary(TYPE,key,PersistenceSnapshots.CodingApproval.class).stream().map(PersistenceSnapshots.CodingApproval::value).filter(v->v.getStatus()==ApprovalStatus.PENDING||v.getStatus()==ApprovalStatus.APPROVED).reduce((a,b)->b).orElse(null);}
+	public CodingApprovalRequest findReusable(String taskId,String jobId,String authority,String operation){String key=jobId==null?"task:"+taskId:"job:"+jobId;return store.allBySecondary(TYPE,key,PersistenceSnapshots.CodingApproval.class).stream().map(PersistenceSnapshots.CodingApproval::value).filter(v->v.getStatus()==ApprovalStatus.PENDING||v.getStatus()==ApprovalStatus.APPROVED).filter(v->authority.equals(v.getAuthority())&&operation.equals(v.getOperation())).reduce((a,b)->b).orElse(null);}
 }
 
 @Repository @ConditionalOnProperty(prefix="aidevos.persistence",name="type",havingValue="postgresql")

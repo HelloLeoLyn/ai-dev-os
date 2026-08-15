@@ -10,18 +10,27 @@ public class CodingApprovalRequest {
 	private final String workspace;
 	private final String sandbox;
 	private final String reason;
+	private final String authority;
+	private final String operation;
 	private final Instant createdAt;
 	private ApprovalStatus status;
 	private Instant decidedAt;
 
 	public CodingApprovalRequest(String id, String taskId, String jobId, String workspace,
 			String sandbox, String reason) {
+		this(id, taskId, jobId, workspace, sandbox, reason, "CODING", "WORKSPACE_WRITE");
+	}
+
+	public CodingApprovalRequest(String id, String taskId, String jobId, String workspace,
+			String sandbox, String reason, String authority, String operation) {
 		this.id = id;
 		this.taskId = taskId;
 		this.jobId = jobId;
 		this.workspace = workspace;
 		this.sandbox = sandbox;
 		this.reason = reason;
+		this.authority = authority == null ? "CODING" : authority;
+		this.operation = operation == null ? "WORKSPACE_WRITE" : operation;
 		this.createdAt = Instant.now();
 		this.status = ApprovalStatus.PENDING;
 	}
@@ -30,15 +39,24 @@ public class CodingApprovalRequest {
 			String workspace, String sandbox, String reason, Instant createdAt,
 			ApprovalStatus status, Instant decidedAt) {
 		return new CodingApprovalRequest(id, taskId, jobId, workspace, sandbox, reason,
-			createdAt, status, decidedAt);
+			createdAt, status, decidedAt, "CODING", "WORKSPACE_WRITE");
+	}
+
+	public static CodingApprovalRequest restore(String id, String taskId, String jobId,
+			String workspace, String sandbox, String reason, String authority, String operation,
+			Instant createdAt, ApprovalStatus status, Instant decidedAt) {
+		return new CodingApprovalRequest(id, taskId, jobId, workspace, sandbox, reason,
+			createdAt, status, decidedAt, authority, operation);
 	}
 
 	private CodingApprovalRequest(String id, String taskId, String jobId, String workspace,
 			String sandbox, String reason, Instant createdAt, ApprovalStatus status,
-			Instant decidedAt) {
+			Instant decidedAt, String authority, String operation) {
 		this.id=id; this.taskId=taskId; this.jobId=jobId; this.workspace=workspace;
 		this.sandbox=sandbox; this.reason=reason; this.createdAt=createdAt;
 		this.status=status; this.decidedAt=decidedAt;
+		this.authority=authority == null ? "CODING" : authority;
+		this.operation=operation == null ? "WORKSPACE_WRITE" : operation;
 	}
 
 	public synchronized void approve() {
@@ -69,6 +87,8 @@ public class CodingApprovalRequest {
 	public String getWorkspace() { return workspace; }
 	public String getSandbox() { return sandbox; }
 	public String getReason() { return reason; }
+	public String getAuthority() { return authority; }
+	public String getOperation() { return operation; }
 	public Instant getCreatedAt() { return createdAt; }
 	public synchronized ApprovalStatus getStatus() { return status; }
 	public synchronized Instant getDecidedAt() { return decidedAt; }

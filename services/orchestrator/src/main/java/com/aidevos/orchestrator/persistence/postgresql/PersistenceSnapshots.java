@@ -28,9 +28,9 @@ final class PersistenceSnapshots {
 		}
 	}
 	record CodingApproval(String id,String taskId,String jobId,String workspace,String sandbox,
-		String reason,Instant createdAt,ApprovalStatus status,Instant decidedAt) {
-		static CodingApproval of(CodingApprovalRequest v){return new CodingApproval(v.getId(),v.getTaskId(),v.getJobId(),v.getWorkspace(),v.getSandbox(),v.getReason(),v.getCreatedAt(),v.getStatus(),v.getDecidedAt());}
-		CodingApprovalRequest value(){return CodingApprovalRequest.restore(id,taskId,jobId,workspace,sandbox,reason,createdAt,status,decidedAt);}
+		String reason,String authority,String operation,Instant createdAt,ApprovalStatus status,Instant decidedAt) {
+		static CodingApproval of(CodingApprovalRequest v){return new CodingApproval(v.getId(),v.getTaskId(),v.getJobId(),v.getWorkspace(),v.getSandbox(),v.getReason(),v.getAuthority(),v.getOperation(),v.getCreatedAt(),v.getStatus(),v.getDecidedAt());}
+		CodingApprovalRequest value(){return CodingApprovalRequest.restore(id,taskId,jobId,workspace,sandbox,reason,authority,operation,createdAt,status,decidedAt);}
 	}
 	record ToolApproval(String id,String executionId,String invocationId,String jobId,String providerId,
 		String toolName,String argumentsHash,String workspace,String permissionLevel,String reason,

@@ -11,7 +11,7 @@ import TechnicalId from '../components/TechnicalId.vue'
 import TaskWorkspaceHeader from '../components/TaskWorkspaceHeader.vue'
 import { projectTaskWorkflow } from '../services/taskWorkflow'
 import { getJob } from '../api/jobs'
-import { approveCodingApproval, getCodingApproval, rejectCodingApproval } from '../api/codingApprovals'
+import { approveCodingApproval, getCodingApprovals, rejectCodingApproval } from '../api/codingApprovals'
 import type { CodingApprovalRequest } from '../types/codingApproval'
 import type { ExecutionJob } from '../types/job'
 import { useTaskNotifications } from '../composables/useTaskNotifications'
@@ -29,8 +29,9 @@ const codingApprovals = ref<Record<string, CodingApprovalRequest>>({})
 const approvalBusy = ref(false)
 const taskNotifications = useTaskNotifications()
 const monitoredTask = taskNotifications.taskState(taskId)
-const pendingRecord = computed(() => executions.records.value.find(record => record.status === 'WAITING_APPROVAL' && record.approvalId && record.jobId && jobs.value[record.jobId]?.status === 'WAITING_APPROVAL') ?? null)
+const pendingRecord = computed(() => executions.records.value.slice().reverse().find(record => record.status === 'WAITING_APPROVAL' && record.approvalId && record.jobId && jobs.value[record.jobId]?.status === 'WAITING_APPROVAL' && codingApprovals.value[record.approvalId]?.status === 'PENDING') ?? null)
 const pendingApproval = computed(() => pendingRecord.value?.approvalId ? codingApprovals.value[pendingRecord.value.approvalId] ?? null : null)
+const approvalHistory = computed(() => Object.values(codingApprovals.value).filter(approval => approval.taskId === taskId && (!latestJob.value?.id || approval.jobId === latestJob.value.id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt)))
 const requiresCodingApproval = computed(() => pendingApproval.value?.status === 'PENDING' || pendingApproval.value?.status === 'APPROVED')
 const latestRecord = computed(() => executions.records.value.at(-1) ?? null)
 const latestJob = computed(() => latestRecord.value?.jobId ? jobs.value[latestRecord.value.jobId] ?? null : null)
@@ -46,9 +47,8 @@ async function loadExecutionState(): Promise<void> {
   const jobIds = [...new Set(executions.records.value.map(record => record.jobId).filter((id): id is string => Boolean(id)))]
   const loadedJobs = await Promise.all(jobIds.map(id => getJob(id)))
   jobs.value = Object.fromEntries(loadedJobs.map(job => [job.id, job]))
-  const approvalIds = [...new Set(executions.records.value.map(record => record.approvalId).filter((id): id is string => Boolean(id)))]
-  const loadedApprovals = await Promise.all(approvalIds.map(id => getCodingApproval(id).catch(() => null)))
-  codingApprovals.value = Object.fromEntries(loadedApprovals.filter((item): item is CodingApprovalRequest => Boolean(item)).map(item => [item.id, item]))
+  const loadedApprovals = await getCodingApprovals()
+  codingApprovals.value = Object.fromEntries(loadedApprovals.filter(item => item.taskId === taskId).map(item => [item.id, item]))
 }
 async function decideCodingApproval(action: 'approve' | 'reject'): Promise<void> {
   const approval = pendingApproval.value
@@ -79,9 +79,10 @@ function reload(): void { void Promise.all([context.load(taskId), loadExecutionS
       <p class="page-eyebrow">Action Required</p><h2>Codex needs permission to modify this workspace.</h2>
       <div class="approval-distinction"><span>Plan Approval: <StatusBadge :status="context.approval.value?.status || 'UNKNOWN'" /></span><span>Coding Approval: <StatusBadge :status="pendingApproval.status" /></span></div>
       <dl class="approval-grid"><div><dt>Workspace</dt><dd>{{ pendingApproval.workspace || pendingRecord.workspace || 'Unknown' }}</dd></div><div><dt>Sandbox / execution mode</dt><dd>{{ pendingApproval.sandbox || pendingRecord.sandbox || 'Unknown' }} / {{ context.task.value.executionMode }}</dd></div><div><dt>Reason</dt><dd>{{ pendingApproval.reason || 'Workspace write requested' }}</dd></div><div><dt>Agent</dt><dd>{{ pendingRecord.agentName || 'Unknown' }}</dd></div><div><dt>Job</dt><dd><TechnicalId :value="pendingRecord.jobId" label="Job" /></dd></div></dl>
-      <p>This approval resumes the same Job. It does not approve a new Plan or bypass the workspace-write gate.</p>
+      <p>Authority: {{ pendingApproval.authority }} · Operation: {{ pendingApproval.operation }}</p><p>This approval resumes the same Job. It does not approve a new Plan or bypass the workspace-write gate.</p>
       <div class="approval-actions"><el-button type="primary" :loading="approvalBusy" :disabled="pendingApproval.status !== 'PENDING'" @click="decideCodingApproval('approve')">Approve Workspace Write</el-button><el-button :loading="approvalBusy" :disabled="pendingApproval.status !== 'PENDING'" @click="decideCodingApproval('reject')">Reject</el-button></div>
     </section>
+    <section v-if="approvalHistory.length" class="approval-history" aria-label="Approval History"><h2>Approval History</h2><ol><li v-for="approval in approvalHistory" :key="approval.id"><strong>{{ approval.operation }}</strong><span>{{ approval.authority }}</span><StatusBadge :status="approval.status" /><TechnicalId :value="approval.id" label="Approval" /></li></ol></section>
     <div class="execution-overview"><article><span>PlanRun</span><TechnicalId :value="context.task.value.planRunId" label="PlanRun" /></article><article><span>Current StepRun</span><TechnicalId :value="executions.records.value.at(-1)?.stepRunId" label="StepRun" /></article><article><span>Execution history</span><strong>{{ executions.records.value.length }}</strong></article><article><span>Result</span><StatusBadge :status="context.task.value.status" /></article></div>
     <section class="flow-summary" aria-label="Execution diagnostics"><article><span>Current Task Status</span><strong>{{ context.task.value.status }}</strong></article><article><span>Current PlanRun Status</span><strong>{{ currentPlanRunStatus }}</strong></article><article><span>Current Job Status</span><strong>{{ latestJob?.status || 'Unknown' }}</strong></article><article><span>Current Approval Status</span><strong>{{ pendingApproval?.status || context.approval.value?.status || 'None' }}</strong></article><article><span>Latest Attempt</span><strong>{{ latestRecord?.status || 'Unknown' }}</strong></article><article><span>Resolved Executor</span><strong>{{ latestRecord?.executorName || 'Unknown' }}</strong></article><article><span>Last Flow Event</span><strong>{{ lastFlowEvent?.eventType || 'Unknown' }}</strong></article><article><span>Blocked Reason</span><strong>{{ latestRecord?.status === 'WAITING_APPROVAL' ? (latestRecord.message || 'Approval required') : 'None' }}</strong></article></section>
     <el-card v-for="(record, index) in executions.records.value" :key="record.id" shadow="never" :class="['record-card', { 'historical-attempt': record !== latestRecord }]">
