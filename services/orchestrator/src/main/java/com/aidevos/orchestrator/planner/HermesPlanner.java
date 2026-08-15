@@ -20,6 +20,8 @@ import org.springframework.stereotype.Component;
 public class HermesPlanner implements Planner {
 
 	public static final String NAME = "hermes";
+	private static final ExpectedArtifact CODER_RESULT = new ExpectedArtifact("git-diff",
+		"changes.patch", "text/plain", true, 1);
 
 	@Override
 	public String name() {
@@ -34,15 +36,22 @@ public class HermesPlanner implements Planner {
 		if (Boolean.TRUE.equals(request.structuredInput().get("multiAgent"))) {
 			return multiStepPlan(request);
 		}
+		boolean readWrite = "READ_WRITE".equals(request.metadata().get("executionMode"));
 		PlanSnapshot.AgentSnapshot agent = request.snapshot() == null ? null
-			: request.snapshot().agents().stream().filter(PlanSnapshot.AgentSnapshot::enabled)
+			: request.snapshot().agents().stream()
+				.filter(PlanSnapshot.AgentSnapshot::enabled)
+				.filter(candidate -> !readWrite
+					|| (candidate.capabilities().containsAll(List.of("coding", "git"))
+						&& !"mock".equals(candidate.executor())))
 				.findFirst().orElse(null);
 		AgentAssignment assignment = agent == null
-			? new AgentAssignment(null, List.of(), List.of())
-			: new AgentAssignment(agent.name(), agent.capabilities(), List.of());
+			? new AgentAssignment(null, readWrite ? List.of("coding", "git") : List.of(), List.of())
+			: new AgentAssignment(agent.name(), readWrite ? List.of("coding", "git")
+				: agent.capabilities(), List.of());
 		PlanStep step = new PlanStep("step-1", "Handle request", request.goal(),
 			StepStatus.PLANNED, assignment, null, null, Map.of(),
-			List.of(new ExpectedArtifact("result", "result", "application/json", true, 1)),
+			readWrite ? coderExpectedArtifacts()
+				: List.of(new ExpectedArtifact("result", "result", "application/json", true, 1)),
 			RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN, false);
 		return new PlanDraft("plan-" + request.requestId(), 1, request.goal(), List.of(step),
 			List.of(), request.snapshot(), name(), request.model(), request.promptVersion(),
@@ -115,7 +124,7 @@ public class HermesPlanner implements Planner {
 				new ArtifactReference("mcp-read", "mcp-text", null,
 					"sourceContext", true)),
 			null, null, Map.of(),
-			List.of(new ExpectedArtifact("git-diff", "changes.patch", "text/plain", true, 1)),
+			coderExpectedArtifacts(),
 			RetryPolicy.noRetry(), FailurePolicy.REQUEST_REPLAN, false);
 
 		PlanStep tester = new PlanStep("browser-verify", "Verify the fix",
@@ -136,6 +145,10 @@ public class HermesPlanner implements Planner {
 		return new PlanDraft("plan-" + request.requestId(), 1, request.goal(),
 			List.of(browser, inspectSource, coder, tester), dependencies, request.snapshot(),
 			name(), request.model(), request.promptVersion(), request.metadata());
+	}
+
+	private List<ExpectedArtifact> coderExpectedArtifacts() {
+		return List.of(CODER_RESULT);
 	}
 
 	private String text(Map<String, Object> input, String key, String fallback) {

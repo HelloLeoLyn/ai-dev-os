@@ -68,6 +68,33 @@ class HermesMultiStepPlannerTest {
 		assertEquals("step-1", draft.steps().getFirst().id());
 	}
 
+	@Test
+	void shouldRouteReadWriteSingleStepToCoderWithCodexArtifactContract() {
+		PlanSnapshot ordered = new PlanSnapshot(List.of(
+			new PlanSnapshot.AgentSnapshot("planner", "mock", List.of("planning", "analysis"),
+				null, true),
+			new PlanSnapshot.AgentSnapshot("analyst", "codex", List.of("analysis", "read-only"),
+				"read-only", true),
+			new PlanSnapshot.AgentSnapshot("coder", "codex", List.of("coding", "git"),
+				"standard", true)),
+			Set.of("planning", "analysis", "read-only", "coding", "git"), List.of(),
+			Set.of("mock", "codex"), "policy-v1", Map.of("executionMode", "READ_WRITE"));
+		PlanningRequest request = new PlanningRequest("write", "Implement the migration",
+			HermesPlanner.NAME, null, "prompt-v1", Map.of(), ordered,
+			Map.of("executionMode", "READ_WRITE"));
+
+		var step = planner.plan(request).steps().getFirst();
+
+		assertEquals("coder", step.assignment().agentName());
+		assertEquals(List.of("coding", "git"), step.assignment().requiredCapabilities());
+		assertEquals(1, step.expectedArtifacts().size());
+		assertEquals("git-diff", step.expectedArtifacts().getFirst().type());
+		assertEquals("changes.patch", step.expectedArtifacts().getFirst().name());
+		assertEquals("text/plain", step.expectedArtifacts().getFirst().mediaType());
+		assertTrue(step.expectedArtifacts().getFirst().required());
+		assertEquals(1, step.expectedArtifacts().getFirst().minimumCount());
+	}
+
 	private PlanningRequest request(PlanSnapshot snapshot) {
 		return new PlanningRequest("login-fix", "Check and fix the Web login page",
 			HermesPlanner.NAME, null, "prompt-v2",

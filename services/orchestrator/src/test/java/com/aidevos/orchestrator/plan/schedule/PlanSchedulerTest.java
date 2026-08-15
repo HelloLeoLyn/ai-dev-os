@@ -184,6 +184,30 @@ class PlanSchedulerTest {
 	}
 
 	@Test
+	void codexGitDiffShouldSatisfyCoderArtifactContract() {
+		PlanStep coder = new PlanStep("code", "Implement", "Write code", StepStatus.PLANNED,
+			new AgentAssignment("coder", List.of("coding", "git"), List.of()), Map.of(),
+			List.of(), null, null, Map.of(),
+			List.of(new ExpectedArtifact("git-diff", "changes.patch", "text/plain", true, 1)),
+			RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN, false);
+		approve(plan(List.of(coder), List.of()));
+		PlanRun run = scheduler.start("approval-1");
+		ExecutionResult result = new ExecutionResult();
+		result.setSuccess(true);
+		ExecutionArtifact patch = new ExecutionArtifact();
+		patch.setType("git-diff");
+		patch.setName("changes.patch");
+		patch.setMediaType("text/plain");
+		result.setArtifacts(List.of(patch));
+		job(0).markSucceeded(result, "record-codex");
+
+		scheduler.reconcile();
+
+		assertEquals(PlanRunStatus.SUCCESS, run.getStatus());
+		assertEquals(StepRunStatus.SUCCESS, run.getSteps().getFirst().getStatus());
+	}
+
+	@Test
 	void shouldMapAgentCapabilitiesParametersAndCorrelationMetadata() {
 		PlanStep toolStep = new PlanStep("tool-step", "Read", "Read file", StepStatus.PLANNED,
 			new AgentAssignment("tool-agent", List.of("tool", "read-only"), List.of()),
