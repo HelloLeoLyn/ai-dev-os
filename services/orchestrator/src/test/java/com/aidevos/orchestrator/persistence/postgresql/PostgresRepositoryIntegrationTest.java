@@ -36,6 +36,7 @@ import com.aidevos.orchestrator.taskcenter.ExecutionMode;
 import com.aidevos.orchestrator.taskcenter.CreateTaskRequest;
 import com.aidevos.orchestrator.taskcenter.TaskCenterService;
 import com.aidevos.orchestrator.workspace.Workspace;
+import com.aidevos.orchestrator.workspace.WorkspaceService;
 import com.aidevos.orchestrator.workspace.WorkspaceStatus;
 import com.aidevos.orchestrator.workspace.git.ProcessGitCommandExecutor;
 import org.junit.jupiter.api.BeforeEach;
@@ -82,6 +83,7 @@ class PostgresRepositoryIntegrationTest {
 		this.jdbc = new PostgresJdbc(dataSource);
 		this.dataSource = dataSource;
 		this.mapper = new ObjectMapper();
+		this.jdbc.update("DELETE FROM workspaces");
 		this.jdbc.update("DELETE FROM projects");
 		this.jdbc.update("DELETE FROM tasks");
 	}
@@ -156,6 +158,32 @@ class PostgresRepositoryIntegrationTest {
 		assertNotNull(reloaded);
 		assertNull(reloaded.getRepositoryUrl());
 		assertEquals("local-dev", reloaded.getDefaultBranch());
+	}
+
+	@Test
+	void localOnlyProjectAttachesAndReloadsWorkspaceWithNullRepositoryUrl() throws Exception {
+		Path repositoryPath = Files.createDirectories(tempDir.resolve("local-workspace"));
+		git(repositoryPath, "init", "-b", "local-main");
+		PostgresProjectRepository projects = new PostgresProjectRepository(jdbc);
+		ProjectService projectService = new ProjectService(projects, AuditService.noop(),
+			new ProcessGitCommandExecutor(new CommandExecutor()));
+		Project project = projectService.createProject(new CreateProjectRequest(
+			"Local workspace", repositoryPath.toString(), null));
+		assertNull(project.getRepositoryUrl());
+		WorkspaceService workspaceService = new WorkspaceService(
+			new PostgresWorkspaceRepository(jdbc),
+			new ProcessGitCommandExecutor(new CommandExecutor()), AuditService.noop());
+
+		Workspace created = workspaceService.createProjectWorkspace(project.getProjectId(),
+			repositoryPath.toString(), project.getRepositoryUrl());
+		Workspace reloaded = new PostgresWorkspaceRepository(new PostgresJdbc(dataSource))
+			.get(created.getWorkspaceId());
+
+		assertNotNull(reloaded);
+		assertEquals(project.getProjectId(), reloaded.getProjectId());
+		assertEquals(repositoryPath.toString(), reloaded.getPath());
+		assertEquals("local-main", reloaded.getBranch());
+		assertNull(reloaded.getRepositoryUrl());
 	}
 
 	private void git(Path directory, String... arguments) throws Exception {

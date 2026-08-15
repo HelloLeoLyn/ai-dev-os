@@ -63,6 +63,26 @@ class ProjectWorkspaceControllerTest {
 	}
 
 	@Test
+	void shouldPreserveNullRepositoryUrlForLocalOnlyProject() throws Exception {
+		ProjectService projectService = mock(ProjectService.class);
+		WorkspaceService workspaceService = mock(WorkspaceService.class);
+		Project project = new Project("project-local", "local", "/repo/local", null,
+			ProjectStatus.ACTIVE, NOW, NOW, null, "main");
+		when(projectService.getProject("project-local")).thenReturn(Optional.of(project));
+		when(workspaceService.createProjectWorkspace("project-local", "/repo/local", null))
+			.thenReturn(new Workspace("workspace-local", "project-local", "/repo/local", "main",
+				WorkspaceStatus.READY, NOW, NOW, null));
+
+		mockMvc(projectService, workspaceService).perform(
+			post("/api/projects/project-local/workspaces")
+				.contentType("application/json").content("{}"))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.repositoryUrl").doesNotExist());
+
+		verify(workspaceService).createProjectWorkspace("project-local", "/repo/local", null);
+	}
+
+	@Test
 	void shouldReturn404WhenProjectDoesNotExist() throws Exception {
 		ProjectService projectService = mock(ProjectService.class);
 		WorkspaceService workspaceService = mock(WorkspaceService.class);
