@@ -89,7 +89,7 @@ public class CodexExecutor implements AgentExecutor {
 			commandResult.getExitCode(), commandResult.getOutput(), commandResult.getError(),
 			workspace.path(), after.branch().trim(), after.status(), after.diffStat());
 		return toExecutionResult(executionResult, codexOutput, sandbox, before, after,
-			contextMetadataString(context, "approvalId"));
+			contextMetadataString(context, "approvalId"), projectAnalysis(context));
 	}
 
 	private boolean readOnly(ExecutionContext context) {
@@ -99,7 +99,7 @@ public class CodexExecutor implements AgentExecutor {
 
 	private ExecutionResult toExecutionResult(CodexExecutionResult executionResult,
 			CodexOutput codexOutput, CodexSandbox sandbox, GitSnapshot before, GitSnapshot after,
-			String approvalId) {
+			String approvalId, boolean projectAnalysis) {
 		ExecutionResult result = new ExecutionResult();
 		result.setSuccess(executionResult.success());
 		if (executionResult.success()) {
@@ -119,6 +119,12 @@ public class CodexExecutor implements AgentExecutor {
 			newUntrackedFiles(before, after)));
 		result.getArtifacts().add(textArtifact("codex-events", "codex-events.jsonl",
 			executionResult.stdout()));
+		if (executionResult.success() && projectAnalysis && codexOutput.structuredPayload() != null) {
+			ExecutionArtifact analysis = textArtifact("analysis-result", "analysis-result.json",
+				codexOutput.structuredPayload());
+			analysis.setMediaType("application/json");
+			result.getArtifacts().add(analysis);
+		}
 		ExecutionArtifact summary = textArtifact("codex-result", "codex-result.txt",
 			result.getOutput());
 		summary.getMetadata().put("threadId", codexOutput.threadId());
@@ -138,6 +144,11 @@ public class CodexExecutor implements AgentExecutor {
 		result.getMetadata().put("codexThreadId", codexOutput.threadId());
 		result.setApprovalId(approvalId);
 		return result;
+	}
+
+	private boolean projectAnalysis(ExecutionContext context) {
+		Object value = context.getParameters().get("taskType");
+		return "project-analysis".equals(value);
 	}
 
 	private ExecutionArtifact textArtifact(String type, String name, String content) {

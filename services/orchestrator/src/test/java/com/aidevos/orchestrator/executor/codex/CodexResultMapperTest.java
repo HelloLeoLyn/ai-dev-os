@@ -34,6 +34,9 @@ class CodexResultMapperTest {
 			{"type":"item.completed","item":{"type":"agent_message","text":"{\\"summary\\":\\"Tests passed\\",\\"changedFiles\\":[],\\"tests\\":[],\\"risks\\":[]}"}}
 			""";
 
-		assertEquals("Tests passed", new CodexResultMapper(new ObjectMapper()).map(events).summary());
+		CodexOutput output = new CodexResultMapper(new ObjectMapper()).map(events);
+		assertEquals("Tests passed", output.summary());
+		assertEquals("{\"summary\":\"Tests passed\",\"changedFiles\":[],\"tests\":[],\"risks\":[]}",
+			output.structuredPayload());
 	}
 }

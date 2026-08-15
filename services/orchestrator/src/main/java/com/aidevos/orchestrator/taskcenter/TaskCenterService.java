@@ -23,6 +23,7 @@ import com.aidevos.orchestrator.planner.PlannerService;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import com.aidevos.orchestrator.analysis.AnalysisProjectionCoordinator;
 
 /**
  * Unified task entry point: User Request -> Task -> Plan -> Approval ->
@@ -42,6 +43,7 @@ public class TaskCenterService {
 	private final AuditService auditService;
 	private final PlanScheduler planScheduler;
 	private AgentCoordinatorService agentCoordinatorService;
+	private AnalysisProjectionCoordinator analysisProjectionCoordinator;
 
 	public TaskCenterService(PlannerService plannerService,
 			PlanApprovalService approvalService, PlanRunRepository planRunRepository) {
@@ -86,6 +88,11 @@ public class TaskCenterService {
 	 */
 	public void setAgentCoordinatorService(AgentCoordinatorService agentCoordinatorService) {
 		this.agentCoordinatorService = agentCoordinatorService;
+	}
+
+	@Autowired(required = false)
+	public void setAnalysisProjectionCoordinator(AnalysisProjectionCoordinator coordinator) {
+		this.analysisProjectionCoordinator = coordinator;
 	}
 
 	public TaskRecord createTask(CreateTaskRequest request) {
@@ -347,6 +354,10 @@ public class TaskCenterService {
 		}
 		if (before != task.getStatus() || !java.util.Objects.equals(beforeRunId, task.getPlanRunId())) {
 			repository.save(task);
+			if (before != TaskStatus.SUCCESS && task.getStatus() == TaskStatus.SUCCESS
+					&& analysisProjectionCoordinator != null) {
+				analysisProjectionCoordinator.schedule(task.getTaskId());
+			}
 		}
 	}
 

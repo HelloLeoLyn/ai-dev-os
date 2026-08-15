@@ -36,9 +36,14 @@ public class CodexCommandBuilder {
 			command.add(model);
 		}
 		command.addAll(List.of("exec", "--cd", workspacePath, "--sandbox", sandbox.cliValue(),
-			"--json", "--output-schema", schemaProvider.path()));
+			"--json", "--output-schema", projectAnalysis(context)
+				? schemaProvider.path(true) : schemaProvider.path()));
 		command.add(promptBuilder.build(context));
 		return List.copyOf(command);
+	}
+
+	private boolean projectAnalysis(ExecutionContext context) {
+		return "project-analysis".equals(contextString(context, "taskType"));
 	}
 
 	private String contextString(ExecutionContext context, String key) {

@@ -96,6 +96,7 @@ class ReadOnlyProjectAnalysisEndToEndTest {
 		workspaceProperties.setAllowedRoots(List.of(tempDir.toString()));
 		CodexOutputSchemaProvider schema = mock(CodexOutputSchemaProvider.class);
 		when(schema.path()).thenReturn(tempDir.resolve("schema.json").toString());
+		when(schema.path(true)).thenReturn(tempDir.resolve("analysis-schema.json").toString());
 		CodexExecutor codex = new CodexExecutor(commands,
 			com.aidevos.orchestrator.execution.workspace.TestWorkspaceResolvers.create(workspaceProperties, new GitExecutor(commands)),
 			new GitInspector(new GitExecutor(commands)), new CodexResultMapper(new ObjectMapper()),
@@ -160,6 +161,8 @@ class ReadOnlyProjectAnalysisEndToEndTest {
 				.filter(artifact -> "codex-result".equals(artifact.getType()))
 				.findFirst().orElseThrow();
 			assertTrue(artifacts.size() > 0);
+			assertTrue(artifacts.stream().anyMatch(artifact -> "analysis-result".equals(artifact.getType())
+				&& "application/json".equals(artifact.getMediaType())));
 			assertTrue(result.getContent().contains("NebulaBackend"));
 			assertTrue(result.getContent().contains("Spring Boot 3.5"));
 			assertTrue(result.getContent().contains("OrionFrontend"));
@@ -223,7 +226,7 @@ class ReadOnlyProjectAnalysisEndToEndTest {
 			+ "evidence=$(printf '%s | %s | %s | %s' \"$(cat README.md)\" \"$(cat backend/pom.xml)\" \"$(cat frontend/package.json)\" \"$(cat docs/README.md)\")\n"
 			+ "evidence=${evidence//\\\"/}\n"
 			+ "printf '{\"type\":\"thread.started\",\"thread_id\":\"fixture-thread\"}\\n'\n"
-			+ "printf '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"%s\"}}\\n' \"$evidence\"\n");
+			+ "printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"{\\\"schemaVersion\\\":\\\"1.0\\\",\\\"summary\\\":\\\"NebulaBackend Spring Boot 3.5 OrionFrontend Vue 3.6 AtlasDocs\\\",\\\"findings\\\":[],\\\"recommendations\\\":[]}\"}}'\n");
 		executable.toFile().setExecutable(true);
 		return executable;
 	}

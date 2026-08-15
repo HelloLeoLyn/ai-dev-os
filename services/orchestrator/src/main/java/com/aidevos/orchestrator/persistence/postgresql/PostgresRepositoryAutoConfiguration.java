@@ -19,6 +19,7 @@ import com.aidevos.orchestrator.validation.security.SecurityReportRepository;
 import com.aidevos.orchestrator.qualitygate.QualityGateRepository;
 import com.aidevos.orchestrator.network.NetworkSettingsRepository;
 import com.aidevos.orchestrator.backlog.BacklogRepository;
+import com.aidevos.orchestrator.analysis.AnalysisInsightRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -123,5 +124,9 @@ public class PostgresRepositoryAutoConfiguration {
 
 	@Bean BacklogRepository backlogRepository(DataSource source, ObjectMapper mapper) {
 		return new PostgresBacklogRepository(source, mapper);
+	}
+
+	@Bean AnalysisInsightRepository analysisInsightRepository(PostgresJdbc jdbc, ObjectMapper mapper) {
+		return new PostgresAnalysisInsightRepository(jdbc, mapper);
 	}
 }
