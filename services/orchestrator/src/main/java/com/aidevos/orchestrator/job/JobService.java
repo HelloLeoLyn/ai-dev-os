@@ -116,6 +116,7 @@ public class JobService {
 		snapshot.setParameters(copyMap(source.getParameters()));
 		snapshot.setMetadata(copyMap(source.getMetadata()));
 		snapshot.setStatus(source.getStatus());
+		snapshot.setOperation(source.getOperation());
 		return snapshot;
 	}
 

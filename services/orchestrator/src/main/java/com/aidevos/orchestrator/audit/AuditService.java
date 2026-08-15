@@ -82,10 +82,10 @@ public class AuditService {
 			String agent, String executor, String fromStatus, String toStatus,
 			String reason, String errorCode, String authority, String operation) {
 		logger.info("AI_DEV_OS_FLOW event={} taskId={} planRunId={} stepRunId={} jobId={} approvalId={} "
-			+ "attemptId={} executionRecordId={} agent={} executor={} fromStatus={} toStatus={} reason={} errorCode={}",
+			+ "attemptId={} executionRecordId={} agent={} executor={} fromStatus={} toStatus={} reason={} errorCode={} operation={}",
 			event, value(taskId), value(planRunId), value(stepRunId), value(jobId), value(approvalId),
 			value(attemptId), value(executionRecordId), value(agent), value(executor), value(fromStatus),
-			value(toStatus), value(reason), value(errorCode));
+			value(toStatus), value(reason), value(errorCode), value(operation));
 		if (authority != null || operation != null) {
 			logger.info("AI_DEV_OS_FLOW approvalId={} authority={} operation={} event={}",
 				value(approvalId), value(authority), value(operation), value(event));

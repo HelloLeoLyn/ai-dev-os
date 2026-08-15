@@ -3,12 +3,14 @@ package com.aidevos.orchestrator.plan;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import com.aidevos.orchestrator.operation.OperationSpec;
 
 public record PlanStep(String id, String name, String description, StepStatus status,
 		AgentAssignment assignment, Map<String, Object> parameters,
 		List<ArtifactReference> inputArtifacts, String toolProviderId, String toolName,
 		Map<String, Object> toolArguments, List<ExpectedArtifact> expectedArtifacts,
-		RetryPolicy retryPolicy, FailurePolicy failurePolicy, boolean skipApproval) {
+		RetryPolicy retryPolicy, FailurePolicy failurePolicy, boolean skipApproval,
+		OperationSpec operation) {
 
 	public PlanStep {
 		status = status == null ? StepStatus.PLANNED : status;
@@ -20,6 +22,15 @@ public record PlanStep(String id, String name, String description, StepStatus st
 			: List.copyOf(new ArrayList<>(expectedArtifacts));
 		retryPolicy = retryPolicy == null ? RetryPolicy.noRetry() : retryPolicy;
 		failurePolicy = failurePolicy == null ? FailurePolicy.STOP_PLAN : failurePolicy;
+	}
+
+	public PlanStep(String id, String name, String description, StepStatus status,
+		AgentAssignment assignment, Map<String, Object> parameters,
+		List<ArtifactReference> inputArtifacts, String toolProviderId, String toolName,
+		Map<String, Object> toolArguments, List<ExpectedArtifact> expectedArtifacts,
+		RetryPolicy retryPolicy, FailurePolicy failurePolicy, boolean skipApproval) {
+		this(id, name, description, status, assignment, parameters, inputArtifacts, toolProviderId,
+			toolName, toolArguments, expectedArtifacts, retryPolicy, failurePolicy, skipApproval, null);
 	}
 
 	public PlanStep(String id, String name, String description, StepStatus status,

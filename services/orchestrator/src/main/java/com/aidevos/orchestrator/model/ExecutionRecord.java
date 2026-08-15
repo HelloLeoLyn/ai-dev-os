@@ -12,6 +12,7 @@ public class ExecutionRecord {
 	private String taskId;
 	private String agentName;
 	private String executorName;
+	private String operation;
 	private String status;
 	private String message;
 	private String output;
@@ -63,6 +64,8 @@ public class ExecutionRecord {
 	}
 	public String getExecutorName() { return executorName; }
 	public void setExecutorName(String executorName) { this.executorName = executorName; }
+	public String getOperation() { return operation; }
+	public void setOperation(String operation) { this.operation = operation; }
 
 	public String getStatus() {
 		return status;

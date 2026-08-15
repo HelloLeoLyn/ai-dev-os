@@ -6,6 +6,7 @@ import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.agent.AgentResolver;
 import com.aidevos.orchestrator.agent.ResolvedAgent;
 import com.aidevos.orchestrator.executor.AgentExecutor;
+import com.aidevos.orchestrator.operation.DeterministicOperationExecutor;
 import com.aidevos.orchestrator.job.JobLease;
 import com.aidevos.orchestrator.model.AgentDefinition;
 import com.aidevos.orchestrator.model.ExecutionRecord;
@@ -28,29 +29,37 @@ public class ExecutionEngine {
 	private final ExecutionRecordManager executionRecordManager;
 	private final AuditService auditService;
 	private final ExecutionAttemptRepository attemptRepository;
+	private final DeterministicOperationExecutor deterministicExecutor;
 
 	public ExecutionEngine(AgentResolver agentResolver, ExecutionRecordManager executionRecordManager) {
-		this(agentResolver, executionRecordManager, AuditService.noop());
+		this(agentResolver, executionRecordManager, AuditService.noop(), new InMemoryExecutionAttemptRepository(), null);
 	}
 
 	public ExecutionEngine(AgentResolver agentResolver, ExecutionRecordManager executionRecordManager,
 			AuditService auditService) {
 		this(agentResolver, executionRecordManager, auditService,
-			new InMemoryExecutionAttemptRepository());
+			new InMemoryExecutionAttemptRepository(), null);
 	}
 
 	public ExecutionEngine(AgentResolver agentResolver, ExecutionRecordManager executionRecordManager,
 			ExecutionAttemptRepository attemptRepository) {
-		this(agentResolver, executionRecordManager, AuditService.noop(), attemptRepository);
+		this(agentResolver, executionRecordManager, AuditService.noop(), attemptRepository, null);
+	}
+
+	public ExecutionEngine(AgentResolver agentResolver, ExecutionRecordManager executionRecordManager,
+			AuditService auditService, ExecutionAttemptRepository attemptRepository) {
+		this(agentResolver, executionRecordManager, auditService, attemptRepository, null);
 	}
 
 	@Autowired
 	public ExecutionEngine(AgentResolver agentResolver, ExecutionRecordManager executionRecordManager,
-			AuditService auditService, ExecutionAttemptRepository attemptRepository) {
+			AuditService auditService, ExecutionAttemptRepository attemptRepository,
+			DeterministicOperationExecutor deterministicExecutor) {
 		this.agentResolver = agentResolver;
 		this.executionRecordManager = executionRecordManager;
 		this.auditService = auditService;
 		this.attemptRepository = attemptRepository;
+		this.deterministicExecutor = deterministicExecutor;
 	}
 
 	public ExecutionResult execute(TaskDefinition taskDefinition) {
@@ -72,6 +81,9 @@ public class ExecutionEngine {
 			taskMetadataString(taskDefinition, "planRunId"), taskMetadataString(taskDefinition, "stepRunId"),
 			jobId, taskMetadataString(taskDefinition, "approvalId"), attempt.getId(), null,
 			taskDefinition.getAgentName(), null, null, "STARTING", "attempt created", null);
+		if (taskDefinition.getOperation() != null) {
+			return executeDeterministic(taskDefinition, jobId, executionId, startedAt, attempt);
+		}
 		ExecutionResult result;
 		try {
 			ResolvedAgent resolvedAgent = agentResolver.resolve(taskDefinition);
@@ -129,6 +141,50 @@ public class ExecutionEngine {
 		auditService.executionEvent(completedType, taskDefinition, record.getExecutionId(), jobId,
 			record.getId(), record.getStatus(), agentName);
 		return result;
+	}
+
+	private ExecutionResult executeDeterministic(TaskDefinition taskDefinition, String jobId,
+			String executionId, Instant startedAt, ExecutionAttempt attempt) {
+		ExecutionContext context = operationContext(taskDefinition, jobId, executionId);
+		String operation = taskDefinition.getOperation().operation();
+		auditService.executionFlow("OPERATION_ROUTED", context.getTaskId(), taskMetadataString(taskDefinition, "planRunId"),
+			taskMetadataString(taskDefinition, "stepRunId"), jobId, null, attempt.getId(), executionId,
+			"deterministic", "deterministic", null, "DETERMINISTIC", operation + " route=DETERMINISTIC", null, null, operation);
+		auditService.executionFlow("DETERMINISTIC_EXECUTOR_STARTED", context.getTaskId(), taskMetadataString(taskDefinition, "planRunId"),
+			taskMetadataString(taskDefinition, "stepRunId"), jobId, null, attempt.getId(), executionId,
+			"deterministic", "deterministic", null, "RUNNING", operation, null, null, operation);
+		ExecutionResult result;
+		try {
+			result = deterministicExecutor.execute(taskDefinition.getOperation(), context);
+		}
+		catch (RuntimeException exception) {
+			result = failedResult(exception.getMessage());
+			result.getMetadata().put("errorCode", "DETERMINISTIC_OPERATION_FAILED");
+		}
+		finishAttempt(attempt, result);
+		auditService.executionFlow("DETERMINISTIC_EXECUTOR_FINISHED", context.getTaskId(), taskMetadataString(taskDefinition, "planRunId"),
+			taskMetadataString(taskDefinition, "stepRunId"), jobId, null, attempt.getId(), executionId,
+			"deterministic", "deterministic", "RUNNING", result.isSuccess() ? "SUCCESS" : "FAILED",
+			operation, result.getMetadata().get("errorCode") == null ? null : String.valueOf(result.getMetadata().get("errorCode")), null, operation);
+		ExecutionReport report = createReport(taskDefinition, "deterministic", result);
+		ExecutionRecord record = createRecord(taskDefinition, "deterministic", "deterministic", result,
+			report, context, startedAt, attempt);
+		executionRecordManager.save(record);
+		auditService.executionEvent(result.isSuccess() ? EventType.EXECUTION_COMPLETED : EventType.EXECUTION_FAILED,
+			taskDefinition, record.getExecutionId(), jobId, record.getId(), record.getStatus(), "deterministic");
+		return result;
+	}
+
+	private ExecutionContext operationContext(TaskDefinition taskDefinition, String jobId, String executionId) {
+		ExecutionContext context = new ExecutionContext();
+		context.setExecutionId(executionId); context.setJobId(jobId);
+		String taskId = taskMetadataString(taskDefinition, "originalTaskId");
+		context.setTaskId(taskId == null || taskId.isBlank() ? taskDefinition.getId() : taskId);
+		context.setTaskName(taskDefinition.getName()); context.setDescription(taskDefinition.getDescription());
+		context.setAgentName("deterministic"); context.setInput(taskDefinition.getDescription());
+		context.setWorkspace(taskMetadataString(taskDefinition, "workspacePath"));
+		context.setParameters(taskDefinition.getParameters()); context.getMetadata().putAll(taskDefinition.getMetadata());
+		return context;
 	}
 
 	private ExecutionAttempt startAttempt(TaskDefinition taskDefinition, String jobId,
@@ -245,6 +301,7 @@ public class ExecutionEngine {
 			? taskDefinition.getId() : originalTaskId);
 		record.setAgentName(agentName);
 		record.setExecutorName(executorName);
+		record.setOperation(taskDefinition.getOperation() == null ? null : taskDefinition.getOperation().operation());
 		record.setStatus(result.isApprovalRequired() ? "WAITING_APPROVAL"
 			: result.isSuccess() ? "SUCCESS" : "FAILED");
 		record.setMessage(result.getMessage());

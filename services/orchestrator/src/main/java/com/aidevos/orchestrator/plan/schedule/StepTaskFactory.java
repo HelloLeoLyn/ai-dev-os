@@ -24,6 +24,7 @@ public class StepTaskFactory {
 		task.setId(planRun.getId() + ":" + step.id() + ":" + attempt.getNumber());
 		task.setName(step.name());
 		task.setDescription(step.description());
+		task.setOperation(step.operation());
 		task.setAgentName(step.assignment().agentName());
 		task.setRequiredCapabilities(step.assignment().requiredCapabilities());
 		Map<String, Object> parameters = new LinkedHashMap<>();

@@ -3,6 +3,7 @@ package com.aidevos.orchestrator.model;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import com.aidevos.orchestrator.operation.OperationSpec;
 
 public class TaskDefinition {
 
@@ -14,6 +15,7 @@ public class TaskDefinition {
 	private Map<String, Object> parameters = new LinkedHashMap<>();
 	private Map<String, Object> metadata = new LinkedHashMap<>();
 	private String status;
+	private OperationSpec operation;
 
 	public TaskDefinition() {
 	}
@@ -81,4 +83,6 @@ public class TaskDefinition {
 	public void setStatus(String status) {
 		this.status = status;
 	}
+	public OperationSpec getOperation() { return operation; }
+	public void setOperation(OperationSpec operation) { this.operation = operation; }
 }

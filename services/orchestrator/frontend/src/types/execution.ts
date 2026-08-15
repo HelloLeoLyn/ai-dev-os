@@ -38,6 +38,7 @@ export interface ExecutionRecordSummary {
 
 export interface ExecutionRecordDetail extends ExecutionRecordSummary {
 	 executorName: string | null
+  operation: string | null
   output: string | null
   report: ExecutionReport | null
   artifacts: ExecutionArtifact[]
