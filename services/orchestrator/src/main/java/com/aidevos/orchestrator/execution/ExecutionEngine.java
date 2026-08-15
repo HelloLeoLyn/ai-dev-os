@@ -68,6 +68,10 @@ public class ExecutionEngine {
 		String executorName = null;
 		ExecutionContext context = null;
 		ExecutionAttempt attempt = startAttempt(taskDefinition, jobId, executionId, startedAt, lease);
+		auditService.executionFlow("EXECUTION_ATTEMPT_CREATED", taskMetadataString(taskDefinition, "originalTaskId"),
+			taskMetadataString(taskDefinition, "planRunId"), taskMetadataString(taskDefinition, "stepRunId"),
+			jobId, taskMetadataString(taskDefinition, "approvalId"), attempt.getId(), null,
+			taskDefinition.getAgentName(), null, null, "STARTING", "attempt created", null);
 		ExecutionResult result;
 		try {
 			ResolvedAgent resolvedAgent = agentResolver.resolve(taskDefinition);
@@ -76,9 +80,17 @@ public class ExecutionEngine {
 				agentName, "SELECTED");
 			AgentExecutor executor = resolvedAgent.executor();
 			executorName = executor.getType();
+			auditService.executionFlow("EXECUTOR_RESOLVED", taskMetadataString(taskDefinition, "originalTaskId"),
+				taskMetadataString(taskDefinition, "planRunId"), taskMetadataString(taskDefinition, "stepRunId"),
+				jobId, taskMetadataString(taskDefinition, "approvalId"), attempt.getId(), executionId,
+				agentName, executorName, null, null, "agent resolved", null);
 			context = createContext(taskDefinition, resolvedAgent.definition(), jobId, executionId);
 			auditService.agentEvent(EventType.AGENT_EXECUTION_STARTED, taskDefinition,
 				context.getExecutionId(), jobId, agentName, "RUNNING");
+			auditService.executionFlow("EXECUTOR_STARTED", context.getTaskId(),
+				taskMetadataString(taskDefinition, "planRunId"), taskMetadataString(taskDefinition, "stepRunId"),
+				jobId, taskMetadataString(taskDefinition, "approvalId"), attempt.getId(), executionId,
+				agentName, executorName, null, "RUNNING", "executor started", null);
 			auditService.executionEvent(EventType.EXECUTION_STARTED, taskDefinition,
 				context.getExecutionId(), jobId, null, "RUNNING", agentName);
 			try {
@@ -87,10 +99,18 @@ public class ExecutionEngine {
 				auditService.agentEvent(result.isSuccess() ? EventType.AGENT_EXECUTION_COMPLETED
 					: EventType.AGENT_EXECUTION_FAILED, taskDefinition, context.getExecutionId(),
 					jobId, agentName, result.isSuccess() ? "COMPLETED" : "FAILED");
+				auditService.executionFlow("EXECUTOR_FINISHED", context.getTaskId(),
+					taskMetadataString(taskDefinition, "planRunId"), taskMetadataString(taskDefinition, "stepRunId"),
+					jobId, result.getApprovalId(), attempt.getId(), executionId, agentName, executorName,
+					"RUNNING", result.isSuccess() ? "SUCCESS" : "FAILED", result.getMessage(), null);
 			}
 			catch (Exception exception) {
 				result = failedResult(executorFailureMessage(executor, exception));
 				failAttempt(attempt, EXECUTOR_FAILURE);
+				auditService.executionFlow("EXECUTOR_FINISHED", context.getTaskId(),
+					taskMetadataString(taskDefinition, "planRunId"), taskMetadataString(taskDefinition, "stepRunId"),
+					jobId, contextMetadataString(context, "approvalId"), attempt.getId(), executionId,
+					agentName, executorName, "RUNNING", "FAILED", result.getMessage(), EXECUTOR_FAILURE);
 				auditService.agentEvent(EventType.AGENT_EXECUTION_FAILED, taskDefinition,
 					context.getExecutionId(), jobId, agentName, "FAILED");
 			}

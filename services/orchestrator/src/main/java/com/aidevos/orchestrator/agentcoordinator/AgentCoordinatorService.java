@@ -564,7 +564,7 @@ public class AgentCoordinatorService {
 			context.getParameters().put("workspace", workspacePath);
 		}
 		ExecutionResult result = executor.execute(context);
-		saveExecutionRecord(task, agentName, executionId, result, workspaceId, workspacePath);
+		saveExecutionRecord(task, agentName, executor.getType(), executionId, result, workspaceId, workspacePath);
 		return result;
 	}
 
@@ -619,7 +619,7 @@ public class AgentCoordinatorService {
 		taskCenterService.saveTask(task);
 	}
 
-	private void saveExecutionRecord(TaskRecord task, String agentName, String executionId,
+	private void saveExecutionRecord(TaskRecord task, String agentName, String executorName, String executionId,
 			ExecutionResult result, String workspaceId, String workspacePath) {
 		try {
 			ExecutionRecord record = new ExecutionRecord();
@@ -627,6 +627,7 @@ public class AgentCoordinatorService {
 			record.setExecutionId(executionId);
 			record.setTaskId(task.getTaskId());
 			record.setAgentName(agentName);
+			record.setExecutorName(executorName);
 			record.setStatus(result.isSuccess() ? "SUCCESS" : "FAILED");
 			record.setMessage(result.getMessage());
 			record.setOutput(result.getOutput());

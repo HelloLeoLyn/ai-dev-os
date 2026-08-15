@@ -118,6 +118,9 @@ class AgentCoordinatorServiceTest {
 
 		assertEquals(List.of("coder", "browser-agent", "tester"), agentIds(steps));
 		assertTrue(steps.stream().allMatch(step -> step.getStatus() == AgentPlanStatus.SUCCESS));
+		assertTrue(executionRecordManager.getAll().stream()
+			.filter(record -> "coder".equals(record.getAgentName()))
+			.allMatch(record -> "codex".equals(record.getExecutorName())));
 	}
 
 	@Test
@@ -204,6 +207,9 @@ class AgentCoordinatorServiceTest {
 		when(coder.execute(any())).thenReturn(result);
 		when(browser.execute(any())).thenReturn(result);
 		when(tester.execute(any())).thenReturn(result);
+		when(coder.getType()).thenReturn("codex");
+		when(browser.getType()).thenReturn("openclaw");
+		when(tester.getType()).thenReturn("openclaw");
 		when(executorManager.getExecutor("coder")).thenReturn(coder);
 		when(executorManager.getExecutor("browser-agent")).thenReturn(browser);
 		when(executorManager.getExecutor("tester")).thenReturn(tester);

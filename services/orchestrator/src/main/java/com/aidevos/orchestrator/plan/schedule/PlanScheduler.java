@@ -257,10 +257,19 @@ public class PlanScheduler {
 					return;
 				}
 				if (!resultSatisfies(current, active, job.getResult())) {
+					auditService.executionFlow("ARTIFACT_GATE_FAILED", current.getOriginalTaskId(), current.getId(),
+						active.getId(), job.getId(), job.getApprovalId(),
+						attempt.getId(), job.getExecutionRecordId(), null, null,
+						job.getStatus().name(), "FAILED", "expected artifact requirements were not satisfied",
+						"ARTIFACT_CONTRACT_MISMATCH");
 					fail(current, active, attempt, "Expected artifact requirements were not satisfied",
 						job.getExecutionRecordId(), job, true);
 					return;
 				}
+				auditService.executionFlow("ARTIFACT_GATE_PASSED", current.getOriginalTaskId(), current.getId(),
+					active.getId(), job.getId(), job.getApprovalId(), attempt.getId(),
+					job.getExecutionRecordId(), null, null, job.getStatus().name(), "SUCCESS",
+					"expected artifacts satisfied", null);
 				attempt.markSuccess(job.getExecutionRecordId(), now);
 				active.markSuccess(now);
 				auditService.stepEvent(EventType.STEP_SUCCEEDED, current, active, attempt, "RUNNING",

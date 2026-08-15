@@ -51,7 +51,9 @@ public class AuditService {
 
 	public Optional<EventRecord> record(EventRecord event) {
 		try {
-			return Optional.of(repository.append(event));
+			Optional<EventRecord> saved = Optional.of(repository.append(event));
+			flowEvent(event);
+			return saved;
 		}
 		catch (RuntimeException exception) {
 			// Inside a business transaction the audit enqueue is part of the
@@ -65,6 +67,49 @@ public class AuditService {
 			return Optional.empty();
 		}
 	}
+
+	/** A grep-friendly execution trace; deliberately remains log-only. */
+	public void executionFlow(String event, String taskId, String planRunId, String stepRunId,
+			String jobId, String approvalId, String attemptId, String executionRecordId,
+			String agent, String executor, String fromStatus, String toStatus,
+			String reason, String errorCode) {
+		logger.info("AI_DEV_OS_FLOW event={} taskId={} planRunId={} stepRunId={} jobId={} approvalId={} "
+			+ "attemptId={} executionRecordId={} agent={} executor={} fromStatus={} toStatus={} reason={} errorCode={}",
+			event, value(taskId), value(planRunId), value(stepRunId), value(jobId), value(approvalId),
+			value(attemptId), value(executionRecordId), value(agent), value(executor), value(fromStatus),
+			value(toStatus), value(reason), value(errorCode));
+	}
+
+	private void flowEvent(EventRecord event) {
+		String name = switch (event.type()) {
+			case JOB_RESUBMITTED -> "JOB_REQUEUED";
+			case JOB_STARTED -> "SCHEDULER_JOB_PICKED";
+			case STEP_ATTEMPT_STARTED -> "EXECUTION_ATTEMPT_CREATED";
+			case JOB_SUCCEEDED -> "JOB_COMPLETED";
+			case JOB_FAILED -> "JOB_FAILED";
+			case PLAN_RUN_SUCCEEDED -> "PLANRUN_COMPLETED";
+			case PLAN_RUN_FAILED -> "PLANRUN_FAILED";
+			case TASK_RUNNING -> "TASK_STARTED";
+			case CODING_APPROVAL_REQUESTED, CODING_APPROVAL_APPROVED,
+				CODING_APPROVAL_CONSUMED, EXECUTION_RECORD_SAVED -> event.type().name();
+			default -> null;
+		};
+		if (name != null) {
+			String agent = event.metadata().get("agent") == null ? event.actorId()
+				: event.metadata().get("agent").toString();
+			String executor = event.metadata().get("executor") == null ? null
+				: event.metadata().get("executor").toString();
+			executionFlow(name, event.taskId(), event.planRunId(), event.stepRunId(), event.jobId(),
+				event.approvalId(), event.attemptId(), event.executionRecordId(), agent, executor,
+				event.fromStatus(), event.toStatus(), event.summary(), null);
+			if (event.type() == EventType.JOB_RESUBMITTED) {
+				executionFlow("JOB_RESUME_REQUESTED", event.taskId(), event.planRunId(), event.stepRunId(),
+					event.jobId(), event.approvalId(), event.attemptId(), event.executionRecordId(),
+					event.actorId(), null, event.fromStatus(), event.toStatus(), event.summary(), null);
+			}
+		}
+	}
+
 
 	public EventRecord get(String id) { return repository.get(id); }
 	public List<EventRecord> query(EventQuery query) { return repository.query(query); }
@@ -101,7 +146,9 @@ public class AuditService {
 			record.getStatus(), record.getTaskId(), null, null, record.getPlanRunId(),
 			record.getStepRunId(), record.getAttemptId(), record.getJobId(), record.getExecutionId(),
 			record.getId(), null, record.getApprovalId(), "SYSTEM", "execution-record-manager",
-			"Execution record saved", Map.of("artifactCount", record.getArtifacts().size()),
+			"Execution record saved", Map.of("artifactCount", record.getArtifacts().size(),
+				"agent", record.getAgentName() == null ? "" : record.getAgentName(),
+				"executor", record.getExecutorName() == null ? "" : record.getExecutorName()),
 			"EXECUTION_RECORD_SAVED:record:" + record.getId()));
 		if (!record.getArtifacts().isEmpty()) {
 			record(event(EventType.ARTIFACTS_RECORDED, "execution-record", record.getId(), null,
@@ -652,6 +699,12 @@ public class AuditService {
 			null, null, null, null, null, null, null, "SYSTEM", "task-center", summary,
 			metadata == null ? Map.of() : Map.copyOf(metadata),
 			type + ":task:" + taskId + ":" + value(fromStatus) + ":" + value(toStatus)));
+		if ("SUCCESS".equals(toStatus) || "COMPLETED".equals(toStatus)
+				|| "FAILED".equals(toStatus)) {
+			executionFlow("SUCCESS".equals(toStatus) || "COMPLETED".equals(toStatus)
+				? "TASK_COMPLETED" : "TASK_FAILED", taskId, null, null, null, null, null, null,
+				null, null, fromStatus, toStatus, summary, "FAILED".equals(toStatus) ? "TASK_FAILED" : null);
+		}
 	}
 
 	public void taskSubmitted(String taskId, String summary, Map<String, Object> metadata) {

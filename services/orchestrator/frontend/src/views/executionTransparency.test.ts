@@ -16,6 +16,10 @@ describe('execution transparency UX', () => {
     expect(source).toContain('record.stepRunId')
     expect(source).toContain('v-for="(record, index) in executions.records.value"')
     expect(source).not.toContain('<dt>Executor</dt><dd>—</dd>')
+    expect(source).toContain('Historical Attempt')
+    expect(source).toContain('Latest Attempt')
+    expect(source).toContain('Resolved Executor')
+    expect(source).toContain('Last Flow Event')
   })
 
   it('uses task polling updates and does not approve during render', () => {
