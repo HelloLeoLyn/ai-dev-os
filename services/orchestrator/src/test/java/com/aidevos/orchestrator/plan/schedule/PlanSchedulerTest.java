@@ -208,6 +208,65 @@ class PlanSchedulerTest {
 	}
 
 	@Test
+	void requiredWorkspaceChangeRejectsEmptyPatchEvenWhenArtifactExists() {
+		PlanStep coder = new PlanStep("code", "Implement", "Write code", StepStatus.PLANNED,
+			new AgentAssignment("coder", List.of("coding", "git"), List.of()), Map.of(),
+			List.of(), null, null, Map.of(),
+			List.of(new ExpectedArtifact("git-diff", "changes.patch", "text/plain", true, 1)),
+			RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN, false, true);
+		approve(plan(List.of(coder), List.of()));
+		PlanRun run = scheduler.start("approval-1");
+		ExecutionResult result = new ExecutionResult();
+		result.setSuccess(true);
+		ExecutionArtifact patch = new ExecutionArtifact();
+		patch.setType("git-diff"); patch.setName("changes.patch"); patch.setMediaType("text/plain");
+		patch.setContent(""); result.setArtifacts(List.of(patch));
+		job(0).markSucceeded(result, "record-empty");
+
+		scheduler.reconcile();
+
+		assertEquals(PlanRunStatus.FAILED, run.getStatus());
+		assertEquals("EXPECTED_WORKSPACE_CHANGE_NOT_FOUND: required workspace change was not produced",
+			run.getError());
+	}
+
+	@Test
+	void requiredWorkspaceChangeAcceptsTrackedPatch() {
+		PlanStep coder = new PlanStep("code", "Implement", "Write code", StepStatus.PLANNED,
+			new AgentAssignment("coder", List.of("coding", "git"), List.of()), Map.of(),
+			List.of(), null, null, Map.of(), List.of(), RetryPolicy.noRetry(),
+			FailurePolicy.STOP_PLAN, false, true);
+		approve(plan(List.of(coder), List.of()));
+		PlanRun run = scheduler.start("approval-1");
+		ExecutionResult result = new ExecutionResult(); result.setSuccess(true);
+		ExecutionArtifact patch = new ExecutionArtifact(); patch.setType("git-diff");
+		patch.setName("changes.patch"); patch.setMediaType("text/plain"); patch.setContent("diff --git a/A b/A\n");
+		result.setArtifacts(List.of(patch)); job(0).markSucceeded(result, "record-patch");
+
+		scheduler.reconcile();
+
+		assertEquals(PlanRunStatus.SUCCESS, run.getStatus());
+	}
+
+	@Test
+	void requiredWorkspaceChangeAcceptsUntrackedFileOnly() {
+		PlanStep coder = new PlanStep("code", "Implement", "Write code", StepStatus.PLANNED,
+			new AgentAssignment("coder", List.of("coding", "git"), List.of()), Map.of(),
+			List.of(), null, null, Map.of(), List.of(), RetryPolicy.noRetry(),
+			FailurePolicy.STOP_PLAN, false, true);
+		approve(plan(List.of(coder), List.of()));
+		PlanRun run = scheduler.start("approval-1");
+		ExecutionResult result = new ExecutionResult(); result.setSuccess(true);
+		ExecutionArtifact untracked = new ExecutionArtifact(); untracked.setType("git-untracked-files");
+		untracked.setName("untracked-files.txt"); untracked.getMetadata().put("count", 1);
+		result.setArtifacts(List.of(untracked)); job(0).markSucceeded(result, "record-untracked");
+
+		scheduler.reconcile();
+
+		assertEquals(PlanRunStatus.SUCCESS, run.getStatus());
+	}
+
+	@Test
 	void shouldMapAgentCapabilitiesParametersAndCorrelationMetadata() {
 		PlanStep toolStep = new PlanStep("tool-step", "Read", "Read file", StepStatus.PLANNED,
 			new AgentAssignment("tool-agent", List.of("tool", "read-only"), List.of()),

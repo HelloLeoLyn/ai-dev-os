@@ -48,6 +48,7 @@ public class StepTaskFactory {
 		metadata.put("workspaceId", snapshotValue(planRun, "workspaceId"));
 		metadata.put("workspacePath", snapshotValue(planRun, "workspacePath"));
 		metadata.put("executionMode", snapshotValue(planRun, "executionMode"));
+		metadata.put("requiresWorkspaceChange", step.requiresWorkspaceChange());
 		metadata.putAll(Map.of(
 			"planRunId", planRun.getId(),
 			"stepRunId", stepRun.getId(),

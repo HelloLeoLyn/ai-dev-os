@@ -41,6 +41,7 @@ class HermesMultiStepPlannerTest {
 			plan.steps().get(2).inputArtifacts().stream().map(reference -> reference.inputKey())
 				.toList());
 		assertTrue(validator.validate(plan).valid());
+		assertTrue(plan.steps().get(2).requiresWorkspaceChange());
 	}
 
 	@Test
@@ -93,6 +94,7 @@ class HermesMultiStepPlannerTest {
 		assertEquals("text/plain", step.expectedArtifacts().getFirst().mediaType());
 		assertTrue(step.expectedArtifacts().getFirst().required());
 		assertEquals(1, step.expectedArtifacts().getFirst().minimumCount());
+		assertTrue(step.requiresWorkspaceChange());
 	}
 
 	private PlanningRequest request(PlanSnapshot snapshot) {

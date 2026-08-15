@@ -49,6 +49,14 @@ const workflow = computed(() => context.task.value ? projectTaskWorkflow(context
 
 function openArtifact(artifact: ExecutionArtifact): void { selectedArtifact.value = artifact; artifactVisible.value = true }
 function isLong(value: string | null): boolean { return (value?.length ?? 0) > 500 }
+function reviewValidationStatus(review: ExecutionWorkspaceReview): string {
+  if (review.errorCode) return `FAILED (${review.errorCode})`
+  if (review.diffCheck !== undefined) {
+    return review.changedFiles.length === 0 && review.untrackedFiles.length === 0
+      ? 'PASS (NO_CHANGES)' : 'PASS'
+  }
+  return 'UNKNOWN'
+}
 async function loadExecutionState(): Promise<void> {
   await executions.load(taskId)
   const jobIds = [...new Set(executions.records.value.map(record => record.jobId).filter((id): id is string => Boolean(id)))]
@@ -111,7 +119,7 @@ function reload(): void { void Promise.all([context.load(taskId), loadExecutionS
     <section v-if="workspaceReview && ['COMPLETED','PROMOTING','PROMOTED','REJECTED','PROMOTION_FAILED'].includes(executionWorkspace?.status || '')" class="review-changes" aria-label="Review Changes">
       <div class="review-header"><div><p class="page-eyebrow">Review Changes</p><h2>{{ executionWorkspace?.status === 'PROMOTED' ? 'Changes promoted' : executionWorkspace?.status === 'REJECTED' ? 'Changes rejected' : 'Review required' }}</h2></div><StatusBadge :status="executionWorkspace?.status || 'UNKNOWN'" /></div>
       <p v-if="executionWorkspace?.status === 'COMPLETED'">Promote is an explicit action and will modify the source workspace.</p><p v-if="executionWorkspace?.status === 'REJECTED'">Source workspace remains unchanged. Execution workspace is retained.</p>
-      <dl class="review-grid"><div><dt>Files Changed</dt><dd>{{ workspaceReview.changedFiles.length }}</dd></div><div><dt>Validation</dt><dd>{{ workspaceReview.diffCheck ? 'PASS' : 'UNKNOWN' }}</dd></div><div><dt>Base Revision</dt><dd>{{ workspaceReview.baseRevision }}</dd></div><div><dt>Tests / Artifacts</dt><dd>{{ workspaceReview.artifacts.length ? workspaceReview.artifacts.join(', ') : 'UNKNOWN' }}</dd></div></dl>
+      <dl class="review-grid"><div><dt>Files Changed</dt><dd>{{ workspaceReview.changedFiles.length }}</dd></div><div><dt>Validation</dt><dd>{{ reviewValidationStatus(workspaceReview) }}</dd></div><div><dt>Base Revision</dt><dd>{{ workspaceReview.baseRevision }}</dd></div><div><dt>Tests / Artifacts</dt><dd>{{ workspaceReview.artifacts.length ? workspaceReview.artifacts.join(', ') : 'UNKNOWN' }}</dd></div></dl>
       <ul class="changed-files"><li v-for="file in workspaceReview.changedFiles" :key="file">{{ file }}</li></ul>
       <div class="review-actions"><el-button @click="diffVisible = true">View Diff</el-button><el-button v-if="executionWorkspace?.status === 'COMPLETED'" type="primary" :loading="promotionBusy" @click="promoteWorkspace">Promote to Source Workspace</el-button><el-button v-if="executionWorkspace?.status === 'COMPLETED'" :loading="promotionBusy" @click="rejectWorkspace">Reject Changes</el-button></div>
       <p v-if="executionWorkspace?.promotionErrorCode" class="error">{{ executionWorkspace.promotionErrorCode }}: {{ executionWorkspace.promotionReason }}</p>

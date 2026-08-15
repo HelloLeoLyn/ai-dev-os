@@ -257,12 +257,14 @@ public class PlanScheduler {
 					return;
 				}
 				if (!resultSatisfies(current, active, job.getResult())) {
+					String artifactFailure = artifactFailureMessage(current, active, job.getResult());
+					String artifactErrorCode = artifactFailure.startsWith("EXPECTED_WORKSPACE_CHANGE_NOT_FOUND")
+						? "EXPECTED_WORKSPACE_CHANGE_NOT_FOUND" : "ARTIFACT_CONTRACT_MISMATCH";
 					auditService.executionFlow("ARTIFACT_GATE_FAILED", current.getOriginalTaskId(), current.getId(),
 						active.getId(), job.getId(), job.getApprovalId(),
 						attempt.getId(), job.getExecutionRecordId(), null, null,
-						job.getStatus().name(), "FAILED", "expected artifact requirements were not satisfied",
-						"ARTIFACT_CONTRACT_MISMATCH");
-					fail(current, active, attempt, "Expected artifact requirements were not satisfied",
+						job.getStatus().name(), "FAILED", artifactFailure, artifactErrorCode);
+					fail(current, active, attempt, artifactFailure,
 						job.getExecutionRecordId(), job, true);
 					return;
 				}
@@ -415,6 +417,11 @@ public class PlanScheduler {
 			return false;
 		}
 		PlanStep step = step(run.getPlan(), stepRun.getStepId());
+		if (!artifactsSatisfy(step, result)) return false;
+		return !step.requiresWorkspaceChange() || hasWorkspaceChange(result);
+	}
+
+	private boolean artifactsSatisfy(PlanStep step, ExecutionResult result) {
 		for (ExpectedArtifact expected : step.expectedArtifacts()) {
 			long count = result.getArtifacts().stream()
 				.filter(artifact -> matches(artifact, expected))
@@ -424,6 +431,29 @@ public class PlanScheduler {
 			}
 		}
 		return true;
+	}
+
+	private boolean hasWorkspaceChange(ExecutionResult result) {
+		return result.getArtifacts().stream().anyMatch(artifact -> {
+			if ("git-diff".equals(artifact.getType())
+					&& "changes.patch".equals(artifact.getName())) {
+				return artifact.getContent() != null && !artifact.getContent().isBlank();
+			}
+			if ("git-untracked-files".equals(artifact.getType())) {
+				Object count = artifact.getMetadata().get("count");
+				return count instanceof Number number && number.longValue() > 0;
+			}
+			return "git-untracked-file".equals(artifact.getType());
+		});
+	}
+
+	private String artifactFailureMessage(PlanRun run, StepRun step, ExecutionResult result) {
+		PlanStep definition = step(run.getPlan(), step.getStepId());
+		if (result != null && artifactsSatisfy(definition, result)
+				&& definition.requiresWorkspaceChange() && !hasWorkspaceChange(result)) {
+			return "EXPECTED_WORKSPACE_CHANGE_NOT_FOUND: required workspace change was not produced";
+		}
+		return "Expected artifact requirements were not satisfied";
 	}
 
 	private boolean matches(ExecutionArtifact artifact, ExpectedArtifact expected) {

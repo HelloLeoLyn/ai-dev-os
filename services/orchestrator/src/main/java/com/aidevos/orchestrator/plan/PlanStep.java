@@ -10,7 +10,7 @@ public record PlanStep(String id, String name, String description, StepStatus st
 		List<ArtifactReference> inputArtifacts, String toolProviderId, String toolName,
 		Map<String, Object> toolArguments, List<ExpectedArtifact> expectedArtifacts,
 		RetryPolicy retryPolicy, FailurePolicy failurePolicy, boolean skipApproval,
-		OperationSpec operation) {
+		OperationSpec operation, boolean requiresWorkspaceChange) {
 
 	public PlanStep {
 		status = status == null ? StepStatus.PLANNED : status;
@@ -28,9 +28,31 @@ public record PlanStep(String id, String name, String description, StepStatus st
 		AgentAssignment assignment, Map<String, Object> parameters,
 		List<ArtifactReference> inputArtifacts, String toolProviderId, String toolName,
 		Map<String, Object> toolArguments, List<ExpectedArtifact> expectedArtifacts,
+		RetryPolicy retryPolicy, FailurePolicy failurePolicy, boolean skipApproval,
+		OperationSpec operation) {
+		this(id, name, description, status, assignment, parameters, inputArtifacts, toolProviderId,
+			toolName, toolArguments, expectedArtifacts, retryPolicy, failurePolicy, skipApproval,
+			operation, false);
+	}
+
+	public PlanStep(String id, String name, String description, StepStatus status,
+		AgentAssignment assignment, Map<String, Object> parameters,
+		List<ArtifactReference> inputArtifacts, String toolProviderId, String toolName,
+		Map<String, Object> toolArguments, List<ExpectedArtifact> expectedArtifacts,
 		RetryPolicy retryPolicy, FailurePolicy failurePolicy, boolean skipApproval) {
 		this(id, name, description, status, assignment, parameters, inputArtifacts, toolProviderId,
 			toolName, toolArguments, expectedArtifacts, retryPolicy, failurePolicy, skipApproval, null);
+	}
+
+	public PlanStep(String id, String name, String description, StepStatus status,
+		AgentAssignment assignment, Map<String, Object> parameters,
+		List<ArtifactReference> inputArtifacts, String toolProviderId, String toolName,
+		Map<String, Object> toolArguments, List<ExpectedArtifact> expectedArtifacts,
+		RetryPolicy retryPolicy, FailurePolicy failurePolicy, boolean skipApproval,
+		boolean requiresWorkspaceChange) {
+		this(id, name, description, status, assignment, parameters, inputArtifacts, toolProviderId,
+			toolName, toolArguments, expectedArtifacts, retryPolicy, failurePolicy, skipApproval,
+			null, requiresWorkspaceChange);
 	}
 
 	public PlanStep(String id, String name, String description, StepStatus status,
@@ -39,5 +61,15 @@ public record PlanStep(String id, String name, String description, StepStatus st
 			RetryPolicy retryPolicy, FailurePolicy failurePolicy, boolean skipApproval) {
 		this(id, name, description, status, assignment, Map.of(), List.of(), toolProviderId,
 			toolName, toolArguments, expectedArtifacts, retryPolicy, failurePolicy, skipApproval);
+	}
+
+	public PlanStep(String id, String name, String description, StepStatus status,
+			AgentAssignment assignment, String toolProviderId, String toolName,
+			Map<String, Object> toolArguments, List<ExpectedArtifact> expectedArtifacts,
+			RetryPolicy retryPolicy, FailurePolicy failurePolicy, boolean skipApproval,
+			boolean requiresWorkspaceChange) {
+		this(id, name, description, status, assignment, Map.of(), List.of(), toolProviderId,
+			toolName, toolArguments, expectedArtifacts, retryPolicy, failurePolicy, skipApproval,
+			requiresWorkspaceChange);
 	}
 }

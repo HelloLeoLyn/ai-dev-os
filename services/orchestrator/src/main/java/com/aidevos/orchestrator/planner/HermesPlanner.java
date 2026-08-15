@@ -52,7 +52,7 @@ public class HermesPlanner implements Planner {
 			StepStatus.PLANNED, assignment, null, null, Map.of(),
 			readWrite ? coderExpectedArtifacts()
 				: List.of(new ExpectedArtifact("result", "result", "application/json", true, 1)),
-			RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN, false);
+			RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN, false, readWrite);
 		return new PlanDraft("plan-" + request.requestId(), 1, request.goal(), List.of(step),
 			List.of(), request.snapshot(), name(), request.model(), request.promptVersion(),
 			request.metadata());
@@ -125,7 +125,7 @@ public class HermesPlanner implements Planner {
 					"sourceContext", true)),
 			null, null, Map.of(),
 			coderExpectedArtifacts(),
-			RetryPolicy.noRetry(), FailurePolicy.REQUEST_REPLAN, false);
+			RetryPolicy.noRetry(), FailurePolicy.REQUEST_REPLAN, false, true);
 
 		PlanStep tester = new PlanStep("browser-verify", "Verify the fix",
 			"Run browser regression verification against the target page.", StepStatus.PLANNED,
