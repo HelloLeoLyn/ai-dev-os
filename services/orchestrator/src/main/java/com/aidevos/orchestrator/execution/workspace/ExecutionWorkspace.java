@@ -14,6 +14,10 @@ public class ExecutionWorkspace {
     private Instant createdAt;
     private volatile Instant updatedAt;
     private volatile ExecutionWorkspaceStatus status;
+    private String promotionErrorCode;
+    private String promotionReason;
+    private Instant promotedAt;
+    private Instant rejectedAt;
 
     public ExecutionWorkspace() { }
 
@@ -38,4 +42,12 @@ public class ExecutionWorkspace {
     public void setStrategy(String value){strategy=value;} public void setBaseRevision(String value){baseRevision=value;}
     public void setCreatedAt(Instant value){createdAt=value;} public void setUpdatedAt(Instant value){updatedAt=value;}
     public void setStatus(ExecutionWorkspaceStatus value){status=value;}
+    public String getPromotionErrorCode(){return promotionErrorCode;}
+    public void setPromotionErrorCode(String value){promotionErrorCode=value;}
+    public String getPromotionReason(){return promotionReason;}
+    public void setPromotionReason(String value){promotionReason=value;}
+    public Instant getPromotedAt(){return promotedAt;}
+    public void setPromotedAt(Instant value){promotedAt=value;}
+    public Instant getRejectedAt(){return rejectedAt;}
+    public void setRejectedAt(Instant value){rejectedAt=value;}
 }

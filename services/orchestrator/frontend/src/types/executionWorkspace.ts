@@ -10,4 +10,8 @@ export interface ExecutionWorkspace {
   baseRevision: string
   createdAt: string
   updatedAt: string
+  promotionErrorCode?: string
+  promotionReason?: string
+  promotedAt?: string
+  rejectedAt?: string
 }

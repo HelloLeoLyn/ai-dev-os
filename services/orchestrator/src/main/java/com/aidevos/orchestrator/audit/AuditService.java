@@ -86,6 +86,17 @@ public class AuditService {
 			value(executionWorkspace), value(strategy), value(baseRevision), value(status), value(reason), value(errorCode));
 	}
 
+	public void promotionFlow(String event, com.aidevos.orchestrator.execution.workspace.ExecutionWorkspace workspace,
+			String currentSourceRevision, String errorCode) {
+		logger.info("AI_DEV_OS_FLOW event={} taskId={} workspaceId={} sourceWorkspace={} executionWorkspace={} "
+			+ "baseRevision={} currentSourceRevision={} status={} reason={} errorCode={}", event,
+			value(workspace == null ? null : workspace.getTaskId()), value(workspace == null ? null : workspace.getId()),
+			value(workspace == null ? null : workspace.getSourceWorkspace()), value(workspace == null ? null : workspace.getExecutionWorkspace()),
+			value(workspace == null ? null : workspace.getBaseRevision()), value(currentSourceRevision),
+			value(workspace == null || workspace.getStatus() == null ? null : workspace.getStatus().name()),
+			value(workspace == null ? null : workspace.getPromotionReason()), value(errorCode));
+	}
+
 	public void executionFlow(String event, String taskId, String planRunId, String stepRunId,
 			String jobId, String approvalId, String attemptId, String executionRecordId,
 			String agent, String executor, String fromStatus, String toStatus,

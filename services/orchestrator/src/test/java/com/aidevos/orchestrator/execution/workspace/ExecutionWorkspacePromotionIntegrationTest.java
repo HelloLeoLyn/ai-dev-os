@@ -1,0 +1,133 @@
+package com.aidevos.orchestrator.execution.workspace;
+
+import com.aidevos.orchestrator.executor.command.CommandExecutor;
+import com.aidevos.orchestrator.workspace.Workspace;
+import com.aidevos.orchestrator.workspace.WorkspaceService;
+import com.aidevos.orchestrator.workspace.WorkspaceStatus;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+class ExecutionWorkspacePromotionIntegrationTest {
+    @TempDir Path temp;
+
+    @Test
+    void promotesTrackedAndUntrackedChanges() throws Exception {
+        Path source = initRepo();
+        Fixture fixture = fixture(source, "task-promote");
+        ExecutionWorkspace execution = fixture.ready();
+        Path worktree = Path.of(execution.getExecutionWorkspace());
+        Files.writeString(worktree.resolve("tracked.txt"), "new\n");
+        Files.writeString(worktree.resolve("new.txt"), "created\n");
+        fixture.complete();
+        assertEquals("", run(source, "git", "status", "--porcelain"));
+
+        ExecutionWorkspace promoted = fixture.service.promote("task-promote");
+
+        assertEquals(ExecutionWorkspaceStatus.PROMOTED, promoted.getStatus());
+        assertEquals("new\n", Files.readString(source.resolve("tracked.txt")));
+        assertEquals("created\n", Files.readString(source.resolve("new.txt")));
+        assertTrue(Files.isDirectory(worktree));
+    }
+
+    @Test
+    void dirtySourceIsBlockedWithoutChangingUserFiles() throws Exception {
+        Path source = initRepo();
+        Fixture fixture = fixture(source, "task-dirty");
+        ExecutionWorkspace execution = fixture.ready();
+        Files.writeString(Path.of(execution.getExecutionWorkspace()).resolve("tracked.txt"), "ai\n");
+        Files.writeString(source.resolve("tracked.txt"), "user\n");
+        fixture.complete();
+
+        PromotionException error = assertThrows(PromotionException.class, () -> fixture.service.promote("task-dirty"));
+
+        assertEquals("SOURCE_WORKSPACE_DIRTY", error.getErrorCode());
+        assertEquals("user\n", Files.readString(source.resolve("tracked.txt")));
+        assertEquals(ExecutionWorkspaceStatus.PROMOTION_FAILED, fixture.repository.findByTaskId("task-dirty").getStatus());
+    }
+
+    @Test
+    void sourceHeadChangeIsBlocked() throws Exception {
+        Path source = initRepo();
+        Fixture fixture = fixture(source, "task-head");
+        ExecutionWorkspace execution = fixture.ready();
+        Files.writeString(Path.of(execution.getExecutionWorkspace()).resolve("tracked.txt"), "ai\n");
+        commit(source, "source change", "source\n");
+        fixture.complete();
+
+        PromotionException error = assertThrows(PromotionException.class, () -> fixture.service.promote("task-head"));
+
+        assertEquals("SOURCE_REVISION_CHANGED", error.getErrorCode());
+        assertEquals("source\n", Files.readString(source.resolve("tracked.txt")));
+    }
+
+    @Test
+    void rejectLeavesSourceUnchangedAndDuplicatePromoteIsIdempotent() throws Exception {
+        Path source = initRepo();
+        Fixture reject = fixture(source, "task-reject");
+        ExecutionWorkspace rejectWorkspace = reject.ready();
+        Files.writeString(Path.of(rejectWorkspace.getExecutionWorkspace()).resolve("tracked.txt"), "rejected\n");
+        reject.complete();
+        assertEquals(ExecutionWorkspaceStatus.REJECTED, reject.service.reject("task-reject").getStatus());
+        assertEquals("baseline\n", Files.readString(source.resolve("tracked.txt")));
+        assertTrue(Files.isDirectory(Path.of(rejectWorkspace.getExecutionWorkspace())));
+
+        Fixture promote = fixture(source, "task-idempotent");
+        ExecutionWorkspace worktree = promote.ready();
+        Files.writeString(Path.of(worktree.getExecutionWorkspace()).resolve("tracked.txt"), "once\n");
+        promote.complete();
+        ExecutionWorkspace first = promote.service.promote("task-idempotent");
+        ExecutionWorkspace second = promote.service.promote("task-idempotent");
+        assertEquals(ExecutionWorkspaceStatus.PROMOTED, first.getStatus());
+        assertEquals(first.getId(), second.getId());
+        assertEquals("once\n", Files.readString(source.resolve("tracked.txt")));
+    }
+
+    private Fixture fixture(Path source, String taskId) {
+        WorkspaceService sourceService = mock(WorkspaceService.class);
+        when(sourceService.getWorkspace("workspace-1")).thenReturn(Optional.of(new Workspace("workspace-1", "project-1",
+            source.toString(), "master", WorkspaceStatus.READY, Instant.now(), Instant.now())));
+        InMemoryExecutionWorkspaceRepository repository = new InMemoryExecutionWorkspaceRepository();
+        CodingWorkspaceProperties properties = new CodingWorkspaceProperties(); properties.setExecutionWorkspaceRoot(temp.resolve("worktrees").toString());
+        ExecutionWorkspaceService workspaceService = new ExecutionWorkspaceService(repository, sourceService, new CommandExecutor(), properties);
+        ExecutionWorkspacePromotionService promotion = new ExecutionWorkspacePromotionService(repository, sourceService, new CommandExecutor());
+        return new Fixture(taskId, source, repository, workspaceService, promotion);
+    }
+
+    private static final class Fixture {
+        final String taskId; final Path source; final InMemoryExecutionWorkspaceRepository repository;
+        final ExecutionWorkspaceService workspaceService; final ExecutionWorkspacePromotionService service;
+        Fixture(String taskId, Path source, InMemoryExecutionWorkspaceRepository repository,
+                ExecutionWorkspaceService workspaceService, ExecutionWorkspacePromotionService service) {
+            this.taskId=taskId; this.source=source; this.repository=repository; this.workspaceService=workspaceService; this.service=service;
+        }
+        ExecutionWorkspace ready() {
+            com.aidevos.orchestrator.execution.ExecutionContext context = new com.aidevos.orchestrator.execution.ExecutionContext();
+            context.setTaskId(taskId); context.setProjectId("project-1"); context.setParameters(Map.of("executionMode", "READ_WRITE"));
+            context.setMetadata(Map.of("workspaceId", "workspace-1"));
+            return workspaceService.ensureReady(context);
+        }
+        void complete() { ExecutionWorkspace value=repository.findByTaskId(taskId); value.mark(ExecutionWorkspaceStatus.COMPLETED); repository.save(value); }
+    }
+
+    private Path initRepo() throws Exception {
+        Path repo = temp.resolve("repo-" + System.nanoTime()); Files.createDirectories(repo);
+        run(repo, "git", "init", "-b", "master"); Files.writeString(repo.resolve("tracked.txt"), "baseline\n");
+        run(repo, "git", "add", "."); commit(repo, "baseline", null); return repo;
+    }
+    private void commit(Path repo, String message, String content) throws Exception {
+        if (content != null) { Files.writeString(repo.resolve("tracked.txt"), content); run(repo, "git", "add", "."); }
+        run(repo, "git", "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", message);
+    }
+    private String run(Path cwd, String... command) throws Exception { Process process=new ProcessBuilder(command).directory(cwd.toFile()).redirectErrorStream(true).start(); assertTrue(process.waitFor(30, TimeUnit.SECONDS)); String output=new String(process.getInputStream().readAllBytes()); assertEquals(0, process.exitValue(), output); return output; }
+}

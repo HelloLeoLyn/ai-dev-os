@@ -46,7 +46,8 @@ public class ExecutionWorkspaceService {
         String taskId = required(context.getTaskId(), "Task ID");
         ExecutionWorkspace existing = repository.findByTaskId(taskId);
         if (existing != null) {
-            if (existing.getStatus() == ExecutionWorkspaceStatus.READY || existing.getStatus() == ExecutionWorkspaceStatus.COMPLETED) {
+            if (existing.getStatus() == ExecutionWorkspaceStatus.READY || existing.getStatus() == ExecutionWorkspaceStatus.COMPLETED
+                    || existing.getStatus() == ExecutionWorkspaceStatus.PROMOTED) {
                 try {
                     validate(existing);
                     auditService.executionWorkspaceFlow("EXECUTION_WORKSPACE_REUSED", taskId, context.getJobId(), existing.getId(), existing.getSourceWorkspace(), existing.getExecutionWorkspace(), existing.getStrategy(), existing.getBaseRevision(), existing.getStatus().name(), "existing task workspace", null);
