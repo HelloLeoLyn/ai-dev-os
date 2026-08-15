@@ -1,0 +1,12 @@
+<script setup lang="ts">
+import { computed } from 'vue'
+import { analysisLevels, levelSummary } from '../services/analysisPresentation'
+import type { AnalysisInsightSet, AnalysisProjectionStatus } from '../types/analysis'
+import StatusBadge from './StatusBadge.vue'
+
+const props = defineProps<{ status: AnalysisProjectionStatus; insight: AnalysisInsightSet | null }>()
+const findings = computed(() => levelSummary(props.insight?.findings ?? [], 'severity'))
+const recommendations = computed(() => levelSummary(props.insight?.recommendations ?? [], 'priority'))
+</script>
+<template><section class="analysis-summary" aria-label="Analysis summary"><header><div><p class="eyebrow">Analysis Summary</p><h2>Structured Analysis</h2></div><StatusBadge :status="status" /></header><div class="summary-grid"><article><span>Findings</span><strong>{{ insight?.findings.length ?? 0 }}</strong></article><article><span>Recommendations</span><strong>{{ insight?.recommendations.length ?? 0 }}</strong></article></div><div class="level-groups"><section><h3>Finding severity</h3><div class="levels"><span v-for="level in analysisLevels" :key="level"><StatusBadge :status="level" size="small" /> {{ findings[level] }}</span></div></section><section><h3>Recommendation priority</h3><div class="levels"><span v-for="level in analysisLevels" :key="level"><StatusBadge :status="level" size="small" /> {{ recommendations[level] }}</span></div></section></div></section></template>
+<style scoped>.analysis-summary{display:grid;gap:1rem;padding:1rem;border:1px solid var(--color-border);border-radius:var(--radius-small);background:rgb(255 255 255 / 3%)}header{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem}h2,h3{margin:0}.eyebrow{margin:0 0 .35rem;color:var(--color-primary-strong);font-size:.72rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase}.summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem}.summary-grid article{display:flex;align-items:baseline;justify-content:space-between;padding:.85rem;border:1px solid var(--color-border);border-radius:var(--radius-small)}.summary-grid span{color:var(--color-text-muted)}.summary-grid strong{font-size:1.45rem}.level-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.level-groups h3{margin-bottom:.6rem;font-size:.85rem}.levels{display:flex;flex-wrap:wrap;gap:.55rem}.levels>span{display:flex;align-items:center;gap:.3rem;color:var(--color-text-muted)}@media(max-width:680px){.level-groups{grid-template-columns:1fr}}</style>
