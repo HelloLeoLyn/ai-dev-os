@@ -17,4 +17,9 @@ describe('task workflow UI projection', () => {
     expect(projectTaskWorkflow(pending, 'PENDING')).toEqual(expect.objectContaining({ current: 'APPROVAL', nextAction: 'Review Plan approval' }))
     expect(pending.executionMode).toBe('READ_WRITE')
   })
+
+	 it('prioritizes an explicit coding workspace-write approval action', () => {
+		const projection = projectTaskWorkflow(task('RUNNING'), 'CONSUMED', null, 0, 0, true)
+		expect(projection).toEqual({ current: 'EXECUTION', label: 'Workspace write approval required', nextAction: 'Approve Coding Workspace Write' })
+	})
 })

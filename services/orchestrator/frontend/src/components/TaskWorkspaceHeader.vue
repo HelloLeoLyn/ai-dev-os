@@ -8,7 +8,7 @@ import StatusBadge from './StatusBadge.vue'
 import { getBacklogItem } from '../api/backlog'
 import type { BacklogItem } from '../types/backlog'
 
-const props = defineProps<{ task: TaskRecord; approval: PlanApprovalRequest | null; workflow: WorkflowProjection }>()
+const props = defineProps<{ task: TaskRecord; approval: PlanApprovalRequest | null; workflow: WorkflowProjection; nextActionHref?: string }>()
 const route = useRoute()
 const advancedVisible = ref(false)
 const sourceBacklog = ref<BacklogItem | null>(null)
@@ -38,7 +38,7 @@ watch(() => props.task.sourceBacklogItemId, async id => {
       <div><dt>Project</dt><dd>{{ task.projectId }}</dd></div>
       <div><dt>Workspace</dt><dd>{{ task.workspaceId || '—' }}</dd></div>
       <div><dt>Current stage</dt><dd>{{ workflow.label }}</dd></div>
-      <div><dt>Next action</dt><dd>{{ workflow.nextAction }}</dd></div>
+      <div><dt>Next action</dt><dd><a v-if="nextActionHref" :href="nextActionHref">{{ workflow.nextAction }}</a><template v-else>{{ workflow.nextAction }}</template></dd></div>
     </dl>
     <div v-if="sourceBacklog" class="source-lineage"><strong>Source</strong><RouterLink :to="`/backlog?item=${encodeURIComponent(sourceBacklog.backlogItemId)}`">Backlog</RouterLink><template v-if="sourceBacklog.recommendationContext"><span>→ Recommendation {{ sourceBacklog.recommendationContext.recommendationId }}</span><RouterLink :to="`/tasks/${encodeURIComponent(sourceBacklog.recommendationContext.sourceTaskId)}/analysis`">→ Analysis</RouterLink><RouterLink :to="`/tasks/${encodeURIComponent(sourceBacklog.recommendationContext.sourceTaskId)}`">→ Original Task</RouterLink></template></div>
     <nav class="workspace-tabs" aria-label="Task workspace">

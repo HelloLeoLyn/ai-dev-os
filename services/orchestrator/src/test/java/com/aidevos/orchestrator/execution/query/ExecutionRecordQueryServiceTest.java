@@ -78,6 +78,10 @@ class ExecutionRecordQueryServiceTest {
 		assertEquals("git-diff", detail.artifacts().getFirst().getType());
 		assertEquals("/workspace", detail.workspace());
 		assertEquals("workspace-write", detail.sandbox());
+		assertEquals("codex", detail.executorName());
+		assertEquals("run-1", detail.planRunId());
+		assertEquals("step-1", detail.stepRunId());
+		assertEquals("attempt-1", detail.attemptId());
 		assertFalse(service.get("unknown").isPresent());
 	}
 
@@ -93,6 +97,7 @@ class ExecutionRecordQueryServiceTest {
 		record.setId(id);
 		record.setTaskId(taskId);
 		record.setAgentName("coder");
+		record.setExecutorName("codex");
 		record.setStatus(status);
 		record.setMessage("message");
 		record.setOutput("execution output");
@@ -102,6 +107,9 @@ class ExecutionRecordQueryServiceTest {
 		record.setArtifacts(List.of(artifact));
 		record.setWorkspace("/workspace");
 		record.setSandbox("workspace-write");
+		record.setPlanRunId("run-1");
+		record.setStepRunId("step-1");
+		record.setAttemptId("attempt-1");
 		return record;
 	}
 }

@@ -11,6 +11,7 @@ public class ExecutionRecord {
 	private String id;
 	private String taskId;
 	private String agentName;
+	private String executorName;
 	private String status;
 	private String message;
 	private String output;
@@ -60,6 +61,8 @@ public class ExecutionRecord {
 	public void setAgentName(String agentName) {
 		this.agentName = agentName;
 	}
+	public String getExecutorName() { return executorName; }
+	public void setExecutorName(String executorName) { this.executorName = executorName; }
 
 	public String getStatus() {
 		return status;

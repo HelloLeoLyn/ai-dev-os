@@ -81,4 +81,8 @@ public class CodingApprovalService {
 	public java.util.List<CodingApprovalRequest> getAll() {
 		return store.getAll();
 	}
+
+	public CodingApprovalRequest get(String id) {
+		return store.get(id);
+	}
 }

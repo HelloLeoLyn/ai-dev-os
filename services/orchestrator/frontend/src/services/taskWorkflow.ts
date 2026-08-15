@@ -26,7 +26,9 @@ export function projectTaskWorkflow(
   analysisStatus?: AnalysisProjectionStatus | null,
   recommendationCount = 0,
   workItemCount = 0,
+	codingApprovalRequired = false,
 ): WorkflowProjection {
+	if (codingApprovalRequired) return { current: 'EXECUTION', label: 'Workspace write approval required', nextAction: 'Approve Coding Workspace Write' }
   if (workItemCount > 0) return { current: 'BACKLOG', label: 'Backlog created', nextAction: 'Open the created Backlog item' }
   if (recommendationCount > 0) return { current: 'RECOMMENDATION', label: 'Recommendations available', nextAction: 'Review recommendations' }
   if (analysisStatus) {

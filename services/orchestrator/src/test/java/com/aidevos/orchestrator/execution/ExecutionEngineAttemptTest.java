@@ -102,6 +102,7 @@ class ExecutionEngineAttemptTest {
 		assertEquals(ExecutionAttemptStatus.SUCCEEDED, attempt.getStatus());
 		ExecutionRecord record = harness.records().getAll().get(0);
 		assertEquals("WAITING_APPROVAL", record.getStatus());
+		assertEquals("mock", record.getExecutorName());
 	}
 
 	@Test

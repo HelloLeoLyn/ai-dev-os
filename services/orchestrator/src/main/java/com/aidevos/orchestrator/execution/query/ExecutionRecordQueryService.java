@@ -44,9 +44,10 @@ public class ExecutionRecordQueryService {
 
 	private ExecutionRecordDetail detail(ExecutionRecord record) {
 			return new ExecutionRecordDetail(record.getId(), record.getTaskId(),
-			record.getAgentName(), record.getStatus(), record.getMessage(),
+			record.getAgentName(), record.getExecutorName(), record.getStatus(), record.getMessage(),
 			record.getOutput(), record.getReport(), record.getArtifacts(), record.getExecutionId(),
-			record.getJobId(), record.getWorkspace(), record.getSandbox(), record.getApprovalId(),
+			record.getJobId(), record.getPlanRunId(), record.getStepRunId(), record.getAttemptId(),
+			record.getWorkspace(), record.getSandbox(), record.getApprovalId(),
 			record.getBranch(), record.getBeforeHead(), record.getAfterHead(), record.getExitCode(),
 			record.getCodexThreadId(), record.getStartedAt(), record.getCompletedAt());
 	}

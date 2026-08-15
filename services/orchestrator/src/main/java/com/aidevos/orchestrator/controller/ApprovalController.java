@@ -30,6 +30,15 @@ public class ApprovalController {
 		return approvalService.getAll();
 	}
 
+	@GetMapping("/{id}")
+	public ResponseEntity<CodingApprovalRequest> get(@PathVariable String id) {
+		CodingApprovalRequest request = approvalService.get(id);
+		if (request == null) {
+			throw new ResourceNotFoundException("Approval request", id);
+		}
+		return ResponseEntity.ok(request);
+	}
+
 	@PostMapping("/{id}/approve")
 	public ResponseEntity<CodingApprovalRequest> approve(@PathVariable String id) {
 		CodingApprovalRequest request = approvalService.approve(id);

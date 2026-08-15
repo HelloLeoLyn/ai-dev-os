@@ -65,6 +65,7 @@ public class ExecutionEngine {
 		Instant startedAt = Instant.now();
 		String executionId = UUID.randomUUID().toString();
 		String agentName = taskDefinition.getAgentName();
+		String executorName = null;
 		ExecutionContext context = null;
 		ExecutionAttempt attempt = startAttempt(taskDefinition, jobId, executionId, startedAt, lease);
 		ExecutionResult result;
@@ -74,6 +75,7 @@ public class ExecutionEngine {
 			auditService.agentEvent(EventType.AGENT_SELECTED, taskDefinition, executionId, jobId,
 				agentName, "SELECTED");
 			AgentExecutor executor = resolvedAgent.executor();
+			executorName = executor.getType();
 			context = createContext(taskDefinition, resolvedAgent.definition(), jobId, executionId);
 			auditService.agentEvent(EventType.AGENT_EXECUTION_STARTED, taskDefinition,
 				context.getExecutionId(), jobId, agentName, "RUNNING");
@@ -99,7 +101,7 @@ public class ExecutionEngine {
 		}
 
 		ExecutionReport report = createReport(taskDefinition, agentName, result);
-		ExecutionRecord record = createRecord(taskDefinition, agentName, result, report,
+		ExecutionRecord record = createRecord(taskDefinition, agentName, executorName, result, report,
 			context, startedAt, attempt);
 		executionRecordManager.save(record);
 		EventType completedType = result.isApprovalRequired() ? EventType.EXECUTION_WAITING_APPROVAL
@@ -213,6 +215,7 @@ public class ExecutionEngine {
 	}
 
 	private ExecutionRecord createRecord(TaskDefinition taskDefinition, String agentName,
+			String executorName,
 			ExecutionResult result, ExecutionReport report, ExecutionContext context,
 			Instant startedAt, ExecutionAttempt attempt) {
 		ExecutionRecord record = new ExecutionRecord();
@@ -221,6 +224,7 @@ public class ExecutionEngine {
 		record.setTaskId(originalTaskId == null || originalTaskId.isBlank()
 			? taskDefinition.getId() : originalTaskId);
 		record.setAgentName(agentName);
+		record.setExecutorName(executorName);
 		record.setStatus(result.isApprovalRequired() ? "WAITING_APPROVAL"
 			: result.isSuccess() ? "SUCCESS" : "FAILED");
 		record.setMessage(result.getMessage());

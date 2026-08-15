@@ -26,6 +26,7 @@ class ApprovalControllerTest {
 		JobService jobService = mock(JobService.class);
 		CodingApprovalRequest request = request("approval-1", "job-1");
 		when(approvalService.getAll()).thenReturn(List.of(request));
+		when(approvalService.get("approval-1")).thenReturn(request);
 		when(approvalService.approve("approval-1")).thenReturn(request);
 		when(jobService.resumeAfterApproval("job-1")).thenReturn(true);
 		MockMvc mvc = mvc(approvalService, jobService);
@@ -33,6 +34,9 @@ class ApprovalControllerTest {
 		mvc.perform(get("/api/approvals"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$[0].id").value("approval-1"));
+		mvc.perform(get("/api/approvals/approval-1"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.jobId").value("job-1"));
 		mvc.perform(post("/api/approvals/approval-1/approve"))
 			.andExpect(status().isOk());
 	}
