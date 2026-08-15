@@ -29,6 +29,10 @@ public class InMemoryAnalysisInsightRepository implements AnalysisInsightReposit
 	@Override public synchronized List<AnalysisInsightSet> findByProjectId(String id) {
 		return values.values().stream().filter(v -> id.equals(v.projectId())).toList();
 	}
+	@Override public synchronized AnalysisInsightSet findByRecommendationId(String id) {
+		return values.values().stream().filter(v -> v.recommendations().stream()
+			.anyMatch(r -> id.equals(r.recommendationId()))).findFirst().orElse(null);
+	}
 	@Override public synchronized List<AnalysisInsightSet> findByStatus(AnalysisEnums.Status status) {
 		return new ArrayList<>(values.values().stream().filter(v -> status == v.status()).toList());
 	}

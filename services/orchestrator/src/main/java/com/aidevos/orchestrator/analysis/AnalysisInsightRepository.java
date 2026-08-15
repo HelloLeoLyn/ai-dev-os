@@ -7,6 +7,7 @@ public interface AnalysisInsightRepository {
 	AnalysisInsightSet get(String analysisId);
 	AnalysisInsightSet findByTaskId(String taskId);
 	AnalysisInsightSet findBySource(String taskId, String executionRecordId, String extractorVersion);
+	AnalysisInsightSet findByRecommendationId(String recommendationId);
 	List<AnalysisInsightSet> findByProjectId(String projectId);
 	List<AnalysisInsightSet> findByStatus(AnalysisEnums.Status status);
 }

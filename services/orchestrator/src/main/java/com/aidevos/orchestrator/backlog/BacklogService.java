@@ -57,9 +57,22 @@ public class BacklogService {
 	}
 
 	public synchronized BacklogItem create(CreateBacklogRequest request) {
+		return createWithId("backlog-" + UUID.randomUUID(), request, false);
+	}
+
+	public synchronized BacklogItem createRecommendationCandidate(String stableId,
+			CreateBacklogRequest request) {
+		BacklogItem existing=repository.get(required(stableId,"Stable backlog id is required"));
+		if(existing!=null) return existing;
+		return createWithId(stableId, request, true);
+	}
+
+	private BacklogItem createWithId(String id, CreateBacklogRequest request,
+			boolean forceIdea) {
 		require(request != null, "Backlog request is required");
 		String title = required(request.title(), "title is required");
-		BacklogStatus status = request.status() == null ? BacklogStatus.IDEA : request.status();
+		BacklogStatus status = forceIdea ? BacklogStatus.IDEA
+			: request.status() == null ? BacklogStatus.IDEA : request.status();
 		require(status == BacklogStatus.IDEA || status == BacklogStatus.PLANNED
 			|| status == BacklogStatus.READY || status == BacklogStatus.BLOCKED,
 			"Initial backlog status is invalid: " + status);
@@ -69,7 +82,7 @@ public class BacklogService {
 		String reason = status == BacklogStatus.BLOCKED
 			? required(request.blockedReason(), "blockedReason is required") : null;
 		Instant now = clock.instant();
-		BacklogItem item = new BacklogItem("backlog-" + UUID.randomUUID(), title,
+		BacklogItem item = new BacklogItem(id, title,
 			normalize(request.description()), status,
 			request.priority() == null ? BacklogPriority.MEDIUM : request.priority(),
 			context.projectId(), context.workspaceId(),

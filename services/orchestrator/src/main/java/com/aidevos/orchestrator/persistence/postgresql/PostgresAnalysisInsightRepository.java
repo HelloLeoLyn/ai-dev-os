@@ -40,6 +40,11 @@ final class PostgresAnalysisInsightRepository implements AnalysisInsightReposito
 	@Override public List<AnalysisInsightSet> findByProjectId(String id) {
 		return query("project_id=? ORDER BY created_at DESC", id);
 	}
+	@Override public AnalysisInsightSet findByRecommendationId(String id) {
+		return jdbc.queryOne("SELECT payload FROM analysis_insight_sets WHERE payload->'recommendations'"
+			+ " @> ?::jsonb ORDER BY updated_at DESC LIMIT 1", this::read,
+			"[{\"recommendationId\":\"" + jsonString(id) + "\"}]");
+	}
 	@Override public List<AnalysisInsightSet> findByStatus(AnalysisEnums.Status status) {
 		return query("extraction_status=? ORDER BY updated_at", status.name());
 	}
@@ -56,5 +61,12 @@ final class PostgresAnalysisInsightRepository implements AnalysisInsightReposito
 	private String json(Object value) {
 		try { return mapper.writeValueAsString(value); }
 		catch (Exception exception) { throw new IllegalStateException("Cannot serialize analysis insight", exception); }
+	}
+	private String jsonString(String value) {
+		try {
+			String encoded=mapper.writeValueAsString(value);
+			return encoded.substring(1,encoded.length()-1);
+		}
+		catch(Exception exception){throw new IllegalStateException("Cannot encode recommendation id",exception);}
 	}
 }
