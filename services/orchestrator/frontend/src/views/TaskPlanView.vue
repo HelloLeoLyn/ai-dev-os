@@ -8,6 +8,8 @@ import { useTaskContext } from '../composables/useTaskContext'
 import { useTaskNotifications } from '../composables/useTaskNotifications'
 import AsyncState from '../components/AsyncState.vue'
 import StatusBadge from '../components/StatusBadge.vue'
+import TaskWorkspaceHeader from '../components/TaskWorkspaceHeader.vue'
+import { projectTaskWorkflow } from '../services/taskWorkflow'
 
 const route = useRoute()
 const taskNotifications = useTaskNotifications()
@@ -21,6 +23,7 @@ const terminalNotification = computed(() => taskNotifications.notifications.valu
 const isRunning = computed(() => ['APPROVED', 'RUNNING', 'CODING', 'TESTING'].includes(visibleTask.value?.status || ''))
 const isSuccess = computed(() => ['SUCCESS', 'COMPLETED'].includes(visibleTask.value?.status || ''))
 const isFailed = computed(() => visibleTask.value?.status === 'FAILED')
+const workflow = computed(() => visibleTask.value ? projectTaskWorkflow(visibleTask.value, approval.value?.status) : null)
 
 async function decide(action: 'approve' | 'reject', approver: string, reason = ''): Promise<void> {
   if (!task.value || decisionBusy.value) return
@@ -51,7 +54,7 @@ onMounted(() => load(taskId))
 </script>
 
 <template><section class="page-stack">
-  <header class="page-header"><div><RouterLink class="back-link" :to="`/tasks/${encodeURIComponent(taskId)}`">← Task Summary</RouterLink><p class="page-eyebrow">Professional Detail</p><h1>{{ task?.name || 'Task Plan' }}</h1><p class="page-description">Plan approval, security constraints and execution intent.</p></div></header>
+  <TaskWorkspaceHeader v-if="visibleTask && workflow" :task="visibleTask" :approval="approval" :workflow="workflow" />
   <AsyncState :loading="loading" :error="errorMessage" :empty="!loading && !approval" empty-text="当前 Task 暂无 Plan Approval" @retry="load(taskId)">
   <section v-if="visibleTask && (isRunning || isSuccess || isFailed)" class="execution-feedback" :class="{ 'is-success': isSuccess, 'is-failed': isFailed }">
     <div>
@@ -69,7 +72,7 @@ onMounted(() => load(taskId))
     </div>
     <div class="feedback-actions">
       <RouterLink class="action-link" :to="`/tasks/${encodeURIComponent(taskId)}/execution`">{{ isSuccess ? '查看结果' : '查看 Execution' }}</RouterLink>
-      <RouterLink class="action-link" :to="`/timeline?id=${encodeURIComponent(taskId)}`">查看 Timeline</RouterLink>
+      <RouterLink class="action-link" :to="`/tasks/${encodeURIComponent(taskId)}/timeline`">查看 Timeline</RouterLink>
     </div>
   </section>
   <PlanApprovalDetail v-if="task && approval" :task="task" :approval="approval" :busy="decisionBusy" @approve="(name) => decide('approve', name)" @reject="(name, reason) => decide('reject', name, reason)" />

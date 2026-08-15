@@ -25,6 +25,9 @@ const SkillsView = () => import('../views/SkillsView.vue')
 const TasksView = () => import('../views/TasksView.vue')
 const TaskPlanView = () => import('../views/TaskPlanView.vue')
 const TaskExecutionView = () => import('../views/TaskExecutionView.vue')
+const TaskAnalysisView = () => import('../views/TaskAnalysisView.vue')
+const TaskTimelineView = () => import('../views/TaskTimelineView.vue')
+const TaskWorkspaceView = () => import('../views/TaskWorkspaceView.vue')
 const WorkspacesView = () => import('../views/WorkspaceView.vue')
 const PlanRunTimelineView = () => import('../views/PlanRunTimelineView.vue')
 const TimelineConsoleView = () => import('../views/TimelineConsoleView.vue')
@@ -75,9 +78,11 @@ const routes: RouteRecordRaw[] = [
   },
   { path: '/tasks', component: TasksView, meta: { title: 'Tasks' } },
   { path: '/backlog', component: BacklogCenterView, meta: { title: 'Backlog Center' } },
-  { path: '/tasks/:taskId', component: TasksView, meta: { title: 'Task Detail' } },
+  { path: '/tasks/:taskId', component: TaskWorkspaceView, meta: { title: 'Task Overview' } },
   { path: '/tasks/:taskId/plan', component: TaskPlanView, meta: { title: 'Task Plan' } },
   { path: '/tasks/:taskId/execution', component: TaskExecutionView, meta: { title: 'Task Execution' } },
+  { path: '/tasks/:taskId/analysis', component: TaskAnalysisView, meta: { title: 'Task Analysis' } },
+  { path: '/tasks/:taskId/timeline', component: TaskTimelineView, meta: { title: 'Task Timeline' } },
     { path: '/projects', component: ProjectsView, meta: { title: 'Projects' } },
     { path: '/projects/:id', component: ProjectDetailView, meta: { title: 'Project Detail' } },
   { path: '/workspaces', component: WorkspacesView, meta: { title: 'Workspaces' } },

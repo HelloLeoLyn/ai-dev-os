@@ -1,16 +1,15 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useTimeline } from '../composables/useTimeline'
 import type { PlanApprovalRequest } from '../types/planApproval'
 import type { TaskRecord } from '../types/task'
 import StatusBadge from './StatusBadge.vue'
 import { planApprovalRisk } from './planApprovalView'
-import AnalysisInsights from './AnalysisInsights.vue'
+import type { AnalysisProjectionStatus } from '../types/analysis'
 
-const props = defineProps<{ task: TaskRecord | null; approval: PlanApprovalRequest | null; approvalLoading: boolean }>()
+const props = defineProps<{ task: TaskRecord | null; approval: PlanApprovalRequest | null; approvalLoading: boolean; analysisStatus?: AnalysisProjectionStatus | null; findingCount?: number; recommendationCount?: number }>()
 const emit = defineEmits<{ duplicate: [task: TaskRecord] }>()
-const advancedVisible = ref(false)
 const { timeline, loading: timelineLoading, errorMessage: timelineError, load: loadTimeline } = useTimeline()
 
 const recentEvents = computed(() => [...(timeline.value?.events ?? [])]
@@ -42,8 +41,8 @@ function formatDate(value: string | null): string {
 
     <div class="summary-grid">
       <article class="summary-card summary-card--wide">
-        <div class="card-heading"><div><p class="eyebrow">Context</p><h3>Task</h3></div><el-button text @click="advancedVisible = true">Advanced Information</el-button></div>
-        <dl class="compact-facts"><div><dt>Project</dt><dd>{{ task.projectId }}</dd></div><div><dt>Workspace</dt><dd>{{ task.workspaceId || '—' }}</dd></div><div><dt>Created</dt><dd>{{ formatDate(task.createdAt) }}</dd></div><div><dt>Result</dt><dd :class="{ error: task.errorMessage }">{{ task.errorMessage || (['SUCCESS', 'COMPLETED'].includes(task.status) ? 'Completed' : 'Pending') }}</dd></div></dl>
+        <div class="card-heading"><div><p class="eyebrow">Goal / Summary</p><h3>{{ approval?.plan.goal || task.description || 'No goal available' }}</h3></div></div>
+        <dl class="compact-facts"><div><dt>Project</dt><dd>{{ task.projectId }}</dd></div><div><dt>Workspace</dt><dd>{{ task.workspaceId || '—' }}</dd></div><div><dt>Mode</dt><dd>{{ task.executionMode }}</dd></div><div><dt>Created</dt><dd>{{ formatDate(task.createdAt) }}</dd></div></dl>
       </article>
 
       <article class="summary-card">
@@ -53,24 +52,26 @@ function formatDate(value: string | null): string {
       </article>
 
       <article class="summary-card">
+        <div><p class="eyebrow">Analysis</p><h3>{{ analysisStatus || 'Not generated' }}</h3></div>
+        <dl class="summary-stats"><div><dt>Findings</dt><dd>{{ findingCount ?? 0 }}</dd></div><div><dt>Recommendations</dt><dd>{{ recommendationCount ?? 0 }}</dd></div><div><dt>Task</dt><dd>{{ task.status }}</dd></div></dl>
+        <p v-if="analysisStatus === 'FAILED'" class="error">Analysis Projection failed. The source Task remains {{ task.status }}.</p>
+        <RouterLink class="detail-link" :to="`/tasks/${encodeURIComponent(task.taskId)}/analysis`">查看 Analysis →</RouterLink>
+      </article>
+
+      <article class="summary-card">
         <div><p class="eyebrow">Execution</p><h3>{{ task.planRunId ? task.status : 'Not started' }}</h3></div>
         <p class="summary-copy">{{ task.errorMessage || (task.planRunId ? 'PlanRun 已创建，可查看执行链与产物。' : '当前尚无执行记录。') }}</p>
         <RouterLink class="detail-link" :to="`/tasks/${encodeURIComponent(task.taskId)}/execution`">查看 Execution →</RouterLink>
       </article>
 
       <article class="summary-card summary-card--wide">
-        <div class="card-heading"><div><p class="eyebrow">Recent Activity</p><h3>Timeline</h3></div><RouterLink class="detail-link" :to="`/timeline?id=${encodeURIComponent(task.taskId)}`">查看完整 Timeline →</RouterLink></div>
+        <div class="card-heading"><div><p class="eyebrow">Recent Activity</p><h3>Timeline</h3></div><RouterLink class="detail-link" :to="`/tasks/${encodeURIComponent(task.taskId)}/timeline`">查看完整 Timeline →</RouterLink></div>
         <p v-if="timelineLoading" class="muted">Loading recent events…</p><p v-else-if="timelineError" class="error">{{ timelineError }}</p>
         <ol v-else-if="recentEvents.length" class="recent-events"><li v-for="event in recentEvents" :key="event.eventId"><span class="event-dot"></span><div><strong>{{ event.eventType }}</strong><p>{{ event.message || event.status || '—' }}</p></div><time>{{ formatDate(event.timestamp) }}</time></li></ol>
         <p v-else class="muted">暂无 Timeline 事件。</p>
       </article>
     </div>
 
-    <AnalysisInsights :task="task" :approval="approval" />
-
-    <el-drawer v-model="advancedVisible" title="Advanced Information" size="min(520px, 92vw)" append-to-body>
-      <dl class="advanced-list"><div><dt>taskId</dt><dd><code>{{ task.taskId }}</code></dd></div><div><dt>projectId</dt><dd><code>{{ task.projectId }}</code></dd></div><div><dt>workspaceId</dt><dd><code>{{ task.workspaceId || '—' }}</code></dd></div><div><dt>approvalId</dt><dd><code>{{ task.approvalId || '—' }}</code></dd></div><div><dt>planRunId</dt><dd><code>{{ task.planRunId || '—' }}</code></dd></div><div><dt>snapshotHash</dt><dd><code>{{ approval?.planSnapshotHash || '—' }}</code></dd></div></dl>
-    </el-drawer>
   </el-card>
   <el-empty v-else description="选择任务查看摘要" />
 </template>

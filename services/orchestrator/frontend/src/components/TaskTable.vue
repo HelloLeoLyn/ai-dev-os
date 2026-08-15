@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import type { TaskRecord } from '../types/task'
+import type { PlanApprovalStatus } from '../types/planApproval'
+import { projectTaskWorkflow } from '../services/taskWorkflow'
 import StatusBadge from './StatusBadge.vue'
 
 defineProps<{
   tasks: TaskRecord[]
   loading?: boolean
   selectedTaskId?: string | null
+  approvalStatuses?: Record<string, PlanApprovalStatus | null>
 }>()
 
 const emit = defineEmits<{
@@ -15,6 +18,10 @@ const emit = defineEmits<{
 function formatDate(value: string): string {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+
+function workflow(task: TaskRecord, approvals?: Record<string, PlanApprovalStatus | null>) {
+  return projectTaskWorkflow(task, approvals?.[task.taskId])
 }
 </script>
 
@@ -29,11 +36,15 @@ function formatDate(value: string): string {
     row-key="taskId"
     @current-change="(row: TaskRecord | null) => row && emit('select', row)"
   >
-    <el-table-column prop="name" label="Task Name" min-width="150">
+    <el-table-column prop="name" label="Task" min-width="260">
       <template #default="{ row }: { row: TaskRecord }">
         <span class="task-name">{{ row.name || row.taskId }}</span>
       </template>
     </el-table-column>
+    <el-table-column label="Current Stage" min-width="175">
+      <template #default="{ row }: { row: TaskRecord }"><strong>{{ workflow(row, approvalStatuses).label }}</strong><small class="status-copy">{{ workflow(row, approvalStatuses).nextAction }}</small></template>
+    </el-table-column>
+    <el-table-column label="Approval" width="125"><template #default="{ row }: { row: TaskRecord }"><StatusBadge v-if="approvalStatuses?.[row.taskId]" :status="approvalStatuses[row.taskId]!" size="small" /><span v-else>—</span></template></el-table-column>
     <el-table-column label="Status" width="112">
       <template #default="{ row }: { row: TaskRecord }">
         <StatusBadge :status="row.status" size="small" />
@@ -54,6 +65,7 @@ function formatDate(value: string): string {
         {{ formatDate(row.createdAt) }}
       </template>
     </el-table-column>
+    <el-table-column label="Updated" min-width="150"><template #default="{ row }: { row: TaskRecord }">{{ formatDate(row.updatedAt) }}</template></el-table-column>
   </el-table>
 </template>
 

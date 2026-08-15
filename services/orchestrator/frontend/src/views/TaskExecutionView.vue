@@ -8,6 +8,8 @@ import type { ExecutionArtifact } from '../types/execution'
 import AsyncState from '../components/AsyncState.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import TechnicalId from '../components/TechnicalId.vue'
+import TaskWorkspaceHeader from '../components/TaskWorkspaceHeader.vue'
+import { projectTaskWorkflow } from '../services/taskWorkflow'
 
 const route = useRoute()
 const taskId = String(route.params.taskId || '')
@@ -17,6 +19,7 @@ const taskTimeline = useTimeline()
 const artifactVisible = ref(false)
 const selectedArtifact = ref<ExecutionArtifact | null>(null)
 const stepRuns = computed(() => taskTimeline.timeline.value?.events.filter((event) => event.sourceType === 'STEP_RUN') ?? [])
+const workflow = computed(() => context.task.value ? projectTaskWorkflow(context.task.value, context.approval.value?.status) : null)
 
 function openArtifact(artifact: ExecutionArtifact): void { selectedArtifact.value = artifact; artifactVisible.value = true }
 function isLong(value: string | null): boolean { return (value?.length ?? 0) > 500 }
@@ -25,9 +28,9 @@ function reload(): void { void Promise.all([context.load(taskId), executions.loa
 </script>
 
 <template><section class="page-stack">
-  <header class="page-header"><div><RouterLink class="back-link" :to="`/tasks/${encodeURIComponent(taskId)}`">← Task Summary</RouterLink><p class="page-eyebrow">Professional Detail</p><h1>{{ context.task.value?.name || 'Task Execution' }}</h1><p class="page-description">PlanRun, StepRun, jobs, agents and execution artifacts.</p></div></header>
   <AsyncState :loading="context.loading.value || executions.loading.value" :error="context.errorMessage.value || executions.errorMessage.value" :empty="!context.loading.value && !context.task.value" empty-text="Task 不存在" @retry="reload">
   <template v-if="context.task.value">
+    <TaskWorkspaceHeader v-if="workflow" :task="context.task.value" :approval="context.approval.value" :workflow="workflow" />
     <div class="execution-overview"><article><span>PlanRun</span><TechnicalId :value="context.task.value.planRunId" label="PlanRun" /></article><article><span>StepRun</span><strong>{{ stepRuns.length || '—' }}</strong></article><article><span>Executions</span><strong>{{ executions.records.value.length }}</strong></article><article><span>Result</span><StatusBadge :status="context.task.value.status" /></article></div>
     <el-card v-for="record in executions.records.value" :key="record.id" shadow="never" class="record-card">
       <template #header><div class="record-header"><div><p class="page-eyebrow">Execution Record</p><h2>{{ record.status }}</h2></div><StatusBadge :status="record.status" /></div></template>
