@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
@@ -19,6 +19,8 @@ import AsyncState from '../components/AsyncState.vue'
 const route = useRoute()
 const router = useRouter()
 const taskNotifications = useTaskNotifications()
+const monitoredSelectedTask = computed(() => selectedTask.value
+  ? taskNotifications.taskState(selectedTask.value.taskId).value : null)
 
 const tasks = ref<TaskRecord[]>([])
 const selectedTask = ref<TaskRecord | null>(null)
@@ -53,6 +55,8 @@ async function loadTasks(): Promise<void> {
 
   try {
     tasks.value = await getTasks()
+    tasks.value.filter(task => !['SUCCESS', 'COMPLETED', 'FAILED', 'REJECTED'].includes(task.status))
+      .forEach(task => taskNotifications.track(task))
     const routeTaskId = typeof route.params.taskId === 'string' ? route.params.taskId : null
     selectedTask.value = tasks.value.find((task) => task.taskId === routeTaskId)
       ?? selectedTask.value ?? tasks.value[0] ?? null
@@ -109,6 +113,13 @@ watch(() => route.params.taskId, (taskId) => {
   if (typeof taskId !== 'string') return
   const match = tasks.value.find((task) => task.taskId === taskId)
   if (match) selectedTask.value = match
+})
+
+watch(monitoredSelectedTask, (current) => {
+  if (!current || current.taskId !== selectedTask.value?.taskId) return
+  const index = tasks.value.findIndex(task => task.taskId === current.taskId)
+  if (index >= 0) tasks.value[index] = current
+  selectedTask.value = current
 })
 
 function selectTask(task: TaskRecord): void {

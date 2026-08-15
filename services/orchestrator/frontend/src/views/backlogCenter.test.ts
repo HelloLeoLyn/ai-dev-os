@@ -32,4 +32,8 @@ describe('Backlog Center', () => {
     expect(view).toContain('canUnblockBacklog(row.status)')
     expect(view).not.toContain("row.status !== 'BLOCKED'")
   })
+  it('opens an existing recommendation WorkItem from the item query without converting it', () => {
+    expect(view).toContain('route.query.item')
+    expect(view).toContain('openDetail(match)')
+  })
 })

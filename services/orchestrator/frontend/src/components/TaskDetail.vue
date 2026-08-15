@@ -6,6 +6,7 @@ import type { PlanApprovalRequest } from '../types/planApproval'
 import type { TaskRecord } from '../types/task'
 import StatusBadge from './StatusBadge.vue'
 import { planApprovalRisk } from './planApprovalView'
+import AnalysisInsights from './AnalysisInsights.vue'
 
 const props = defineProps<{ task: TaskRecord | null; approval: PlanApprovalRequest | null; approvalLoading: boolean }>()
 const emit = defineEmits<{ duplicate: [task: TaskRecord] }>()
@@ -64,6 +65,8 @@ function formatDate(value: string | null): string {
         <p v-else class="muted">暂无 Timeline 事件。</p>
       </article>
     </div>
+
+    <AnalysisInsights :task="task" :approval="approval" />
 
     <el-drawer v-model="advancedVisible" title="Advanced Information" size="min(520px, 92vw)" append-to-body>
       <dl class="advanced-list"><div><dt>taskId</dt><dd><code>{{ task.taskId }}</code></dd></div><div><dt>projectId</dt><dd><code>{{ task.projectId }}</code></dd></div><div><dt>workspaceId</dt><dd><code>{{ task.workspaceId || '—' }}</code></dd></div><div><dt>approvalId</dt><dd><code>{{ task.approvalId || '—' }}</code></dd></div><div><dt>planRunId</dt><dd><code>{{ task.planRunId || '—' }}</code></dd></div><div><dt>snapshotHash</dt><dd><code>{{ approval?.planSnapshotHash || '—' }}</code></dd></div></dl>

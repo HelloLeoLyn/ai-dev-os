@@ -57,6 +57,7 @@ export interface PlanApprovalRequest {
         workspaceId?: string
         workspacePath?: string
         executionMode?: ExecutionMode
+        taskType?: string
       }
     }
   }

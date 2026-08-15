@@ -4,6 +4,7 @@ import type { BacklogConversionResult, BacklogDraft, BacklogItem, BacklogPriorit
 export function getBacklog(filters: { status?: BacklogStatus; priority?: BacklogPriority; projectId?: string; sourceType?: BacklogSourceType } = {}): Promise<BacklogItem[]> {
   return apiClient.get<BacklogItem[]>('/api/backlog', filters as Record<string, string | undefined>)
 }
+export function getBacklogItem(id: string): Promise<BacklogItem> { return apiClient.get(`/api/backlog/${encodeURIComponent(id)}`) }
 export function createBacklog(request: BacklogDraft): Promise<BacklogItem> { return apiClient.post('/api/backlog', request) }
 export function updateBacklog(id: string, request: Omit<BacklogDraft, 'status' | 'blockedReason'>): Promise<BacklogItem> {
   return apiClient.put(`/api/backlog/${encodeURIComponent(id)}`, request)

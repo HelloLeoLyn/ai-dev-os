@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AsyncState from '../components/AsyncState.vue'
 import ConsoleCard from '../components/ConsoleCard.vue'
@@ -14,6 +14,7 @@ import type { Project } from '../types/project'
 import type { Workspace } from '../types/workspace'
 
 const router = useRouter()
+const route = useRoute()
 const items = ref<BacklogItem[]>([])
 const projects = ref<Project[]>([])
 const workspaces = ref<Workspace[]>([])
@@ -42,7 +43,12 @@ function emptyDraft(): BacklogDraft {
 }
 async function load(): Promise<void> {
   loading.value = true; error.value = null
-  try { items.value = await getBacklog(filter) }
+  try {
+    items.value = await getBacklog(filter)
+    const requested = typeof route.query.item === 'string' ? route.query.item : null
+    const match = requested ? items.value.find(item => item.backlogItemId === requested) : null
+    if (match) openDetail(match)
+  }
   catch (cause) { error.value = cause instanceof Error ? cause.message : 'Unable to load backlog.' }
   finally { loading.value = false }
 }
