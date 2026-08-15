@@ -1,6 +1,7 @@
 package com.aidevos.orchestrator.analysis;
 
 import java.util.Map;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Repository;
@@ -10,6 +11,9 @@ import org.springframework.stereotype.Repository;
 public class InMemoryRecommendationDecisionRepository implements RecommendationDecisionRepository {
 	private final Map<String, RecommendationDecision> values = new ConcurrentHashMap<>();
 	@Override public RecommendationDecision get(String id) { return values.get(id); }
+	@Override public List<RecommendationDecision> findByLegacyRecommendationId(String id) {
+		RecommendationDecision value=values.get(id); return value==null?List.of():List.of(value);
+	}
 	@Override public RecommendationDecision createIfAbsent(RecommendationDecision value) {
 		return values.computeIfAbsent(value.recommendationId(), ignored -> value);
 	}

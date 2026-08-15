@@ -63,6 +63,17 @@ class CodexOutputSchemaProviderTest {
 		} finally { provider.cleanup(); }
 	}
 
+	@Test
+	void projectAnalysisRequiresLocalRecommendationIdentityOnly() throws IOException {
+		CodexOutputSchemaProvider provider=new CodexOutputSchemaProvider(); provider.initialize();
+		try {
+			JsonNode recommendation=objectMapper.readTree(Files.readString(Path.of(provider.path(true))))
+				.path("properties").path("recommendations").path("items");
+			assertTrue(recommendation.path("properties").has("localRecommendationId"));
+			assertTrue(!recommendation.path("properties").has("recommendationId"));
+		} finally { provider.cleanup(); }
+	}
+
 	private void assertStrictObjectSchemas(JsonNode node, String path) {
 		if (isObjectSchema(node)) {
 			JsonNode properties = node.get("properties");

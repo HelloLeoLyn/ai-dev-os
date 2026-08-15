@@ -30,8 +30,14 @@ public class InMemoryAnalysisInsightRepository implements AnalysisInsightReposit
 		return values.values().stream().filter(v -> id.equals(v.projectId())).toList();
 	}
 	@Override public synchronized AnalysisInsightSet findByRecommendationId(String id) {
+		List<AnalysisInsightSet> matches = values.values().stream().filter(v -> v.recommendations().stream()
+			.anyMatch(r -> id.equals(r.recommendationId()))).toList();
+		if (matches.size() > 1) throw new IllegalStateException("AMBIGUOUS_RECOMMENDATION_ID: " + id);
+		return matches.isEmpty() ? null : matches.getFirst();
+	}
+	@Override public synchronized List<AnalysisInsightSet> findByLocalRecommendationId(String id) {
 		return values.values().stream().filter(v -> v.recommendations().stream()
-			.anyMatch(r -> id.equals(r.recommendationId()))).findFirst().orElse(null);
+			.anyMatch(r -> id.equals(r.localRecommendationId()))).toList();
 	}
 	@Override public synchronized List<AnalysisInsightSet> findByStatus(AnalysisEnums.Status status) {
 		return new ArrayList<>(values.values().stream().filter(v -> status == v.status()).toList());

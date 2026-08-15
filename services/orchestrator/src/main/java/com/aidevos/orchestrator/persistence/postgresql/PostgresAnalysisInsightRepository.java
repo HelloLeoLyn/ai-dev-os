@@ -41,8 +41,18 @@ final class PostgresAnalysisInsightRepository implements AnalysisInsightReposito
 		return query("project_id=? ORDER BY created_at DESC", id);
 	}
 	@Override public AnalysisInsightSet findByRecommendationId(String id) {
-		return jdbc.queryOne("SELECT payload FROM analysis_insight_sets WHERE payload->'recommendations'"
-			+ " @> ?::jsonb ORDER BY updated_at DESC LIMIT 1", this::read,
+		List<AnalysisInsightSet> values = jdbc.query("SELECT payload FROM analysis_insight_sets WHERE payload->'recommendations'"
+			+ " @> ?::jsonb", this::read,
+			"[{\"recommendationId\":\"" + jsonString(id) + "\"}]");
+		if (values.size() > 1) {
+			throw new IllegalStateException("AMBIGUOUS_RECOMMENDATION_ID: " + id);
+		}
+		return values.isEmpty() ? null : values.getFirst();
+	}
+	@Override public List<AnalysisInsightSet> findByLocalRecommendationId(String id) {
+		return jdbc.query("SELECT payload FROM analysis_insight_sets WHERE payload->'recommendations'"
+			+ " @> ?::jsonb OR payload->'recommendations' @> ?::jsonb ORDER BY updated_at",
+			this::read, "[{\"localRecommendationId\":\"" + jsonString(id) + "\"}]",
 			"[{\"recommendationId\":\"" + jsonString(id) + "\"}]");
 	}
 	@Override public List<AnalysisInsightSet> findByStatus(AnalysisEnums.Status status) {

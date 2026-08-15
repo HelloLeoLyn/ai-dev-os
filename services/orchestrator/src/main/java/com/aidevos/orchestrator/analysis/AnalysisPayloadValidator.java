@@ -23,6 +23,7 @@ public class AnalysisPayloadValidator {
 			if (!findingIds.add(finding.findingId())) fail("duplicate findingId");
 		}
 		for (Recommendation recommendation : recommendations) {
+			required(recommendation.localRecommendationId(), "localRecommendationId");
 			required(recommendation.recommendationId(), "recommendationId");
 			required(recommendation.title(), "recommendation.title");
 			required(recommendation.rationale(), "recommendation.rationale");

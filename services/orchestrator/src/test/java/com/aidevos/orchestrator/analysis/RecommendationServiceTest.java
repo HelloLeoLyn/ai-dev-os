@@ -38,6 +38,7 @@ import static org.mockito.Mockito.*;
 
 class RecommendationServiceTest {
 	private static final Instant NOW=Instant.parse("2026-08-15T00:00:00Z");
+	private static final String GLOBAL=RecommendationIdentity.global("analysis-1","r1");
 	private InMemoryAnalysisInsightRepository insights;
 	private InMemoryRecommendationDecisionRepository decisions;
 	private InMemoryBacklogRepository backlogs;
@@ -51,7 +52,7 @@ class RecommendationServiceTest {
 		service=service(decisions,new AuditService(events));}
 
 	@Test void getHasNoSideEffectAndViewTransitionsOnlyExplicitly(){
-		assertEquals(RecommendationStatus.NEW,service.get("r1").status()); assertNull(decisions.get("r1"));
+		assertEquals(RecommendationStatus.NEW,service.get("r1").status()); assertNull(decisions.get(GLOBAL));
 		assertEquals(RecommendationStatus.VIEWED,service.view("r1","alice").status());
 		assertEquals(EventType.RECOMMENDATION_VIEWED,lastEvent().type());
 	}
@@ -70,10 +71,10 @@ class RecommendationServiceTest {
 		assertTrue(result.created());assertEquals(BacklogStatus.IDEA,item.getStatus());assertEquals("project-1",item.getProjectId());
 		assertEquals("workspace-1",item.getWorkspaceId());assertEquals("Action title",item.getTitle());
 		assertEquals(BacklogPriority.HIGH,item.getPriority());assertEquals(BacklogSourceType.TASK,item.getSourceType());
-		assertEquals("recommendation:r1",item.getSourceReference());assertTrue(item.getDescription().contains("Suggested Execution Mode: READ_WRITE"));
+		assertEquals("recommendation:"+GLOBAL,item.getSourceReference());assertTrue(item.getDescription().contains("Suggested Execution Mode: READ_WRITE"));
 		assertTrue(item.getDescription().contains("Dependency text"));assertTrue(item.getDependsOn().isEmpty());
 		assertNotNull(item.getRecommendationContext());
-		assertEquals("r1",item.getRecommendationContext().recommendationId());
+		assertEquals(GLOBAL,item.getRecommendationContext().recommendationId());
 		assertEquals("analysis-1",item.getRecommendationContext().analysisId());
 		assertEquals("task-1",item.getRecommendationContext().sourceTaskId());
 		assertEquals("Goal",item.getRecommendationContext().goal());
@@ -106,13 +107,44 @@ class RecommendationServiceTest {
 		RecommendationService unstable=service(failing,new AuditService(events));
 		assertThrows(IllegalStateException.class,()->unstable.createWorkItem("r1",null));assertEquals(1,backlogs.list().size());
 		RecommendationWorkItemResult recovered=unstable.createWorkItem("r1",null);
-		assertFalse(recovered.created());assertEquals(1,backlogs.list().size());assertEquals(recovered.backlogItem().getBacklogItemId(),decisions.get("r1").convertedBacklogItemId());
+		assertFalse(recovered.created());assertEquals(1,backlogs.list().size());assertEquals(recovered.backlogItem().getBacklogItemId(),decisions.get(GLOBAL).convertedBacklogItemId());
 	}
 	@Test void auditFailureDoesNotCauseDuplicateBacklog(){AuditRepository down=new AuditRepository(){
 		public EventRecord append(EventRecord e){throw new IllegalStateException("down");}public EventRecord get(String id){return null;}public List<EventRecord> query(EventQuery q){return List.of();}};
 		RecommendationService value=service(decisions,new AuditService(down));
 		RecommendationWorkItemResult first=value.createWorkItem("r1",null),second=value.createWorkItem("r1",null);
 		assertTrue(first.created());assertFalse(second.created());assertEquals(1,backlogs.list().size());}
+	@Test void ambiguousLegacyLocalIdIsRejected(){
+		insights.save(insight("analysis-2","task-2"));
+		IllegalStateException error=assertThrows(IllegalStateException.class,()->service.get("r1"));
+		assertTrue(error.getMessage().startsWith("AMBIGUOUS_RECOMMENDATION_ID"));
+		assertThrows(IllegalStateException.class,()->service.view("r1",null));
+		assertThrows(IllegalStateException.class,()->service.defer("r1",null,null,null));
+		assertThrows(IllegalStateException.class,()->service.ignore("r1",null,null));
+		assertThrows(IllegalStateException.class,()->service.createWorkItem("r1",null));
+	}
+	@Test void decisionSourceMismatchIsRejected(){
+		insights=new InMemoryAnalysisInsightRepository();
+		insights.save(globalInsight("analysis-1", "task-1"));
+		service=service(decisions,new AuditService(events));
+		String wrong=GLOBAL;
+		decisions.createIfAbsent(new RecommendationDecision(wrong, "other-analysis", "other-task", "other-project",
+			RecommendationStatus.VIEWED, null, null, null, null, 0, NOW, NOW));
+		IllegalStateException error=assertThrows(IllegalStateException.class,()->service.get(wrong));
+		assertTrue(error.getMessage().startsWith("RECOMMENDATION_IDENTITY_MISMATCH"));
+	}
+	@Test void distinctGlobalRecommendationsKeepDecisionsAndWorkItemsIsolated(){
+		insights=new InMemoryAnalysisInsightRepository();
+		insights.save(globalInsight("analysis-a","task-a")); insights.save(globalInsight("analysis-b","task-b"));
+		decisions=new InMemoryRecommendationDecisionRepository(); backlogs=new InMemoryBacklogRepository();
+		service=service(decisions,new AuditService(events));
+		String a=RecommendationIdentity.global("analysis-a","r1"), b=RecommendationIdentity.global("analysis-b","r1");
+		assertEquals(RecommendationStatus.NEW,service.get(a).status()); assertEquals(RecommendationStatus.NEW,service.get(b).status());
+		assertEquals(RecommendationStatus.VIEWED,service.view(a,null).status()); assertEquals(RecommendationStatus.NEW,service.get(b).status());
+		RecommendationWorkItemResult wa=service.createWorkItem(a,null), wb=service.createWorkItem(b,null);
+		assertNotEquals(wa.backlogItem().getBacklogItemId(),wb.backlogItem().getBacklogItemId());
+		assertEquals(RecommendationStatus.WORKITEM_CREATED,service.get(a).status()); assertEquals(RecommendationStatus.WORKITEM_CREATED,service.get(b).status());
+	}
 
 	private RecommendationService service(RecommendationDecisionRepository repository,AuditService audit){
 		ProjectService projects=mock(ProjectService.class);when(projects.getProject("project-1")).thenReturn(Optional.of(mock(Project.class)));
@@ -123,12 +155,23 @@ class RecommendationServiceTest {
 			Clock.fixed(NOW,ZoneOffset.UTC));}
 	private EventRecord lastEvent(){return events.query(EventQuery.all()).getLast();}
 	private AnalysisInsightSet insight(){Finding finding=new Finding("f1","Finding","Summary","QUALITY",Level.HIGH,.9,List.of("src"),List.of());
+		return insight("analysis-1","task-1"); }
+	private AnalysisInsightSet insight(String analysisId,String taskId){Finding finding=new Finding("f1","Finding","Summary","QUALITY",Level.HIGH,.9,List.of("src"),List.of());
 		RecommendedNextAction action=new RecommendedNextAction("a1","Action title","Action description","Goal",List.of("Done"),List.of("src"),List.of(),
 			ExecutionMode.READ_WRITE,false,EstimatedComplexity.SMALL);
 		Recommendation recommendation=new Recommendation("r1",List.of("f1"),"Recommendation","Rationale",Level.HIGH,Level.MEDIUM,Level.HIGH,
 			List.of("src"),List.of("Dependency text"),ExecutionMode.READ_WRITE,false,List.of(),.8,action);
-		return new AnalysisInsightSet("analysis-1","task-1","execution-1","project-1","workspace-1",List.of(),ExtractorType.STRUCTURED,"v1","1.0",
+		return new AnalysisInsightSet(analysisId,taskId,"execution-"+analysisId,"project-1","workspace-1",List.of(),ExtractorType.STRUCTURED,"v1","1.0",
 			Status.SUCCEEDED,null,null,"hash",List.of(finding),List.of(recommendation),NOW,NOW);}
+	private AnalysisInsightSet globalInsight(String analysisId,String taskId){
+		AnalysisInsightSet value=insight(analysisId,taskId); Recommendation local=value.recommendations().getFirst();
+		Recommendation global=new Recommendation(RecommendationIdentity.global(analysisId,local.recommendationId()),local.recommendationId(),
+			local.findingIds(),local.title(),local.rationale(),local.priority(),local.risk(),local.benefit(),local.scope(),local.dependencies(),
+			local.suggestedExecutionMode(),local.approvalRequired(),local.evidenceRefs(),local.confidence(),local.recommendedNextAction());
+		return new AnalysisInsightSet(value.analysisId(),value.sourceTaskId(),value.sourceExecutionRecordId(),value.projectId(),value.workspaceId(),
+			value.sourceArtifactRefs(),value.extractorType(),value.extractorVersion(),value.schemaVersion(),value.status(),value.errorCode(),
+			value.errorMessage(),value.contentFingerprint(),value.findings(),List.of(global),value.createdAt(),value.updatedAt());
+	}
 	private static class FailOnceDecisionRepository implements RecommendationDecisionRepository{
 		private final RecommendationDecisionRepository delegate;private boolean failed;
 		FailOnceDecisionRepository(RecommendationDecisionRepository value){delegate=value;}

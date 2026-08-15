@@ -37,12 +37,12 @@ class PostgresMigrationValidationTest {
 	static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
 
 	@Test
-	void freshDatabaseAppliesAllMigrationsV1ThroughV29() throws Exception {
+	void freshDatabaseAppliesAllMigrationsV1ThroughV30() throws Exception {
 		PGSimpleDataSource dataSource = dataSource(POSTGRES.getDatabaseName());
 		new PostgresDocumentStore(dataSource, new ObjectMapper());
 
 		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
-				18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29),
+				18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30),
 			appliedVersions(dataSource));
 		for (String table : List.of("repository_documents", "audit_events",
 				"plan_version_freezes", "audit_outbox", "jobs", "execution_attempts",
@@ -61,6 +61,8 @@ class PostgresMigrationValidationTest {
 		assertTrue(columnNullable(dataSource, "workspaces", "repository_url"),
 			"workspaces repository_url must be nullable");
 		assertTrue(columnNullable(dataSource, "tasks", "source_backlog_item_id"));
+		assertTrue(columnExists(dataSource, "recommendation_decisions", "identity_version"));
+		assertTrue(columnExists(dataSource, "recommendation_decisions", "local_recommendation_id"));
 		assertTrue(indexExists(dataSource, "idx_tasks_source_backlog"));
 		assertEquals(1, count(dataSource, "SELECT COUNT(*) FROM information_schema.columns "
 			+ "WHERE table_schema='public' AND table_name='workspaces' "
@@ -129,7 +131,7 @@ class PostgresMigrationValidationTest {
 		assertTrue(indexExists(dataSource, "idx_recommendation_decision_analysis"));
 		assertTrue(indexExists(dataSource, "idx_recommendation_decision_status"));
 		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
-				18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29),
+				18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30),
 			appliedVersions(dataSource));
 		assertTrue(columnNullable(dataSource, "workspaces", "repository_url"),
 			"upgraded workspaces repository_url must be nullable");
@@ -188,7 +190,7 @@ class PostgresMigrationValidationTest {
 		// Re-running the migration remains idempotent.
 		new PostgresDocumentStore(dataSource, new ObjectMapper());
 		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
-				18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29),
+				18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30),
 			appliedVersions(dataSource));
 	}
 
@@ -213,7 +215,38 @@ class PostgresMigrationValidationTest {
 		assertTrue(indexExists(dataSource, "idx_tasks_source_backlog"));
 		assertEquals(1, count(dataSource, "SELECT COUNT(*) FROM tasks WHERE task_id='task-before-v29' "
 			+ "AND source_backlog_item_id IS NULL"));
-		assertTrue(appliedVersions(dataSource).contains(29));
+		assertTrue(appliedVersions(dataSource).contains(30));
+	}
+
+	@Test
+	void v29LegacyRecommendationCollisionIsNamespacedByAnalysisOnV30() throws Exception {
+		String database = "ai_dev_os_rec_identity";
+		try (Connection connection = POSTGRES.createConnection(""); Statement statement = connection.createStatement()) {
+			statement.execute("DROP DATABASE IF EXISTS " + database);
+			statement.execute("CREATE DATABASE " + database);
+		}
+		PGSimpleDataSource dataSource = dataSource(database);
+		applyMigrations(dataSource, 29);
+		String payload = "{\"schemaVersion\":\"1.0\",\"findings\":[],\"recommendations\":[{"
+			+ "\"recommendationId\":\"R-001\",\"findingIds\":[],\"title\":\"legacy\"}]}";
+		try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(
+				"INSERT INTO analysis_insight_sets(analysis_id,source_task_id,source_execution_record_id,"
+				+ "schema_version,extractor_type,extractor_version,extraction_status,payload,created_at,updated_at) "
+				+ "VALUES (?,?,?,?,?,?,?,?::jsonb,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)")) {
+			statement.setString(1, "analysis-a"); statement.setString(2, "task-a"); statement.setString(3, "execution-a");
+			statement.setString(4, "1.0"); statement.setString(5, "STRUCTURED"); statement.setString(6, "structured-v1");
+			statement.setString(7, "SUCCEEDED"); statement.setString(8, payload); statement.executeUpdate();
+		}
+		try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(
+				"INSERT INTO recommendation_decisions(recommendation_id,analysis_id,source_task_id,status,version,created_at,updated_at) "
+				+ "VALUES ('R-001','analysis-a','task-a','VIEWED',0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)")) {
+			statement.executeUpdate();
+		}
+		new PostgresDocumentStore(dataSource, new ObjectMapper());
+		String global = com.aidevos.orchestrator.analysis.RecommendationIdentity.global("analysis-a", "R-001");
+		assertEquals(1, count(dataSource, "SELECT COUNT(*) FROM recommendation_decisions WHERE recommendation_id='" + global + "' "
+			+ "AND local_recommendation_id='R-001' AND identity_version='GLOBAL'"));
+		assertEquals(1, count(dataSource, "SELECT COUNT(*) FROM analysis_insight_sets WHERE payload->'recommendations' @> '[{\"recommendationId\":\"" + global + "\"}]'"));
 	}
 
 	private void applyMigrations(DataSource dataSource, int upToVersion) throws Exception {

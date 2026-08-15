@@ -5,6 +5,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
 import javax.sql.DataSource;
 import com.aidevos.orchestrator.analysis.RecommendationDecision;
 import com.aidevos.orchestrator.analysis.RecommendationDecisionRepository;
@@ -15,11 +16,24 @@ final class PostgresRecommendationDecisionRepository implements RecommendationDe
 	private final DataSource dataSource;
 	PostgresRecommendationDecisionRepository(DataSource dataSource) { this.dataSource=dataSource; }
 	@Override public RecommendationDecision get(String id) { return readOne(false,id); }
+	@Override public List<RecommendationDecision> findByLegacyRecommendationId(String id) {
+		Connection connection=JdbcConnectionContext.current(dataSource);
+		try (PreparedStatement statement=connection.prepareStatement("SELECT * FROM recommendation_decisions "
+			+"WHERE local_recommendation_id=?")) {
+			statement.setString(1,id);
+			try(ResultSet result=statement.executeQuery()) {
+				List<RecommendationDecision> values=new java.util.ArrayList<>();
+				while(result.next()) values.add(read(result));
+				if(values.size()>1) throw new IllegalStateException("AMBIGUOUS_RECOMMENDATION_ID: "+id);
+				return values;
+			}
+		} catch(Exception e){ throw failure(e); } finally { JdbcConnectionContext.release(connection,dataSource); }
+	}
 	@Override public RecommendationDecision createIfAbsent(RecommendationDecision value) {
 		Connection connection=JdbcConnectionContext.current(dataSource);
 		try (PreparedStatement statement=connection.prepareStatement("INSERT INTO recommendation_decisions("
-			+"recommendation_id,analysis_id,source_task_id,project_id,status,version,created_at,updated_at) "
-			+"VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(recommendation_id) DO NOTHING")) {
+			+"recommendation_id,analysis_id,source_task_id,project_id,status,version,created_at,updated_at,identity_version) "
+			+"VALUES (?,?,?,?,?,?,?,?,'GLOBAL') ON CONFLICT(recommendation_id) DO NOTHING")) {
 			statement.setString(1,value.recommendationId()); statement.setString(2,value.analysisId());
 			statement.setString(3,value.sourceTaskId()); statement.setString(4,value.projectId());
 			statement.setString(5,value.status().name()); statement.setLong(6,value.version());

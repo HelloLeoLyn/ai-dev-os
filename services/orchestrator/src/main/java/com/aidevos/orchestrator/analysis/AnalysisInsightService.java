@@ -80,7 +80,14 @@ public class AnalysisInsightService {
 			JsonNode payload = mapper.readTree(artifact.getContent());
 			String schema = requiredText(payload, "schemaVersion");
 			List<Finding> findings = readList(payload.get("findings"), Finding.class);
-			List<Recommendation> recommendations = readList(payload.get("recommendations"), Recommendation.class);
+			List<Recommendation> recommendations = readList(payload.get("recommendations"), Recommendation.class)
+				.stream().map(recommendation -> new Recommendation(
+					RecommendationIdentity.global(id, recommendation.localRecommendationId()),
+					recommendation.localRecommendationId(), recommendation.findingIds(), recommendation.title(),
+					recommendation.rationale(), recommendation.priority(), recommendation.risk(), recommendation.benefit(),
+					recommendation.scope(), recommendation.dependencies(), recommendation.suggestedExecutionMode(),
+					recommendation.approvalRequired(), recommendation.evidenceRefs(), recommendation.confidence(),
+					recommendation.recommendedNextAction())).toList();
 			validator.validate(findings, recommendations, persisted);
 			String fingerprint = fingerprints.fingerprint(taskId, persisted.getId(), EXTRACTOR_VERSION, payload);
 			EvidenceRef sourceRef = new EvidenceRef(AnalysisEnums.EvidenceType.ARTIFACT,

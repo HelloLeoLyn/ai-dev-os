@@ -8,6 +8,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Objects;
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.backlog.BacklogItem;
@@ -43,7 +44,7 @@ public class RecommendationService {
 		this.transactions=transactions;this.audit=audit;this.clock=clock;
 	}
 
-	public RecommendationView get(String id) { Source source=source(id); return view(source,decisions.get(id)); }
+	public RecommendationView get(String id) { Source source=source(id); return view(source,decision(source)); }
 
 	public synchronized RecommendationView view(String id,String actor) {
 		return transition(id,actor,RecommendationStatus.VIEWED,null,null);
@@ -102,12 +103,35 @@ public class RecommendationService {
 
 	private RecommendationDecision locked(Source source) {
 		Instant now=clock.instant();
-		decisions.createIfAbsent(new RecommendationDecision(source.recommendation.recommendationId(),
-			source.insight.analysisId(),source.insight.sourceTaskId(),source.insight.projectId(),
-			RecommendationStatus.NEW,null,null,null,null,0,now,now));
+		RecommendationDecision existing=decision(source);
+		decisions.createIfAbsent(existing==null
+			? new RecommendationDecision(source.recommendation.recommendationId(), source.insight.analysisId(),
+				source.insight.sourceTaskId(),source.insight.projectId(),RecommendationStatus.NEW,null,null,null,null,0,now,now)
+			: rekey(existing, source.recommendation.recommendationId()));
 		RecommendationDecision value=decisions.lock(source.recommendation.recommendationId());
 		if(value==null) throw new IllegalStateException("Recommendation decision could not be locked");
+		assertConsistent(source, value);
 		return value;
+	}
+	private RecommendationDecision decision(Source source) {
+		RecommendationDecision value=decisions.get(source.recommendation.recommendationId());
+		if(value==null && source.legacy) {
+			List<RecommendationDecision> legacy=decisions.findByLegacyRecommendationId(source.lookupId);
+			if(legacy.size()>1) throw ambiguous(source.lookupId);
+			value=legacy.isEmpty()?null:legacy.getFirst();
+		}
+		if(value!=null) assertConsistent(source,value);
+		return value;
+	}
+	private RecommendationDecision rekey(RecommendationDecision value,String globalId) {
+		return new RecommendationDecision(globalId,value.analysisId(),value.sourceTaskId(),value.projectId(),
+			value.status(),value.deferUntil(),value.deferReason(),value.ignoreReason(),value.convertedBacklogItemId(),
+			value.version(),value.createdAt(),value.updatedAt());
+	}
+	private void assertConsistent(Source source,RecommendationDecision value) {
+		if(!Objects.equals(value.analysisId(),source.insight.analysisId())
+				|| !Objects.equals(value.sourceTaskId(),source.insight.sourceTaskId()))
+			throw new IllegalStateException("RECOMMENDATION_IDENTITY_MISMATCH");
 	}
 	private void save(RecommendationDecision value,long expected) {
 		if(!decisions.saveIfVersion(value,expected))
@@ -158,12 +182,31 @@ public class RecommendationService {
 	private String stableBacklogId(String id) { return "backlog-"+UUID.nameUUIDFromBytes(
 		("recommendation:"+id).getBytes(StandardCharsets.UTF_8)); }
 	private Source source(String id) { if(id==null||id.isBlank())throw new IllegalArgumentException("recommendationId is required");
-		AnalysisInsightSet insight=insights.findByRecommendationId(id); if(insight==null)throw new IllegalArgumentException("Recommendation not found: "+id);
-		Recommendation recommendation=insight.recommendations().stream().filter(r->id.equals(r.recommendationId())).findFirst().orElseThrow();
-		List<Finding> findings=insight.findings().stream().filter(f->recommendation.findingIds().contains(f.findingId())).toList();
-		return new Source(insight,recommendation,findings); }
+		AnalysisInsightSet insight=RecommendationIdentity.isGlobal(id) ? insights.findByRecommendationId(id) : null;
+		boolean legacy=!RecommendationIdentity.isGlobal(id); String lookup=id;
+		if(legacy) {
+			List<AnalysisInsightSet> matches=insights.findByLocalRecommendationId(id);
+			if(matches.size()>1) throw ambiguous(id);
+			if(matches.size()==1) { insight=matches.getFirst(); legacy=true; }
+		}
+		if(insight==null)throw new IllegalArgumentException("Recommendation not found: "+id);
+		final boolean legacyLookup=legacy;
+		Recommendation recommendation=insight.recommendations().stream()
+			.filter(r->(legacyLookup?id.equals(r.localRecommendationId()):id.equals(r.recommendationId())))
+			.findFirst().orElseThrow();
+		if(legacy) recommendation=normalize(insight.analysisId(),recommendation);
+		Recommendation resolved=recommendation;
+		List<Finding> findings=insight.findings().stream().filter(f->resolved.findingIds().contains(f.findingId())).toList();
+		return new Source(insight,resolved,findings,lookup,legacy); }
+	private Recommendation normalize(String analysisId,Recommendation value) {
+		return new Recommendation(RecommendationIdentity.global(analysisId,value.localRecommendationId()),
+			value.localRecommendationId(),value.findingIds(),value.title(),value.rationale(),value.priority(),value.risk(),
+			value.benefit(),value.scope(),value.dependencies(),value.suggestedExecutionMode(),value.approvalRequired(),
+			value.evidenceRefs(),value.confidence(),value.recommendedNextAction());
+	}
+	private IllegalStateException ambiguous(String id) { return new IllegalStateException("AMBIGUOUS_RECOMMENDATION_ID: "+id); }
 	private RecommendationView view(Source source,RecommendationDecision decision) { return new RecommendationView(
-		source.recommendation.recommendationId(),source.insight.sourceTaskId(),source.insight.sourceExecutionRecordId(),
+		source.recommendation.recommendationId(),source.recommendation.localRecommendationId(),source.insight.sourceTaskId(),source.insight.sourceExecutionRecordId(),
 		source.recommendation.title(),source.recommendation.rationale(),source.recommendation.priority(),source.recommendation.risk(),
 		source.recommendation.benefit(),source.recommendation.confidence(),source.recommendation.scope(),source.recommendation.dependencies(),
 		source.recommendation.suggestedExecutionMode(),source.recommendation.approvalRequired(),source.findings,
@@ -181,5 +224,6 @@ public class RecommendationService {
 		case DEFERRED->EventType.RECOMMENDATION_DEFERRED;case IGNORED->EventType.RECOMMENDATION_IGNORED;default->throw new IllegalArgumentException();};}
 	private String normalize(String value){return value==null||value.isBlank()?null:value.trim();}
 	private String text(String override,String fallback){String value=normalize(override);return value==null?fallback:value;}
-	private record Source(AnalysisInsightSet insight,Recommendation recommendation,List<Finding> findings){}
+	private record Source(AnalysisInsightSet insight,Recommendation recommendation,List<Finding> findings,
+		String lookupId,boolean legacy){}
 }

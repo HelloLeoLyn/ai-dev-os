@@ -48,6 +48,9 @@ class AnalysisInsightServiceTest {
 		eligible(); executions.save(execution(validPayload()));
 		AnalysisInsightSet first=service.project("task-1"), retried=service.retry("task-1");
 		assertEquals(AnalysisEnums.Status.SUCCEEDED,first.status()); assertEquals(first.analysisId(),retried.analysisId());
+		assertEquals(RecommendationIdentity.global(first.analysisId(), "r1"), first.recommendations().getFirst().recommendationId());
+		assertEquals("r1", first.recommendations().getFirst().localRecommendationId());
+		assertEquals(first.recommendations().getFirst().recommendationId(), retried.recommendations().getFirst().recommendationId());
 		assertEquals(1,insights.findByProjectId("project-1").size());
 	}
 	@Test void incompleteArtifactFailsExtractionWithoutChangingSuccessfulTask() {
