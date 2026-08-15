@@ -2,6 +2,10 @@
 
 本知识库把真实工程事件沉淀为可复用约束，使问题从现象逐步升级为规则和自动防护。它不替代 [Troubleshooting](../troubleshooting/common-errors.md)：Troubleshooting 回答“现在如何恢复”，Lesson 回答“为何发生、以后如何避免”，Engineering Rule 定义“设计和实现必须遵守什么”。
 
+## Engineering Problem Records
+
+已确认、具有长期复用价值的工程问题统一登记在 [Engineering Problem Records Index](engineering-problems-index.md)，具体记录位于 [`engineering-problems/`](engineering-problems/)。跨问题提炼的规则见 [Engineering Lessons](engineering-lessons.md)，未来自动发现与人工确认闭环见 [Continuous Engineering Learning](continuous-engineering-learning.md)。本子体系复用现有 Knowledge Capture / Lessons Review V1，不创建第二套知识库。
+
 ## 成熟度
 
 | Maturity | 含义 |
