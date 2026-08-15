@@ -54,7 +54,7 @@ public class CodexOutputSchemaProvider {
 			      "recommendedNextAction":{"$ref":"#/$defs/action"}}}}
 			  },
 			  "$defs":{
-			    "evidence":{"type":"object","additionalProperties":false,"required":["type","ref"],"properties":{
+			    "evidence":{"type":"object","additionalProperties":false,"required":["type","ref","label","artifactType","uri","line","contentHash"],"properties":{
 			      "type":{"enum":["EXECUTION_RECORD","ARTIFACT","SOURCE_FILE","TIMELINE_EVENT","MEMORY","URL"]},"ref":{"type":"string"},
 			      "label":{"type":["string","null"]},"artifactType":{"type":["string","null"]},"uri":{"type":["string","null"]},
 			      "line":{"type":["integer","null"]},"contentHash":{"type":["string","null"]}}},

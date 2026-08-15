@@ -50,6 +50,20 @@ class CodexCommandBuilderTest {
 		assertEquals("Refactor the login module", command.getLast());
 	}
 
+	@Test
+	void shouldUseProjectAnalysisOutputSchemaForProjectAnalysisTasks() {
+		CodexProperties properties = properties("codex", CodexApprovalPolicy.NEVER);
+		CodexCommandBuilder builder = new CodexCommandBuilder(properties,
+			prompt("Analyze the project"), schemaProvider("/tmp/schema.json", "/tmp/analysis-schema.json"));
+
+		ExecutionContext context = new ExecutionContext();
+		context.setDescription("Analyze the project");
+		context.getParameters().put("taskType", "project-analysis");
+		List<String> command = builder.build(context, "/workspace/project", CodexSandbox.READ_ONLY);
+
+		assertEquals("/tmp/analysis-schema.json", command.get(command.indexOf("--output-schema") + 1));
+	}
+
 	private CodexProperties properties(String executable, CodexApprovalPolicy policy) {
 		CodexProperties properties = new CodexProperties();
 		properties.setExecutable(executable);
@@ -65,8 +79,13 @@ class CodexCommandBuilderTest {
 	}
 
 	private CodexOutputSchemaProvider schemaProvider(String path) {
+		return schemaProvider(path, "/tmp/analysis-schema.json");
+	}
+
+	private CodexOutputSchemaProvider schemaProvider(String path, String analysisPath) {
 		CodexOutputSchemaProvider provider = mock(CodexOutputSchemaProvider.class);
 		when(provider.path()).thenReturn(path);
+		when(provider.path(true)).thenReturn(analysisPath);
 		return provider;
 	}
 }
