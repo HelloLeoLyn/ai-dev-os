@@ -7,6 +7,8 @@ import com.aidevos.orchestrator.agent.AgentResolver;
 import com.aidevos.orchestrator.agent.ResolvedAgent;
 import com.aidevos.orchestrator.executor.AgentExecutor;
 import com.aidevos.orchestrator.operation.DeterministicOperationExecutor;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspace;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspaceService;
 import com.aidevos.orchestrator.job.JobLease;
 import com.aidevos.orchestrator.model.AgentDefinition;
 import com.aidevos.orchestrator.model.ExecutionRecord;
@@ -30,20 +32,21 @@ public class ExecutionEngine {
 	private final AuditService auditService;
 	private final ExecutionAttemptRepository attemptRepository;
 	private final DeterministicOperationExecutor deterministicExecutor;
+	private final ExecutionWorkspaceService executionWorkspaceService;
 
 	public ExecutionEngine(AgentResolver agentResolver, ExecutionRecordManager executionRecordManager) {
-		this(agentResolver, executionRecordManager, AuditService.noop(), new InMemoryExecutionAttemptRepository(), null);
+		this(agentResolver, executionRecordManager, AuditService.noop(), new InMemoryExecutionAttemptRepository(), null, null);
 	}
 
 	public ExecutionEngine(AgentResolver agentResolver, ExecutionRecordManager executionRecordManager,
 			AuditService auditService) {
 		this(agentResolver, executionRecordManager, auditService,
-			new InMemoryExecutionAttemptRepository(), null);
+			new InMemoryExecutionAttemptRepository(), null, null);
 	}
 
 	public ExecutionEngine(AgentResolver agentResolver, ExecutionRecordManager executionRecordManager,
 			ExecutionAttemptRepository attemptRepository) {
-		this(agentResolver, executionRecordManager, AuditService.noop(), attemptRepository, null);
+		this(agentResolver, executionRecordManager, AuditService.noop(), attemptRepository, null, null);
 	}
 
 	public ExecutionEngine(AgentResolver agentResolver, ExecutionRecordManager executionRecordManager,
@@ -51,15 +54,22 @@ public class ExecutionEngine {
 		this(agentResolver, executionRecordManager, auditService, attemptRepository, null);
 	}
 
-	@Autowired
 	public ExecutionEngine(AgentResolver agentResolver, ExecutionRecordManager executionRecordManager,
 			AuditService auditService, ExecutionAttemptRepository attemptRepository,
 			DeterministicOperationExecutor deterministicExecutor) {
+		this(agentResolver, executionRecordManager, auditService, attemptRepository, deterministicExecutor, null);
+	}
+
+	@Autowired
+	public ExecutionEngine(AgentResolver agentResolver, ExecutionRecordManager executionRecordManager,
+			AuditService auditService, ExecutionAttemptRepository attemptRepository,
+			DeterministicOperationExecutor deterministicExecutor, ExecutionWorkspaceService executionWorkspaceService) {
 		this.agentResolver = agentResolver;
 		this.executionRecordManager = executionRecordManager;
 		this.auditService = auditService;
 		this.attemptRepository = attemptRepository;
 		this.deterministicExecutor = deterministicExecutor;
+		this.executionWorkspaceService = executionWorkspaceService;
 	}
 
 	public ExecutionResult execute(TaskDefinition taskDefinition) {
@@ -97,6 +107,7 @@ public class ExecutionEngine {
 				jobId, taskMetadataString(taskDefinition, "approvalId"), attempt.getId(), executionId,
 				agentName, executorName, null, null, "agent resolved", null);
 			context = createContext(taskDefinition, resolvedAgent.definition(), jobId, executionId);
+			prepareWorkspace(taskDefinition, context);
 			auditService.agentEvent(EventType.AGENT_EXECUTION_STARTED, taskDefinition,
 				context.getExecutionId(), jobId, agentName, "RUNNING");
 			auditService.executionFlow("EXECUTOR_STARTED", context.getTaskId(),
@@ -136,6 +147,7 @@ public class ExecutionEngine {
 		ExecutionRecord record = createRecord(taskDefinition, agentName, executorName, result, report,
 			context, startedAt, attempt);
 		executionRecordManager.save(record);
+		markWorkspaceResult(taskDefinition, jobId, result);
 		EventType completedType = result.isApprovalRequired() ? EventType.EXECUTION_WAITING_APPROVAL
 			: result.isSuccess() ? EventType.EXECUTION_COMPLETED : EventType.EXECUTION_FAILED;
 		auditService.executionEvent(completedType, taskDefinition, record.getExecutionId(), jobId,
@@ -146,6 +158,7 @@ public class ExecutionEngine {
 	private ExecutionResult executeDeterministic(TaskDefinition taskDefinition, String jobId,
 			String executionId, Instant startedAt, ExecutionAttempt attempt) {
 		ExecutionContext context = operationContext(taskDefinition, jobId, executionId);
+		prepareWorkspace(taskDefinition, context);
 		String operation = taskDefinition.getOperation().operation();
 		auditService.executionFlow("OPERATION_ROUTED", context.getTaskId(), taskMetadataString(taskDefinition, "planRunId"),
 			taskMetadataString(taskDefinition, "stepRunId"), jobId, null, attempt.getId(), executionId,
@@ -170,9 +183,18 @@ public class ExecutionEngine {
 		ExecutionRecord record = createRecord(taskDefinition, "deterministic", "deterministic", result,
 			report, context, startedAt, attempt);
 		executionRecordManager.save(record);
+		markWorkspaceResult(taskDefinition, jobId, result);
 		auditService.executionEvent(result.isSuccess() ? EventType.EXECUTION_COMPLETED : EventType.EXECUTION_FAILED,
 			taskDefinition, record.getExecutionId(), jobId, record.getId(), record.getStatus(), "deterministic");
 		return result;
+	}
+
+	private void markWorkspaceResult(TaskDefinition taskDefinition, String jobId, ExecutionResult result) {
+		if (executionWorkspaceService == null || result.isApprovalRequired()) return;
+		String taskId = taskMetadataString(taskDefinition, "originalTaskId");
+		if (taskId == null || taskId.isBlank()) taskId = taskDefinition.getId();
+		if (result.isSuccess()) executionWorkspaceService.markCompleted(taskId, jobId);
+		else executionWorkspaceService.markFailed(taskId, jobId, result.getMessage());
 	}
 
 	private ExecutionContext operationContext(TaskDefinition taskDefinition, String jobId, String executionId) {
@@ -185,6 +207,19 @@ public class ExecutionEngine {
 		context.setWorkspace(taskMetadataString(taskDefinition, "workspacePath"));
 		context.setParameters(taskDefinition.getParameters()); context.getMetadata().putAll(taskDefinition.getMetadata());
 		return context;
+	}
+
+	private void prepareWorkspace(TaskDefinition taskDefinition, ExecutionContext context) {
+		if (!"READ_WRITE".equalsIgnoreCase(String.valueOf(context.getParameters().get("executionMode")))) return;
+		if (executionWorkspaceService == null) {
+			if (context.getWorkspace() == null || context.getWorkspace().isBlank()) throw new IllegalStateException("READ_WRITE workspace is required");
+			return;
+		}
+		ExecutionWorkspace workspace = executionWorkspaceService.ensureReady(context);
+		context.setWorkspace(workspace.getExecutionWorkspace());
+		context.getMetadata().put("executionWorkspaceId", workspace.getId());
+		context.getMetadata().put("sourceWorkspace", workspace.getSourceWorkspace());
+		context.getMetadata().put("baseRevision", workspace.getBaseRevision());
 	}
 
 	private ExecutionAttempt startAttempt(TaskDefinition taskDefinition, String jobId,
@@ -231,8 +266,9 @@ public class ExecutionEngine {
 		context.setAgentName(agent.getName());
 		context.setInput(taskDefinition.getDescription());
 		String workspacePath = taskMetadataString(taskDefinition, "workspacePath");
+		String executionMode = taskMetadataString(taskDefinition, "executionMode");
 		context.setWorkspace(workspacePath == null || workspacePath.isBlank()
-			? System.getProperty("user.dir") : workspacePath);
+			? (!"READ_WRITE".equalsIgnoreCase(executionMode) ? System.getProperty("user.dir") : null) : workspacePath);
 		context.setProjectId(taskMetadataString(taskDefinition, "projectId"));
 		if (taskDefinition.getMetadata() != null) {
 			context.getMetadata().putAll(taskDefinition.getMetadata());
@@ -242,7 +278,6 @@ public class ExecutionEngine {
 			parameters.putAll(taskDefinition.getParameters());
 		}
 		parameters.putAll(agent.getExecutorConfig());
-		String executionMode = taskMetadataString(taskDefinition, "executionMode");
 		if (executionMode != null) {
 			parameters.put("executionMode", executionMode);
 			if ("READ_ONLY".equals(executionMode)) {

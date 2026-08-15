@@ -7,6 +7,7 @@ import com.aidevos.orchestrator.modelrouter.TaskType;
 import com.aidevos.orchestrator.model.TaskDefinition;
 import com.aidevos.orchestrator.task.TaskManager;
 import com.aidevos.orchestrator.taskcenter.TaskCenterService;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspaceService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,17 +23,24 @@ public class ExecutionController {
 	private final TaskManager taskManager;
 	private final ExecutionEngine executionEngine;
 	private final TaskCenterService taskCenterService;
+	private final ExecutionWorkspaceService executionWorkspaceService;
 
 	public ExecutionController(TaskManager taskManager, ExecutionEngine executionEngine) {
 		this(taskManager, executionEngine, null);
 	}
 
-	@Autowired
 	public ExecutionController(TaskManager taskManager, ExecutionEngine executionEngine,
 			TaskCenterService taskCenterService) {
+		this(taskManager, executionEngine, taskCenterService, null);
+	}
+
+	@Autowired
+	public ExecutionController(TaskManager taskManager, ExecutionEngine executionEngine,
+			TaskCenterService taskCenterService, ExecutionWorkspaceService executionWorkspaceService) {
 		this.taskManager = taskManager;
 		this.executionEngine = executionEngine;
 		this.taskCenterService = taskCenterService;
+		this.executionWorkspaceService = executionWorkspaceService;
 	}
 
 	@PostMapping("/{id}/execute")
@@ -46,5 +54,12 @@ public class ExecutionController {
 			throw new ResourceNotFoundException("Task", id);
 		}
 		return ResponseEntity.ok(executionEngine.execute(taskDefinition));
+	}
+
+	@org.springframework.web.bind.annotation.GetMapping("/{id}/execution-workspace")
+	public ResponseEntity<?> executionWorkspace(@PathVariable String id) {
+		if (executionWorkspaceService == null) return ResponseEntity.notFound().build();
+		var value = executionWorkspaceService.findByTaskId(id);
+		return value == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(value);
 	}
 }

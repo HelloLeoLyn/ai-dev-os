@@ -16,6 +16,8 @@ import com.aidevos.orchestrator.change.ChangeService;
 import com.aidevos.orchestrator.execution.ExecutionContext;
 import com.aidevos.orchestrator.execution.ExecutionRecordManager;
 import com.aidevos.orchestrator.execution.ExecutionResult;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspace;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspaceService;
 import com.aidevos.orchestrator.executor.AgentExecutor;
 import com.aidevos.orchestrator.executor.ExecutorManager;
 import com.aidevos.orchestrator.memory.MemoryContext;
@@ -90,6 +92,7 @@ public class AgentCoordinatorService {
 	private final ExecutionGraphBuilder graphBuilder;
 	private final ExecutionGraphExecutor graphExecutor;
 	private final MemorySearchService memorySearchService;
+	private final ExecutionWorkspaceService executionWorkspaceService;
 
 	public AgentCoordinatorService(TaskCenterService taskCenterService,
 			ModelRouterService modelRouterService, PlannerService plannerService,
@@ -132,8 +135,23 @@ public class AgentCoordinatorService {
 			ExecutionGraphBuilder graphBuilder, ExecutionGraphExecutor graphExecutor) {
 		this(taskCenterService, modelRouterService, plannerService, executorManager,
 			testAgentService, auditService, capabilityResolver, memoryService,
+				executionRecordManager, workspaceService, changeService, graphBuilder,
+			graphExecutor, null, null);
+	}
+
+	/** Backward-compatible constructor for manually assembled coordinators. */
+	public AgentCoordinatorService(TaskCenterService taskCenterService,
+			ModelRouterService modelRouterService, PlannerService plannerService,
+			ExecutorManager executorManager, TestAgentService testAgentService,
+			AuditService auditService, AgentCapabilityResolver capabilityResolver,
+			MemoryService memoryService, ExecutionRecordManager executionRecordManager,
+			WorkspaceService workspaceService, ChangeService changeService,
+			ExecutionGraphBuilder graphBuilder, ExecutionGraphExecutor graphExecutor,
+			MemorySearchService memorySearchService) {
+		this(taskCenterService, modelRouterService, plannerService, executorManager,
+			testAgentService, auditService, capabilityResolver, memoryService,
 			executionRecordManager, workspaceService, changeService, graphBuilder,
-			graphExecutor, null);
+			graphExecutor, memorySearchService, null);
 	}
 
 	@Autowired
@@ -144,7 +162,8 @@ public class AgentCoordinatorService {
 			MemoryService memoryService, ExecutionRecordManager executionRecordManager,
 			WorkspaceService workspaceService, ChangeService changeService,
 			ExecutionGraphBuilder graphBuilder, ExecutionGraphExecutor graphExecutor,
-			MemorySearchService memorySearchService) {
+			MemorySearchService memorySearchService,
+			ExecutionWorkspaceService executionWorkspaceService) {
 		this.taskCenterService = taskCenterService;
 		this.modelRouterService = modelRouterService;
 		this.plannerService = plannerService;
@@ -159,6 +178,7 @@ public class AgentCoordinatorService {
 		this.graphBuilder = graphBuilder;
 		this.graphExecutor = graphExecutor;
 		this.memorySearchService = memorySearchService;
+		this.executionWorkspaceService = executionWorkspaceService;
 	}
 
 	/**
@@ -563,7 +583,30 @@ public class AgentCoordinatorService {
 			context.setWorkspace(workspacePath);
 			context.getParameters().put("workspace", workspacePath);
 		}
+		if (task.getExecutionMode() == com.aidevos.orchestrator.taskcenter.ExecutionMode.READ_WRITE) {
+			if (executionWorkspaceService == null) {
+				throw new IllegalStateException("Execution workspace service is required for READ_WRITE execution");
+			}
+			ExecutionWorkspace executionWorkspace = executionWorkspaceService.ensureReady(context);
+			context.setWorkspace(executionWorkspace.getExecutionWorkspace());
+			context.getParameters().put("workspace", executionWorkspace.getExecutionWorkspace());
+			context.getMetadata().put("executionWorkspaceId", executionWorkspace.getId());
+			context.getMetadata().put("sourceWorkspace", executionWorkspace.getSourceWorkspace());
+			context.getMetadata().put("baseRevision", executionWorkspace.getBaseRevision());
+			workspacePath = executionWorkspace.getExecutionWorkspace();
+		}
 		ExecutionResult result = executor.execute(context);
+		if (executionWorkspaceService != null) {
+			if (result.isApprovalRequired()) {
+				// Keep the worktree READY while the same Job waits for approval.
+			}
+			else if (result.isSuccess()) {
+				executionWorkspaceService.markCompleted(task.getTaskId(), executionId);
+			}
+			else {
+				executionWorkspaceService.markFailed(task.getTaskId(), executionId, result.getMessage());
+			}
+		}
 		saveExecutionRecord(task, agentName, executor.getType(), executionId, result, workspaceId, workspacePath);
 		return result;
 	}

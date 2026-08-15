@@ -16,6 +16,8 @@ import type { CodingApprovalRequest } from '../types/codingApproval'
 import type { ExecutionJob } from '../types/job'
 import { useTaskNotifications } from '../composables/useTaskNotifications'
 import { ElMessage } from 'element-plus'
+import { getExecutionWorkspace } from '../api/executions'
+import type { ExecutionWorkspace } from '../types/executionWorkspace'
 
 const route = useRoute()
 const taskId = String(route.params.taskId || '')
@@ -26,6 +28,7 @@ const artifactVisible = ref(false)
 const selectedArtifact = ref<ExecutionArtifact | null>(null)
 const jobs = ref<Record<string, ExecutionJob>>({})
 const codingApprovals = ref<Record<string, CodingApprovalRequest>>({})
+const executionWorkspace = ref<ExecutionWorkspace | null>(null)
 const approvalBusy = ref(false)
 const taskNotifications = useTaskNotifications()
 const monitoredTask = taskNotifications.taskState(taskId)
@@ -49,6 +52,7 @@ async function loadExecutionState(): Promise<void> {
   jobs.value = Object.fromEntries(loadedJobs.map(job => [job.id, job]))
   const loadedApprovals = await getCodingApprovals()
   codingApprovals.value = Object.fromEntries(loadedApprovals.filter(item => item.taskId === taskId).map(item => [item.id, item]))
+  executionWorkspace.value = await getExecutionWorkspace(taskId).catch(() => null)
 }
 async function decideCodingApproval(action: 'approve' | 'reject'): Promise<void> {
   const approval = pendingApproval.value
@@ -84,6 +88,7 @@ function reload(): void { void Promise.all([context.load(taskId), loadExecutionS
     </section>
     <section v-if="approvalHistory.length" class="approval-history" aria-label="Approval History"><h2>Approval History</h2><ol><li v-for="approval in approvalHistory" :key="approval.id"><strong>{{ approval.operation }}</strong><span>{{ approval.authority }}</span><StatusBadge :status="approval.status" /><TechnicalId :value="approval.id" label="Approval" /></li></ol></section>
     <div class="execution-overview"><article><span>PlanRun</span><TechnicalId :value="context.task.value.planRunId" label="PlanRun" /></article><article><span>Current StepRun</span><TechnicalId :value="executions.records.value.at(-1)?.stepRunId" label="StepRun" /></article><article><span>Execution history</span><strong>{{ executions.records.value.length }}</strong></article><article><span>Result</span><StatusBadge :status="context.task.value.status" /></article></div>
+    <section v-if="executionWorkspace" class="workspace-isolation" aria-label="Workspace Isolation"><h2>Workspace Isolation</h2><p>Execution is isolated from the source workspace.</p><dl><div><dt>Source Workspace</dt><dd>{{ executionWorkspace.sourceWorkspace }}</dd></div><div><dt>Execution Workspace</dt><dd>{{ executionWorkspace.executionWorkspace }}</dd></div><div><dt>Strategy</dt><dd>{{ executionWorkspace.strategy }}</dd></div><div><dt>Base Revision</dt><dd>{{ executionWorkspace.baseRevision }}</dd></div><div><dt>Status</dt><dd><StatusBadge :status="executionWorkspace.status" /></dd></div></dl></section>
     <section class="flow-summary" aria-label="Execution diagnostics"><article><span>Current Task Status</span><strong>{{ context.task.value.status }}</strong></article><article><span>Current PlanRun Status</span><strong>{{ currentPlanRunStatus }}</strong></article><article><span>Current Job Status</span><strong>{{ latestJob?.status || 'Unknown' }}</strong></article><article><span>Current Approval Status</span><strong>{{ pendingApproval?.status || context.approval.value?.status || 'None' }}</strong></article><article><span>Latest Attempt</span><strong>{{ latestRecord?.status || 'Unknown' }}</strong></article><article><span>Resolved Executor</span><strong>{{ latestRecord?.executorName || 'Unknown' }}</strong></article><article><span>Last Flow Event</span><strong>{{ lastFlowEvent?.eventType || 'Unknown' }}</strong></article><article><span>Blocked Reason</span><strong>{{ latestRecord?.status === 'WAITING_APPROVAL' ? (latestRecord.message || 'Approval required') : 'None' }}</strong></article></section>
     <el-card v-for="(record, index) in executions.records.value" :key="record.id" shadow="never" :class="['record-card', { 'historical-attempt': record !== latestRecord }]">
       <template #header><div class="record-header"><div><p class="page-eyebrow">Attempt {{ index + 1 }} <span v-if="record !== latestRecord">· Historical Attempt</span><span v-else>· Latest Attempt</span></p><h2>{{ record.status }}</h2></div><StatusBadge :status="record.status" /></div></template>

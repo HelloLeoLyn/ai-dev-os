@@ -77,6 +77,15 @@ public class AuditService {
 			executionRecordId, agent, executor, fromStatus, toStatus, reason, errorCode, null, null);
 	}
 
+	public void executionWorkspaceFlow(String event, String taskId, String jobId, String workspaceId,
+			String sourceWorkspace, String executionWorkspace, String strategy, String baseRevision,
+			String status, String reason, String errorCode) {
+		logger.info("AI_DEV_OS_FLOW event={} taskId={} jobId={} workspaceId={} sourceWorkspace={} "
+			+ "executionWorkspace={} strategy={} baseRevision={} status={} reason={} errorCode={}",
+			event, value(taskId), value(jobId), value(workspaceId), value(sourceWorkspace),
+			value(executionWorkspace), value(strategy), value(baseRevision), value(status), value(reason), value(errorCode));
+	}
+
 	public void executionFlow(String event, String taskId, String planRunId, String stepRunId,
 			String jobId, String approvalId, String attemptId, String executionRecordId,
 			String agent, String executor, String fromStatus, String toStatus,

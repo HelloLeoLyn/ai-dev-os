@@ -4,6 +4,11 @@ import type {
   ExecutionRecordFilters,
   ExecutionRecordSummary,
 } from '../types/execution'
+import type { ExecutionWorkspace } from '../types/executionWorkspace'
+
+export function getExecutionWorkspace(taskId: string): Promise<ExecutionWorkspace> {
+  return apiClient.get(`/api/tasks/${encodeURIComponent(taskId)}/execution-workspace`)
+}
 
 export function getExecutionRecords(
   filters: ExecutionRecordFilters = {},

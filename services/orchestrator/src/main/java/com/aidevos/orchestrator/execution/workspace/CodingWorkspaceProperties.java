@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 public class CodingWorkspaceProperties {
 
 	private List<String> allowedRoots = new ArrayList<>();
+	private String executionWorkspaceRoot = System.getProperty("java.io.tmpdir") + "/ai-dev-os-worktrees";
 
 	public List<String> getAllowedRoots() {
 		return allowedRoots;
@@ -19,4 +20,6 @@ public class CodingWorkspaceProperties {
 	public void setAllowedRoots(List<String> allowedRoots) {
 		this.allowedRoots = allowedRoots;
 	}
+	public String getExecutionWorkspaceRoot() { return executionWorkspaceRoot; }
+	public void setExecutionWorkspaceRoot(String value) { if (value != null && !value.isBlank()) executionWorkspaceRoot = value; }
 }

@@ -20,12 +20,21 @@ public class TaskWorkspaceTrustService {
 	private final TaskCenterService taskCenterService;
 	private final ProjectService projectService;
 	private final WorkspaceService workspaceService;
+	private final ExecutionWorkspaceRepository executionWorkspaces;
 
 	public TaskWorkspaceTrustService(@Lazy TaskCenterService taskCenterService,
 			ProjectService projectService, WorkspaceService workspaceService) {
+		this(taskCenterService, projectService, workspaceService, null);
+	}
+
+	@org.springframework.beans.factory.annotation.Autowired
+	public TaskWorkspaceTrustService(@Lazy TaskCenterService taskCenterService,
+			ProjectService projectService, WorkspaceService workspaceService,
+			ExecutionWorkspaceRepository executionWorkspaces) {
 		this.taskCenterService = taskCenterService;
 		this.projectService = projectService;
 		this.workspaceService = workspaceService;
+		this.executionWorkspaces = executionWorkspaces;
 	}
 
 	public Path requireTrustedWorkspace(ExecutionContext context, Path executionPath) {
@@ -53,9 +62,20 @@ public class TaskWorkspaceTrustService {
 		}
 
 		Path registeredPath = realDirectory(workspace.getPath(), "Registered workspace");
-		if (!executionPath.equals(registeredPath)) {
-			throw new IllegalArgumentException("Execution workspace path does not match registered workspace");
+		String executionId = metadataString(context, "executionWorkspaceId");
+		if (executionId != null && executionWorkspaces != null) {
+			ExecutionWorkspace execution = executionWorkspaces.get(executionId);
+			if (execution == null || !taskId.equals(execution.getTaskId())
+					|| !taskProjectId.equals(execution.getProjectId())
+					|| !taskWorkspaceId.equals(execution.getWorkspaceId())
+					|| !executionPath.toString().equals(execution.getExecutionWorkspace())
+					|| (execution.getStatus() != ExecutionWorkspaceStatus.READY
+						&& execution.getStatus() != ExecutionWorkspaceStatus.COMPLETED)) {
+				throw new IllegalArgumentException("Execution workspace is not trusted for Task");
+			}
+			return executionPath;
 		}
+		if (!executionPath.equals(registeredPath)) throw new IllegalArgumentException("Execution workspace path does not match registered workspace");
 		return registeredPath;
 	}
 
