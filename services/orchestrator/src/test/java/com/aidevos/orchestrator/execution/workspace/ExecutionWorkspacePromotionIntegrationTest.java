@@ -142,6 +142,25 @@ class ExecutionWorkspacePromotionIntegrationTest {
     }
 
     @Test
+    void promotionFailureCanBeRejectedWithoutChangingSource() throws Exception {
+        Path source = initRepo();
+        Fixture fixture = fixture(source, "task-failed-promote");
+        Path worktree = Path.of(fixture.ready().getExecutionWorkspace());
+        Files.writeString(worktree.resolve("tracked.txt"), "ai\n");
+        commit(source, "source change", "source\n");
+        fixture.complete();
+
+        assertThrows(PromotionException.class, () -> fixture.service.promote("task-failed-promote"));
+        assertEquals(ExecutionWorkspaceStatus.PROMOTION_FAILED, fixture.repository.findByTaskId("task-failed-promote").getStatus());
+        ExecutionWorkspace rejected = fixture.service.reject("task-failed-promote");
+
+        assertEquals(ExecutionWorkspaceStatus.REJECTED, rejected.getStatus());
+        assertEquals("source\n", Files.readString(source.resolve("tracked.txt")));
+        assertEquals("", run(source, "git", "status", "--porcelain"));
+        assertTrue(Files.isDirectory(worktree));
+    }
+
+    @Test
     void rejectLeavesSourceUnchangedAndDuplicatePromoteIsIdempotent() throws Exception {
         Path source = initRepo();
         Fixture reject = fixture(source, "task-reject");
@@ -161,6 +180,11 @@ class ExecutionWorkspacePromotionIntegrationTest {
         assertEquals(ExecutionWorkspaceStatus.PROMOTED, first.getStatus());
         assertEquals(first.getId(), second.getId());
         assertEquals("once\n", Files.readString(source.resolve("tracked.txt")));
+        assertThrows(PromotionException.class, () -> promote.service.reject("task-idempotent"));
+
+        Fixture ready = fixture(source, "task-ready-reject");
+        ready.ready();
+        assertThrows(PromotionException.class, () -> ready.service.reject("task-ready-reject"));
     }
 
     private Fixture fixture(Path source, String taskId) {

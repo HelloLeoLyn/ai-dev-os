@@ -34,4 +34,11 @@ describe('execution transparency UX', () => {
     expect(source).toContain('Review is incomplete:')
     expect(source).toContain("'Unable to render untracked file diff.'")
   })
+
+  it('refreshes authoritative workspace state after promotion failure and exposes reject only for review states', () => {
+    expect(source).toContain("['COMPLETED','PROMOTION_FAILED'].includes(executionWorkspace?.status || '')")
+    expect(source).toContain('getExecutionWorkspace(taskId).then(value => { executionWorkspace.value = value })')
+    expect(source).toContain('getExecutionWorkspaceReview(taskId).then(value => { workspaceReview.value = value })')
+    expect(source).not.toContain("executionWorkspace?.status === 'PROMOTION_FAILED' && promoteWorkspace")
+  })
 })

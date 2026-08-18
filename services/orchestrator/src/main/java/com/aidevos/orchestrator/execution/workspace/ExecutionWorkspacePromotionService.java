@@ -158,7 +158,8 @@ public class ExecutionWorkspacePromotionService {
         if (workspace.getStatus() == ExecutionWorkspaceStatus.PROMOTED) {
             throw new PromotionException("ALREADY_PROMOTED", "Promoted workspace cannot be rejected");
         }
-        if (workspace.getStatus() != ExecutionWorkspaceStatus.COMPLETED) {
+        if (workspace.getStatus() != ExecutionWorkspaceStatus.COMPLETED
+                && workspace.getStatus() != ExecutionWorkspaceStatus.PROMOTION_FAILED) {
             throw new PromotionException("REVIEW_NOT_READY", "Execution workspace is not ready for rejection");
         }
         workspace.mark(ExecutionWorkspaceStatus.REJECTED); workspace.setRejectedAt(Instant.now());

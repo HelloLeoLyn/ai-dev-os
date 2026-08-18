@@ -72,7 +72,13 @@ async function promoteWorkspace(): Promise<void> {
   if (promotionBusy.value || executionWorkspace.value?.status !== 'COMPLETED' || workspaceReview.value?.completeness !== 'COMPLETE') return
   promotionBusy.value = true
   try { executionWorkspace.value = await promoteExecutionWorkspace(taskId); workspaceReview.value = await getExecutionWorkspaceReview(taskId); ElMessage.success('Changes promoted to source workspace.') }
-  catch (error) { ElMessage.error(error instanceof Error ? error.message : 'Promotion failed.') }
+  catch (error) {
+    await Promise.all([
+      getExecutionWorkspace(taskId).then(value => { executionWorkspace.value = value }).catch(() => undefined),
+      getExecutionWorkspaceReview(taskId).then(value => { workspaceReview.value = value }).catch(() => undefined),
+    ])
+    ElMessage.error(error instanceof Error ? error.message : 'Promotion failed.')
+  }
   finally { promotionBusy.value = false }
 }
 async function rejectWorkspace(): Promise<void> {
@@ -123,7 +129,7 @@ function reload(): void { void Promise.all([context.load(taskId), loadExecutionS
       <dl class="review-grid"><div><dt>Files Changed</dt><dd>{{ workspaceReview.changedFiles.length }}</dd></div><div><dt>Review Completeness</dt><dd>{{ reviewValidationStatus(workspaceReview) }}</dd></div><div><dt>Base Revision</dt><dd>{{ workspaceReview.baseRevision }}</dd></div><div><dt>Tests / Artifacts</dt><dd>{{ workspaceReview.artifacts.length ? workspaceReview.artifacts.join(', ') : 'UNKNOWN' }}</dd></div></dl>
       <p v-if="workspaceReview.completeness !== 'COMPLETE'" class="error">Review is incomplete: {{ workspaceReview.incompleteReasons.join(', ') || 'Unable to display all changes.' }} Promotion is disabled.</p>
       <ul class="changed-files"><li v-for="file in workspaceReview.changedFiles" :key="file">{{ file }}</li></ul>
-      <div class="review-actions"><el-button @click="diffVisible = true">View Diff</el-button><el-button v-if="executionWorkspace?.status === 'COMPLETED'" type="primary" :loading="promotionBusy" :disabled="workspaceReview.completeness !== 'COMPLETE'" @click="promoteWorkspace">Promote to Source Workspace</el-button><el-button v-if="executionWorkspace?.status === 'COMPLETED'" :loading="promotionBusy" @click="rejectWorkspace">Reject Changes</el-button></div>
+      <div class="review-actions"><el-button @click="diffVisible = true">View Diff</el-button><el-button v-if="executionWorkspace?.status === 'COMPLETED'" type="primary" :loading="promotionBusy" :disabled="workspaceReview.completeness !== 'COMPLETE'" @click="promoteWorkspace">Promote to Source Workspace</el-button><el-button v-if="['COMPLETED','PROMOTION_FAILED'].includes(executionWorkspace?.status || '')" :loading="promotionBusy" @click="rejectWorkspace">Reject Changes</el-button></div>
       <p v-if="executionWorkspace?.promotionErrorCode" class="error">{{ executionWorkspace.promotionErrorCode }}: {{ executionWorkspace.promotionReason }}</p>
     </section>
     <section class="flow-summary" aria-label="Execution diagnostics"><article><span>Current Task Status</span><strong>{{ context.task.value.status }}</strong></article><article><span>Current PlanRun Status</span><strong>{{ currentPlanRunStatus }}</strong></article><article><span>Current Job Status</span><strong>{{ latestJob?.status || 'Unknown' }}</strong></article><article><span>Current Approval Status</span><strong>{{ pendingApproval?.status || context.approval.value?.status || 'None' }}</strong></article><article><span>Latest Attempt</span><strong>{{ latestRecord?.status || 'Unknown' }}</strong></article><article><span>Resolved Executor</span><strong>{{ latestRecord?.executorName || 'Unknown' }}</strong></article><article><span>Last Flow Event</span><strong>{{ lastFlowEvent?.eventType || 'Unknown' }}</strong></article><article><span>Blocked Reason</span><strong>{{ latestRecord?.status === 'WAITING_APPROVAL' ? (latestRecord.message || 'Approval required') : 'None' }}</strong></article></section>
