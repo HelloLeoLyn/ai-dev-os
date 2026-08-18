@@ -10,6 +10,7 @@ import com.aidevos.orchestrator.workspace.WorkspaceService;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
@@ -24,6 +25,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class ExecutionWorkspacePromotionService {
+    private static final long MAX_REVIEW_FILE_BYTES = 262_144;
     private final ExecutionWorkspaceRepository repository;
     private final WorkspaceService workspaceService;
     private final CommandExecutor commands;
@@ -64,18 +66,23 @@ public class ExecutionWorkspacePromotionService {
             review.setChangeStat(git(execution, List.of("git", "diff", "--stat", workspace.getBaseRevision()), "change stat"));
             review.setDiffCheck(git(execution, List.of("git", "diff", "--check", workspace.getBaseRevision()), "diff check"));
             review.setChangedFiles(parseLines(git(execution, List.of("git", "diff", "--name-only", workspace.getBaseRevision()), "changed files")));
-            review.setUntrackedFiles(untracked(execution));
+            List<String> untracked = untracked(execution);
+            review.setUntrackedFiles(untracked);
+            appendUntrackedDiff(review, execution, untracked);
             if (executionRecords != null) {
                 executionRecords.getAll().stream().filter(r -> taskId.equals(r.getTaskId()))
                     .flatMap(r -> r.getArtifacts().stream()).map(a -> a.getName())
                     .filter(name -> name != null && !name.isBlank()).distinct().forEach(review.getArtifacts()::add);
             }
             review.getChangedFiles().addAll(review.getUntrackedFiles());
+            if (review.getIncompleteReasons().isEmpty()) review.setCompleteness("COMPLETE");
             auditService.promotionFlow("REVIEW_READY", workspace, sourceRevision, null);
             return review;
         }
         catch (PromotionException ex) {
-            review.setErrorCode(ex.getErrorCode()); review.setReason(ex.getMessage()); return review;
+            review.setErrorCode(ex.getErrorCode()); review.setReason(ex.getMessage());
+            review.getIncompleteReasons().add(ex.getErrorCode() + ":" + ex.getMessage());
+            return review;
         }
     }
 
@@ -85,6 +92,11 @@ public class ExecutionWorkspacePromotionService {
         if (workspace.getStatus() != ExecutionWorkspaceStatus.COMPLETED
                 && workspace.getStatus() != ExecutionWorkspaceStatus.PROMOTION_FAILED) {
             throw new PromotionException("REVIEW_NOT_READY", "Execution workspace is not ready for promotion");
+        }
+        ExecutionWorkspaceReview review = review(taskId);
+        if (!review.isComplete()) {
+            throw new PromotionException("REVIEW_INCOMPLETE", "Review does not contain a complete change set: "
+                + String.join(", ", review.getIncompleteReasons()));
         }
         workspace.mark(ExecutionWorkspaceStatus.PROMOTING);
         repository.save(workspace);
@@ -201,6 +213,78 @@ public class ExecutionWorkspacePromotionService {
     private List<String> untracked(Path execution) {
         String raw = git(execution, List.of("git", "ls-files", "--others", "--exclude-standard", "-z"), "untracked files");
         return Arrays.stream(raw.split("\\u0000", -1)).filter(value -> !value.isBlank()).toList();
+    }
+
+    private void appendUntrackedDiff(ExecutionWorkspaceReview review, Path execution, List<String> files) {
+        StringBuilder additions = new StringBuilder();
+        Path root;
+        try {
+            root = execution.toRealPath();
+        }
+        catch (IOException exception) {
+            review.getIncompleteReasons().add("EXECUTION_WORKSPACE_UNAVAILABLE");
+            return;
+        }
+        for (String relative : files) {
+            try {
+                Path relativePath = Path.of(relative);
+                if (relativePath.isAbsolute() || relativePath.getNameCount() == 0
+                        || relativePath.normalize().startsWith(Path.of(".."))) {
+                    review.getIncompleteReasons().add("UNSAFE_UNTRACKED_PATH:" + relative);
+                    continue;
+                }
+                Path file = root.resolve(relativePath).normalize();
+                if (!file.startsWith(root) || Files.isSymbolicLink(file)
+                        || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+                    review.getIncompleteReasons().add("UNSAFE_UNTRACKED_PATH:" + relative);
+                    continue;
+                }
+                long size = Files.size(file);
+                if (size > MAX_REVIEW_FILE_BYTES) {
+                    review.getIncompleteReasons().add("UNTRACKED_FILE_TOO_LARGE:" + relative);
+                    continue;
+                }
+                byte[] bytes = Files.readAllBytes(file);
+                String content = decodeReviewText(bytes);
+                if (content == null) {
+                    review.getIncompleteReasons().add("UNTRACKED_BINARY_FILE:" + relative);
+                    continue;
+                }
+                additions.append(unifiedDiff(relative, content));
+            }
+            catch (IOException | RuntimeException exception) {
+                review.getIncompleteReasons().add("UNTRACKED_FILE_READ_FAILED:" + relative);
+            }
+        }
+        if (!additions.isEmpty()) {
+            String tracked = review.getDiff() == null ? "" : review.getDiff();
+            review.setDiff(tracked + (tracked.isEmpty() || tracked.endsWith("\n") ? "" : "\n") + additions);
+        }
+    }
+
+    private String decodeReviewText(byte[] bytes) {
+        for (byte value : bytes) if (value == 0) return null;
+        try {
+            String text = StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                .decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+            return text;
+        }
+        catch (java.nio.charset.CharacterCodingException exception) {
+            return null;
+        }
+    }
+
+    private String unifiedDiff(String relative, String content) {
+        String[] lines = content.split("\\n", -1);
+        int count = content.isEmpty() ? 0 : (content.endsWith("\n") ? lines.length - 1 : lines.length);
+        StringBuilder diff = new StringBuilder();
+        diff.append("--- /dev/null\n+++ b/").append(relative).append("\n");
+        diff.append("@@ -0,0 +1,").append(count).append(" @@\n");
+        for (int index = 0; index < count; index++) diff.append('+').append(lines[index]).append('\n');
+        if (!content.isEmpty() && !content.endsWith("\n")) diff.append("\\ No newline at end of file\n");
+        return diff.toString();
     }
 
     private void validateUntrackedPaths(Path source, Path execution, List<String> files) {

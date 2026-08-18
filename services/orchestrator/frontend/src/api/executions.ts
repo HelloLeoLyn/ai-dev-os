@@ -19,6 +19,8 @@ export interface ExecutionWorkspaceReview {
   changedFiles: string[]
   untrackedFiles: string[]
   artifacts: string[]
+  completeness: 'COMPLETE' | 'INCOMPLETE'
+  incompleteReasons: string[]
   errorCode?: string
   reason?: string
 }

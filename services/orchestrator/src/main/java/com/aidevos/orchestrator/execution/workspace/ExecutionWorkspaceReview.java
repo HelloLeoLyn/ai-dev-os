@@ -16,6 +16,8 @@ public class ExecutionWorkspaceReview {
     private List<String> changedFiles = new ArrayList<>();
     private List<String> untrackedFiles = new ArrayList<>();
     private List<String> artifacts = new ArrayList<>();
+    private String completeness = "INCOMPLETE";
+    private List<String> incompleteReasons = new ArrayList<>();
     private String errorCode;
     private String reason;
 
@@ -33,4 +35,8 @@ public class ExecutionWorkspaceReview {
     public List<String> getArtifacts(){return artifacts;} public void setArtifacts(List<String> value){artifacts=value == null ? new ArrayList<>() : new ArrayList<>(value);}
     public String getErrorCode(){return errorCode;} public void setErrorCode(String value){errorCode=value;}
     public String getReason(){return reason;} public void setReason(String value){reason=value;}
+    public String getCompleteness(){return completeness;} public void setCompleteness(String value){completeness=value;}
+    public List<String> getIncompleteReasons(){return incompleteReasons;}
+    public void setIncompleteReasons(List<String> value){incompleteReasons=value == null ? new ArrayList<>() : new ArrayList<>(value);}
+    public boolean isComplete(){return "COMPLETE".equals(completeness);}
 }

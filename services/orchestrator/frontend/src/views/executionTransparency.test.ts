@@ -27,4 +27,11 @@ describe('execution transparency UX', () => {
     expect(source).toContain('@click="decideCodingApproval(\'approve\')"')
     expect(source).not.toContain('onMounted(() => approveCodingApproval')
   })
+
+  it('requires complete review before allowing promotion and renders new-file diffs', () => {
+    expect(source).toContain("workspaceReview.value?.completeness !== 'COMPLETE'")
+    expect(source).toContain(':disabled="workspaceReview.completeness !== \'COMPLETE\'"')
+    expect(source).toContain('Review is incomplete:')
+    expect(source).toContain("'Unable to render untracked file diff.'")
+  })
 })

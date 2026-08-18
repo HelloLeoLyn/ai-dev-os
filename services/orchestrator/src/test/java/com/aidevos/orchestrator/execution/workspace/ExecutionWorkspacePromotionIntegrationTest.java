@@ -10,6 +10,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -38,6 +39,75 @@ class ExecutionWorkspacePromotionIntegrationTest {
         assertEquals("new\n", Files.readString(source.resolve("tracked.txt")));
         assertEquals("created\n", Files.readString(source.resolve("new.txt")));
         assertTrue(Files.isDirectory(worktree));
+    }
+
+    @Test
+    void reviewIncludesTrackedAndUntrackedDiffWithoutChangingSourceOrIndex() throws Exception {
+        Path source = initRepo();
+        Fixture fixture = fixture(source, "task-review");
+        Path worktree = Path.of(fixture.ready().getExecutionWorkspace());
+        Files.writeString(worktree.resolve("tracked.txt"), "reviewed\n");
+        Files.writeString(worktree.resolve("new.txt"), "new file\nsecond line\n");
+        fixture.complete();
+        String sourceStatus = run(source, "git", "status", "--porcelain");
+        String sourceIndex = run(source, "git", "write-tree");
+
+        ExecutionWorkspaceReview review = fixture.service.review("task-review");
+
+        assertEquals("COMPLETE", review.getCompleteness());
+        assertTrue(review.getDiff().contains("tracked.txt"));
+        assertTrue(review.getDiff().contains("--- /dev/null"));
+        assertTrue(review.getDiff().contains("+++ b/new.txt"));
+        assertTrue(review.getDiff().contains("+new file"));
+        assertEquals(List.of("new.txt"), review.getUntrackedFiles());
+        assertEquals(sourceStatus, run(source, "git", "status", "--porcelain"));
+        assertEquals(sourceIndex, run(source, "git", "write-tree"));
+    }
+
+    @Test
+    void binaryUntrackedFileMakesReviewIncompleteAndBlocksPromotion() throws Exception {
+        Path source = initRepo();
+        Fixture fixture = fixture(source, "task-review-binary");
+        Path worktree = Path.of(fixture.ready().getExecutionWorkspace());
+        Files.write(worktree.resolve("binary.bin"), new byte[] {0, 1, 2});
+        fixture.complete();
+
+        ExecutionWorkspaceReview review = fixture.service.review("task-review-binary");
+        assertEquals("INCOMPLETE", review.getCompleteness());
+        assertTrue(review.getIncompleteReasons().stream().anyMatch(reason -> reason.contains("BINARY")));
+        PromotionException error = assertThrows(PromotionException.class,
+            () -> fixture.service.promote("task-review-binary"));
+        assertEquals("REVIEW_INCOMPLETE", error.getErrorCode());
+        assertFalse(Files.exists(source.resolve("binary.bin")));
+    }
+
+    @Test
+    void deletedTrackedFileIsIncludedInReviewDiff() throws Exception {
+        Path source = initRepo();
+        Fixture fixture = fixture(source, "task-review-delete");
+        Path worktree = Path.of(fixture.ready().getExecutionWorkspace());
+        Files.delete(worktree.resolve("tracked.txt"));
+        fixture.complete();
+
+        ExecutionWorkspaceReview review = fixture.service.review("task-review-delete");
+
+        assertEquals("COMPLETE", review.getCompleteness());
+        assertTrue(review.getDiff().contains("--- a/tracked.txt"));
+        assertTrue(review.getDiff().contains("+++ /dev/null"));
+    }
+
+    @Test
+    void oversizedUntrackedFileMakesReviewIncomplete() throws Exception {
+        Path source = initRepo();
+        Fixture fixture = fixture(source, "task-review-large");
+        Path worktree = Path.of(fixture.ready().getExecutionWorkspace());
+        Files.write(worktree.resolve("large.txt"), new byte[262_145]);
+        fixture.complete();
+
+        ExecutionWorkspaceReview review = fixture.service.review("task-review-large");
+
+        assertEquals("INCOMPLETE", review.getCompleteness());
+        assertTrue(review.getIncompleteReasons().stream().anyMatch(reason -> reason.contains("TOO_LARGE")));
     }
 
     @Test
