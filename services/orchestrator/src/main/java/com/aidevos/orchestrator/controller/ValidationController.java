@@ -53,6 +53,11 @@ public class ValidationController {
 		return ResponseEntity.status(HttpStatus.CREATED).body(run);
 	}
 
+	@PostMapping("/api/changes/{changeSetId}/validations")
+	public ResponseEntity<ValidationRun> startDelivery(@PathVariable String changeSetId) {
+		return ResponseEntity.status(HttpStatus.CREATED).body(service.startDelivery(changeSetId));
+	}
+
 	@GetMapping("/api/tasks/{taskId}/validations")
 	public List<ValidationRun> taskHistory(@PathVariable String taskId) {
 		return service.findByTask(taskId);

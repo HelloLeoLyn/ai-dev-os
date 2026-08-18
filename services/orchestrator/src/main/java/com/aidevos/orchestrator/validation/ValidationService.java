@@ -22,6 +22,12 @@ import com.aidevos.orchestrator.validation.browser.BrowserScenario;
 import com.aidevos.orchestrator.validation.browser.BrowserScenarioCatalog;
 import com.aidevos.orchestrator.workspace.Workspace;
 import com.aidevos.orchestrator.workspace.WorkspaceService;
+import com.aidevos.orchestrator.change.ChangeService;
+import com.aidevos.orchestrator.change.ChangeSet;
+import com.aidevos.orchestrator.change.ChangeStatus;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspace;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspacePromotionService;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspaceStatus;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -40,6 +46,8 @@ public class ValidationService {
 	private final ValidationEvidenceService evidenceService;
 	private final AuditService auditService;
 	private final BrowserScenarioCatalog browserScenarios;
+	private volatile ChangeService changeService;
+	private volatile ExecutionWorkspacePromotionService executionWorkspaces;
 
 	public ValidationService(ValidationRepository repository, TaskCenterService taskCenterService,
 			WorkspaceService workspaceService, ProjectCapabilityDetector detector,
@@ -66,6 +74,11 @@ public class ValidationService {
 		this.auditService = auditService; this.browserScenarios = browserScenarios;
 	}
 
+	@org.springframework.beans.factory.annotation.Autowired(required = false)
+	public void setChangeService(ChangeService value) { this.changeService = value; }
+	@org.springframework.beans.factory.annotation.Autowired(required = false)
+	public void setExecutionWorkspaces(ExecutionWorkspacePromotionService value) { this.executionWorkspaces = value; }
+
 	public ValidationRun start(String taskId) {
 		return start(taskId, null);
 	}
@@ -87,22 +100,53 @@ public class ValidationService {
 		audit(run, EventType.VALIDATION_STARTED, null, ValidationStatus.RUNNING,
 			"Validation started", Map.of("workspaceId", workspace.getWorkspaceId()));
 
+		return executeChecks(run, workspacePath, browserScenarioId);
+	}
+
+	public ValidationRun startDelivery(String changeSetId) {
+		if (changeService == null || executionWorkspaces == null)
+			throw new IllegalStateException("Delivery validation is not configured");
+		ChangeSet change = changeService.getChange(changeSetId)
+			.orElseThrow(() -> new ResourceNotFoundException("Change", changeSetId));
+		if (change.getStatus() != ChangeStatus.APPROVED)
+			throw new IllegalStateException("Change must be APPROVED before validation");
+		ExecutionWorkspace workspace = executionWorkspaces.findWorkspace(change.getTaskId());
+		if (workspace == null || !workspace.getId().equals(change.getWorkspaceId())
+				|| workspace.getStatus() != ExecutionWorkspaceStatus.COMPLETED)
+			throw new IllegalStateException("Approved change is not bound to a completed execution workspace");
+		Path path = Path.of(workspace.getExecutionWorkspace()).toAbsolutePath().normalize();
+		if (!Files.isDirectory(path)) throw new IllegalStateException("Execution workspace is unavailable");
+		ValidationRun run = new ValidationRun("validation-" + UUID.randomUUID(), change.getTaskId(),
+			change.getProjectId(), workspace.getId(), null, change.getExecutionId());
+		run.setExecutionWorkspaceId(workspace.getId());
+		run.setExecutionBranch(workspace.getExecutionBranch());
+		run.setBaseRevision(workspace.getBaseRevision());
+		run.setChangeSetId(changeSetId);
+		run.setDelivery(true);
+		run.setValidatedChangeFingerprint(executionWorkspaces.changeFingerprint(change.getTaskId()));
+		run.setStatus(ValidationStatus.RUNNING); run.setStartedAt(Instant.now()); repository.save(run);
+		audit(run, EventType.VALIDATION_STARTED, null, ValidationStatus.RUNNING,
+			"Delivery validation started", Map.of("changeSetId", changeSetId,
+				"executionWorkspaceId", workspace.getId()));
+		return executeChecks(run, path, null);
+	}
+
+	private ValidationRun executeChecks(ValidationRun run, Path workspacePath, String browserScenarioId) {
 		Map<String, Object> capabilities = detector.detect(workspacePath);
 		for (ValidationCheckType type : V1_CHECKS) {
 			run.getChecks().add(executeCheck(run, workspacePath, capabilities, type));
 			repository.save(run);
 		}
 		if (capabilities.containsKey("engineeringPlatformProjectYaml")) {
-			run.getChecks().add(executeCheck(run, workspacePath, capabilities,
-				ValidationCheckType.CONTRACT));
+			run.getChecks().add(executeCheck(run, workspacePath, capabilities, ValidationCheckType.CONTRACT));
 			repository.save(run);
 		}
 		audit(run, EventType.SECURITY_VALIDATION_STARTED, null, ValidationStatus.RUNNING,
 			"Security validation started", Map.of("scannerCount", SECURITY_SCANNERS.size()));
 		for (String scanner : SECURITY_SCANNERS) {
-			Map<String,Object> securityCapabilities=new java.util.LinkedHashMap<>(capabilities);
-			securityCapabilities.put("securityScanner",scanner);
-			run.getChecks().add(executeCheck(run,workspacePath,Map.copyOf(securityCapabilities),ValidationCheckType.SECURITY));
+			Map<String,Object> securityCapabilities = new java.util.LinkedHashMap<>(capabilities);
+			securityCapabilities.put("securityScanner", scanner);
+			run.getChecks().add(executeCheck(run, workspacePath, Map.copyOf(securityCapabilities), ValidationCheckType.SECURITY));
 			repository.save(run);
 		}
 		BrowserScenario browserScenario = browserScenarioId == null || browserScenarioId.isBlank()
@@ -113,9 +157,11 @@ public class ValidationService {
 			run.getChecks().add(executeCheck(run, workspacePath, Map.copyOf(browserCapabilities), ValidationCheckType.BROWSER));
 			repository.save(run);
 		}
+		if (run.isDelivery() && executionWorkspaces != null) {
+			run.setValidatedChangeFingerprint(executionWorkspaces.changeFingerprint(run.getTaskId()));
+		}
 		audit(run, EventType.SECURITY_VALIDATION_COMPLETED, ValidationStatus.RUNNING,
-			ValidationStatus.SUCCESS, "Security validation completed",
-			Map.of("scannerCount", SECURITY_SCANNERS.size()));
+			ValidationStatus.SUCCESS, "Security validation completed", Map.of("scannerCount", SECURITY_SCANNERS.size()));
 		complete(run);
 		return run;
 	}

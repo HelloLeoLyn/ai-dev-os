@@ -62,7 +62,13 @@ public class CommitService {
 	public CommitRecord commit(String changeId) {
 		ChangeSet change = changeService.getChange(changeId)
 			.orElseThrow(() -> new ResourceNotFoundException("Change", changeId));
-		if (qualityGateService != null) qualityGateService.assertAllowed(change.getTaskId());
+		if (qualityGateService != null) {
+			ExecutionWorkspace execution = executionWorkspaceService == null ? null
+				: executionWorkspaceService.findByTaskId(change.getTaskId());
+			if (execution != null && execution.getId().equals(change.getWorkspaceId()))
+				qualityGateService.assertAllowedForChange(change.getTaskId(), changeId);
+			else qualityGateService.assertAllowed(change.getTaskId());
+		}
 		if (change.getStatus() != ChangeStatus.APPROVED) {
 			throw new IllegalStateException("Only an APPROVED change can be committed "
 				+ "(current: " + change.getStatus() + ")");

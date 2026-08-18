@@ -11,6 +11,12 @@ public class ValidationRun {
 	private String workspaceId;
 	private String planRunId;
 	private String executionId;
+	private String executionWorkspaceId;
+	private String executionBranch;
+	private String baseRevision;
+	private String changeSetId;
+	private String validatedChangeFingerprint;
+	private boolean delivery;
 	private ValidationStatus status = ValidationStatus.PENDING;
 	private Instant startedAt;
 	private Instant completedAt;
@@ -42,6 +48,18 @@ public class ValidationRun {
 	public void setPlanRunId(String value) { planRunId = value; }
 	public String getExecutionId() { return executionId; }
 	public void setExecutionId(String value) { executionId = value; }
+	public String getExecutionWorkspaceId() { return executionWorkspaceId; }
+	public void setExecutionWorkspaceId(String value) { executionWorkspaceId = value; }
+	public String getExecutionBranch() { return executionBranch; }
+	public void setExecutionBranch(String value) { executionBranch = value; }
+	public String getBaseRevision() { return baseRevision; }
+	public void setBaseRevision(String value) { baseRevision = value; }
+	public String getChangeSetId() { return changeSetId; }
+	public void setChangeSetId(String value) { changeSetId = value; }
+	public String getValidatedChangeFingerprint() { return validatedChangeFingerprint; }
+	public void setValidatedChangeFingerprint(String value) { validatedChangeFingerprint = value; }
+	public boolean isDelivery() { return delivery; }
+	public void setDelivery(boolean value) { delivery = value; }
 	public ValidationStatus getStatus() { return status; }
 	public void setStatus(ValidationStatus value) { status = value; }
 	public Instant getStartedAt() { return startedAt; }

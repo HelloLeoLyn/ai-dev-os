@@ -15,6 +15,8 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.time.Instant;
+import java.security.MessageDigest;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -89,6 +91,19 @@ public class ExecutionWorkspacePromotionService {
     /** Read-only lookup for completion projections. */
     public ExecutionWorkspace workspace(String taskId) { return requiredWorkspace(taskId); }
     public ExecutionWorkspace findWorkspace(String taskId) { return repository.findByTaskId(taskId); }
+
+    /** Stable snapshot of the current execution-workspace content for validation/commit binding. */
+    public synchronized String changeFingerprint(String taskId) {
+        ExecutionWorkspace workspace = requiredWorkspace(taskId);
+        ExecutionWorkspaceReview review = review(taskId);
+        try {
+            String value = String.join("\n", workspace.getBaseRevision(), workspace.getExecutionBranch(),
+                review.getDiff(), review.getChangedFiles().stream().sorted().toList().toString(),
+                review.getUntrackedFiles().stream().sorted().toList().toString());
+            return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception ex) { throw new IllegalStateException("Unable to fingerprint execution workspace", ex); }
+    }
 
     public synchronized ExecutionWorkspace promote(String taskId) {
         ExecutionWorkspace workspace = requiredWorkspace(taskId);

@@ -21,6 +21,7 @@ export function startValidation(taskId: string, scenarioId?: string): Promise<Va
   const query = scenarioId ? `?scenarioId=${encodeURIComponent(scenarioId)}` : ''
   return apiClient.post<ValidationRun>(`/api/tasks/${encodeURIComponent(taskId)}/validations${query}`)
 }
+export function startDeliveryValidation(changeSetId:string):Promise<ValidationRun>{return apiClient.post(`/api/changes/${encodeURIComponent(changeSetId)}/validations`)}
 
 export function validationArtifactUrl(artifactId: string): string {
   return `/api/validation-artifacts/${encodeURIComponent(artifactId)}`

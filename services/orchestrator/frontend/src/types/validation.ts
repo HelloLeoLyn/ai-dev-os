@@ -32,6 +32,12 @@ export interface ValidationRun {
   checks: ValidationCheck[]
   decision?: ValidationDecision
   summary?: string
+  executionWorkspaceId?: string
+  executionBranch?: string
+  baseRevision?: string
+  changeSetId?: string
+  validatedChangeFingerprint?: string
+  delivery?: boolean
 }
 
 export type SecuritySeverity = 'INFO' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
@@ -39,4 +45,4 @@ export interface SecurityFinding { findingId:string; scanner:string; category:st
 export interface SecurityReport { reportId:string; taskId:string; projectId:string; workspaceId:string; validationRunId:string; scanner:string; status:string; findings:SecurityFinding[]; countsBySeverity:Record<SecuritySeverity,number>; startedAt:string; completedAt:string; durationMs:number; artifactIds:string[]; summary:string }
 export type QualityGateDecision='PASS'|'BLOCK'|'REQUIRE_APPROVAL'
 export interface QualityGateReason{code:string;severity:string;message:string;sourceType:string;sourceId:string;blocking:boolean}
-export interface QualityGateResult{gateResultId:string;validationRunId:string;taskId:string;projectId:string;workspaceId:string;decision:QualityGateDecision;status:string;policyVersion:string;evidenceFingerprint:string;reasons:QualityGateReason[];securitySummary:Record<string,number>;validationSummary:Record<string,unknown>;createdAt:string;decidedAt:string;approvalId?:string}
+export interface QualityGateResult{gateResultId:string;validationRunId:string;taskId:string;projectId:string;workspaceId:string;changeSetId?:string;executionWorkspaceId?:string;validatedChangeFingerprint?:string;decision:QualityGateDecision;status:string;policyVersion:string;evidenceFingerprint:string;reasons:QualityGateReason[];securitySummary:Record<string,number>;validationSummary:Record<string,unknown>;createdAt:string;decidedAt:string;approvalId?:string}

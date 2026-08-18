@@ -16,6 +16,11 @@ import com.aidevos.orchestrator.validation.provider.ValidationProvider;
 import com.aidevos.orchestrator.workspace.Workspace;
 import com.aidevos.orchestrator.workspace.WorkspaceService;
 import com.aidevos.orchestrator.workspace.WorkspaceStatus;
+import com.aidevos.orchestrator.change.ChangeService;
+import com.aidevos.orchestrator.change.ChangeSet;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspace;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspacePromotionService;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspaceStatus;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.ObjectMapper;
@@ -52,6 +57,31 @@ class ValidationServiceTest {
 			() -> fixture.service().start("missing"));
 		assertThrows(com.aidevos.orchestrator.common.exception.ResourceNotFoundException.class,
 			() -> fixture.service().get("invalid"));
+	}
+
+	@Test void deliveryValidationUsesApprovedExecutionWorkspaceLineage() {
+		TaskCenterService tasks = mock(TaskCenterService.class);
+		WorkspaceService sources = mock(WorkspaceService.class);
+		ChangeService changes = mock(ChangeService.class);
+		ExecutionWorkspacePromotionService execution = mock(ExecutionWorkspacePromotionService.class);
+		ChangeSet change = new ChangeSet("change-delivery", "task-1", "exec-ws-1", "project-1", "exec-1",
+			"ai-dev-os/task-1", "diff", "stat", 1, 1, 0, 1, 0, 0, Instant.now());
+		change.markReviewing(); change.markApproved("user");
+		when(changes.getChange("change-delivery")).thenReturn(Optional.of(change));
+		ExecutionWorkspace workspace = new ExecutionWorkspace("exec-ws-1", "task-1", "project-1", "source-1",
+			"/source", workspacePath.toString(), "GIT_WORKTREE", "ai-dev-os/task-1",
+			ExecutionWorkspaceStatus.COMPLETED, "base-1", Instant.now(), Instant.now());
+		when(execution.findWorkspace("task-1")).thenReturn(workspace);
+		when(execution.changeFingerprint("task-1")).thenReturn("fp-1");
+		ValidationService service = fixture(true).service();
+		service.setChangeService(changes); service.setExecutionWorkspaces(execution);
+
+		ValidationRun run = service.startDelivery("change-delivery");
+		assertTrue(run.isDelivery());
+		assertEquals("exec-ws-1", run.getExecutionWorkspaceId());
+		assertEquals("change-delivery", run.getChangeSetId());
+		assertEquals("fp-1", run.getValidatedChangeFingerprint());
+		assertEquals(ValidationDecision.PASS, run.getDecision());
 	}
 
 	@Test void engineeringConformanceEvidenceIsRecordedThroughValidationService() throws Exception {

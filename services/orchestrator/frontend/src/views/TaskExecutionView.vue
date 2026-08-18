@@ -25,6 +25,8 @@ import { getTaskChanges, reviewChange, approveChange, rejectChange, commitChange
 import type { ChangeSet } from '../api/changes'
 import { getTaskCommits } from '../api/commits'
 import type { CommitRecord } from '../api/commits'
+import { getTaskValidations, startDeliveryValidation, getQualityGates, evaluateQualityGate, approveQualityGate, rejectQualityGate } from '../api/validations'
+import type { ValidationRun, QualityGateResult } from '../types/validation'
 
 const route = useRoute()
 const taskId = String(route.params.taskId || '')
@@ -45,6 +47,9 @@ const remotePushApprovals = ref<RemotePushApproval[]>([])
 const changes = ref<ChangeSet[]>([])
 const commits = ref<CommitRecord[]>([])
 const changeRetrying = ref(false)
+const deliveryValidation = ref<ValidationRun | null>(null)
+const deliveryGate = ref<QualityGateResult | null>(null)
+const validationBusy = ref(false)
 const monitoredTask = taskNotifications.taskState(taskId)
 const pendingRecord = computed(() => executions.records.value.slice().reverse().find(record => record.status === 'WAITING_APPROVAL' && record.approvalId && record.jobId && jobs.value[record.jobId]?.status === 'WAITING_APPROVAL' && codingApprovals.value[record.approvalId]?.status === 'PENDING') ?? null)
 const pendingApproval = computed(() => pendingRecord.value?.approvalId ? codingApprovals.value[pendingRecord.value.approvalId] ?? null : null)
@@ -81,6 +86,9 @@ async function loadExecutionState(): Promise<void> {
   remotePushApprovals.value = await getRemotePushApprovals(taskId).catch(() => [])
   changes.value = await getTaskChanges(taskId).catch(() => [])
   commits.value = await getTaskCommits(taskId).catch(() => [])
+  const validationRuns = await getTaskValidations(taskId).catch(() => [])
+  deliveryValidation.value = validationRuns.filter(run => run.delivery).sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0] ?? null
+  deliveryGate.value = deliveryValidation.value ? (await getQualityGates(deliveryValidation.value.validationRunId).catch(() => []))[0] ?? null : null
 }
 async function changeAction(id: string, action: 'review'|'approve'|'reject'|'commit'): Promise<void> {
   try {
@@ -97,6 +105,27 @@ async function retryChangeProjection(): Promise<void> {
   try { await retryChangeProjectionApi(taskId); await loadExecutionState() }
   catch (error) { ElMessage.error(error instanceof Error ? error.message : 'ChangeSet projection failed.') }
   finally { changeRetrying.value = false }
+}
+async function runDeliveryValidation(change: ChangeSet): Promise<void> {
+  if (validationBusy.value || change.status !== 'APPROVED') return
+  validationBusy.value = true
+  try { deliveryValidation.value = await startDeliveryValidation(change.changeId); deliveryGate.value = null; await loadExecutionState(); ElMessage.success('Delivery validation completed.') }
+  catch (error) { ElMessage.error(error instanceof Error ? error.message : 'Delivery validation failed.') }
+  finally { validationBusy.value = false }
+}
+async function evaluateDeliveryGate(): Promise<void> {
+  if (!deliveryValidation.value || validationBusy.value) return
+  validationBusy.value = true
+  try { deliveryGate.value = await evaluateQualityGate(deliveryValidation.value.validationRunId); await loadExecutionState() }
+  catch (error) { ElMessage.error(error instanceof Error ? error.message : 'Quality Gate evaluation failed.') }
+  finally { validationBusy.value = false }
+}
+async function decideDeliveryGate(approve: boolean): Promise<void> {
+  if (!deliveryGate.value || validationBusy.value) return
+  validationBusy.value = true
+  try { deliveryGate.value = approve ? await approveQualityGate(deliveryGate.value.gateResultId) : await rejectQualityGate(deliveryGate.value.gateResultId); await loadExecutionState() }
+  catch (error) { ElMessage.error(error instanceof Error ? error.message : 'Quality Gate decision failed.') }
+  finally { validationBusy.value = false }
 }
 async function decideRemotePush(action: 'approve' | 'reject'): Promise<void> {
   const approval = pendingRemotePush.value
@@ -187,7 +216,14 @@ function reload(): void { void Promise.all([context.load(taskId), loadExecutionS
           <el-button v-if="change.status === 'CREATED'" @click="changeAction(change.changeId, 'review')">Start Review</el-button>
           <el-button v-if="change.status === 'REVIEWING'" type="primary" @click="changeAction(change.changeId, 'approve')">Approve Change</el-button>
           <el-button v-if="change.status === 'REVIEWING'" @click="changeAction(change.changeId, 'reject')">Reject Change</el-button>
-          <el-button v-if="change.status === 'APPROVED'" type="primary" @click="changeAction(change.changeId, 'commit')">Commit Change</el-button>
+          <el-button v-if="change.status === 'APPROVED'" type="primary" :disabled="deliveryGate?.decision !== 'PASS'" @click="changeAction(change.changeId, 'commit')">Commit Change</el-button>
+        </div>
+        <div v-if="change.status === 'APPROVED'" class="validation-delivery">
+          <span>Validation: <StatusBadge :status="deliveryValidation?.status || 'NOT_RUN'" /></span>
+          <span>Quality Gate: <StatusBadge :status="deliveryGate?.decision || 'NOT_EVALUATED'" /></span>
+          <el-button v-if="!deliveryValidation || deliveryValidation.status === 'FAILED'" :loading="validationBusy" @click="runDeliveryValidation(change)">Run Validation</el-button>
+          <el-button v-if="deliveryValidation?.status === 'SUCCESS' && !deliveryGate" :loading="validationBusy" @click="evaluateDeliveryGate">Evaluate Quality Gate</el-button>
+          <template v-if="deliveryGate?.decision === 'REQUIRE_APPROVAL'"><el-button type="warning" :loading="validationBusy" @click="decideDeliveryGate(true)">Approve Quality Gate</el-button><el-button :loading="validationBusy" @click="decideDeliveryGate(false)">Reject Quality Gate</el-button></template>
         </div>
       </div>
       <div v-for="commit in commits" :key="commit.commitId" class="delivery-card"><strong>Commit</strong> <TechnicalId :value="commit.commitId" label="Commit" /> <StatusBadge :status="commit.status" /><span> {{ commit.branch }} {{ commit.gitHash || '' }}</span></div>
