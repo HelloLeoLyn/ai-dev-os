@@ -19,6 +19,8 @@ import { ElMessage } from 'element-plus'
 import { getExecutionWorkspace, getExecutionWorkspaceReview, promoteExecutionWorkspace, rejectExecutionWorkspace } from '../api/executions'
 import type { ExecutionWorkspaceReview } from '../api/executions'
 import type { ExecutionWorkspace } from '../types/executionWorkspace'
+import { getRemotePushApprovals, approveRemotePush, rejectRemotePush, pushRemote } from '../api/remotePush'
+import type { RemotePushApproval } from '../api/remotePush'
 
 const route = useRoute()
 const taskId = String(route.params.taskId || '')
@@ -35,11 +37,13 @@ const promotionBusy = ref(false)
 const diffVisible = ref(false)
 const approvalBusy = ref(false)
 const taskNotifications = useTaskNotifications()
+const remotePushApprovals = ref<RemotePushApproval[]>([])
 const monitoredTask = taskNotifications.taskState(taskId)
 const pendingRecord = computed(() => executions.records.value.slice().reverse().find(record => record.status === 'WAITING_APPROVAL' && record.approvalId && record.jobId && jobs.value[record.jobId]?.status === 'WAITING_APPROVAL' && codingApprovals.value[record.approvalId]?.status === 'PENDING') ?? null)
 const pendingApproval = computed(() => pendingRecord.value?.approvalId ? codingApprovals.value[pendingRecord.value.approvalId] ?? null : null)
 const approvalHistory = computed(() => Object.values(codingApprovals.value).filter(approval => approval.taskId === taskId && (!latestJob.value?.id || approval.jobId === latestJob.value.id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt)))
 const requiresCodingApproval = computed(() => pendingApproval.value?.status === 'PENDING' || pendingApproval.value?.status === 'APPROVED')
+const pendingRemotePush = computed(() => remotePushApprovals.value.find(item => item.status === 'PENDING') ?? null)
 const latestRecord = computed(() => executions.records.value.at(-1) ?? null)
 const latestJob = computed(() => latestRecord.value?.jobId ? jobs.value[latestRecord.value.jobId] ?? null : null)
 const lastFlowEvent = computed(() => taskTimeline.timeline.value?.events.at(-1) ?? null)
@@ -67,6 +71,22 @@ async function loadExecutionState(): Promise<void> {
   codingApprovals.value = Object.fromEntries(loadedApprovals.filter(item => item.taskId === taskId).map(item => [item.id, item]))
   executionWorkspace.value = await getExecutionWorkspace(taskId).catch(() => null)
   workspaceReview.value = executionWorkspace.value ? await getExecutionWorkspaceReview(taskId).catch(() => null) : null
+  remotePushApprovals.value = await getRemotePushApprovals(taskId).catch(() => [])
+}
+async function decideRemotePush(action: 'approve' | 'reject'): Promise<void> {
+  const approval = pendingRemotePush.value
+  if (!approval || approvalBusy.value) return
+  approvalBusy.value = true
+  try {
+    if (action === 'approve') {
+      const approved = await approveRemotePush(approval.approvalId)
+      await pushRemote(approved.commitId, approved.remote, approved.approvalId)
+    }
+    else await rejectRemotePush(approval.approvalId)
+    await loadExecutionState()
+    ElMessage.success(action === 'approve' ? 'Remote push approved. Push execution may proceed.' : 'Remote push rejected.')
+  } catch (error) { ElMessage.error(error instanceof Error ? error.message : 'Remote push approval failed.') }
+  finally { approvalBusy.value = false }
 }
 async function promoteWorkspace(): Promise<void> {
   if (promotionBusy.value || !['COMPLETED', 'PROMOTION_FAILED'].includes(executionWorkspace.value?.status || '') || workspaceReview.value?.completeness !== 'COMPLETE') return
@@ -121,6 +141,7 @@ function reload(): void { void Promise.all([context.load(taskId), loadExecutionS
       <div class="approval-actions"><el-button type="primary" :loading="approvalBusy" :disabled="pendingApproval.status !== 'PENDING'" @click="decideCodingApproval('approve')">Approve Workspace Write</el-button><el-button :loading="approvalBusy" :disabled="pendingApproval.status !== 'PENDING'" @click="decideCodingApproval('reject')">Reject</el-button></div>
     </section>
     <section v-if="approvalHistory.length" class="approval-history" aria-label="Approval History"><h2>Approval History</h2><ol><li v-for="approval in approvalHistory" :key="approval.id"><strong>{{ approval.operation }}</strong><span>{{ approval.authority }}</span><StatusBadge :status="approval.status" /><TechnicalId :value="approval.id" label="Approval" /></li></ol></section>
+    <section v-if="remotePushApprovals.length" class="approval-action remote-push-approval" aria-label="Remote Push Approval"><p class="page-eyebrow">Remote Push</p><h2>{{ pendingRemotePush ? 'Action Required: Approve Remote Push' : 'Remote Push Approval' }}</h2><dl class="approval-grid"><div><dt>Authority</dt><dd>REMOTE</dd></div><div><dt>Operation</dt><dd>PUSH_TASK_BRANCH</dd></div><div><dt>Remote</dt><dd>{{ (pendingRemotePush || remotePushApprovals[0]).remote }}</dd></div><div><dt>Branch</dt><dd><code>{{ (pendingRemotePush || remotePushApprovals[0]).executionBranch }}</code></dd></div><div><dt>Commit</dt><dd><TechnicalId :value="(pendingRemotePush || remotePushApprovals[0]).commitId" label="Commit" /></dd></div><div><dt>Approval Status</dt><dd><StatusBadge :status="(pendingRemotePush || remotePushApprovals[0]).status" /></dd></div></dl><div v-if="pendingRemotePush" class="approval-actions"><el-button type="primary" :loading="approvalBusy" @click="decideRemotePush('approve')">Approve Remote Push</el-button><el-button :loading="approvalBusy" @click="decideRemotePush('reject')">Reject Remote Push</el-button></div></section>
     <div class="execution-overview"><article><span>PlanRun</span><TechnicalId :value="context.task.value.planRunId" label="PlanRun" /></article><article><span>Current StepRun</span><TechnicalId :value="executions.records.value.at(-1)?.stepRunId" label="StepRun" /></article><article><span>Execution history</span><strong>{{ executions.records.value.length }}</strong></article><article><span>Result</span><StatusBadge :status="context.task.value.status" /></article></div>
     <section v-if="executionWorkspace" class="workspace-isolation" aria-label="Workspace Isolation"><h2>Workspace Isolation</h2><p>Execution is isolated from the source workspace.</p><dl><div><dt>Source Workspace</dt><dd>{{ executionWorkspace.sourceWorkspace }}</dd></div><div><dt>Execution Workspace</dt><dd>{{ executionWorkspace.executionWorkspace }}</dd></div><div><dt>Strategy</dt><dd>{{ executionWorkspace.strategy }}</dd></div><div><dt>Base Revision</dt><dd>{{ executionWorkspace.baseRevision }}</dd></div><div><dt>Status</dt><dd><StatusBadge :status="executionWorkspace.status" /></dd></div></dl></section>
     <section v-if="workspaceReview && ['COMPLETED','PROMOTING','PROMOTED','REJECTED','PROMOTION_FAILED'].includes(executionWorkspace?.status || '')" class="review-changes" aria-label="Review Changes">

@@ -32,6 +32,11 @@ public class RemoteBranchRecord {
 		this.createdAt = createdAt;
 		this.updatedAt = createdAt;
 	}
+	public static RemoteBranchRecord restore(String remoteId,String taskId,String workspaceId,String commitId,
+			String branch,String remote,String url,Instant createdAt,RemoteStatus status,Instant updatedAt) {
+		RemoteBranchRecord v=new RemoteBranchRecord(remoteId,taskId,workspaceId,commitId,branch,remote,url,createdAt);
+		v.status=status==null?RemoteStatus.PENDING:status; v.updatedAt=updatedAt==null?createdAt:updatedAt; return v;
+	}
 
 	public synchronized void markPushing() {
 		requireStatus(RemoteStatus.PENDING, "Only a PENDING push can start");

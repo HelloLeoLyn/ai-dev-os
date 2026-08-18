@@ -10,6 +10,7 @@ import com.aidevos.orchestrator.plan.Plan;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalRequest;
 import com.aidevos.orchestrator.plan.run.*;
 import com.aidevos.orchestrator.tool.approval.ToolApprovalRequest;
+import com.aidevos.orchestrator.remote.*;
 
 final class PersistenceSnapshots {
 	private PersistenceSnapshots() { }
@@ -31,6 +32,15 @@ final class PersistenceSnapshots {
 		String reason,String authority,String operation,Instant createdAt,ApprovalStatus status,Instant decidedAt) {
 		static CodingApproval of(CodingApprovalRequest v){return new CodingApproval(v.getId(),v.getTaskId(),v.getJobId(),v.getWorkspace(),v.getSandbox(),v.getReason(),v.getAuthority(),v.getOperation(),v.getCreatedAt(),v.getStatus(),v.getDecidedAt());}
 		CodingApprovalRequest value(){return CodingApprovalRequest.restore(id,taskId,jobId,workspace,sandbox,reason,authority,operation,createdAt,status,decidedAt);}
+	}
+	record RemotePushApproval(String id,String taskId,String workspaceId,String branch,String commitId,
+		String commitHash,String remote,String targetRef,Instant createdAt,Instant updatedAt,RemotePushApprovalStatus status){
+		static RemotePushApproval of(com.aidevos.orchestrator.remote.RemotePushApproval v){return new RemotePushApproval(v.getApprovalId(),v.getTaskId(),v.getExecutionWorkspaceId(),v.getExecutionBranch(),v.getCommitId(),v.getCommitHash(),v.getRemote(),v.getTargetRef(),v.getCreatedAt(),v.getUpdatedAt(),v.getStatus());}
+		com.aidevos.orchestrator.remote.RemotePushApproval value(){return com.aidevos.orchestrator.remote.RemotePushApproval.restore(id,taskId,workspaceId,branch,commitId,commitHash,remote,targetRef,createdAt,updatedAt,status);}
+	}
+	record RemoteBranch(String id,String taskId,String workspaceId,String commitId,String branch,String remote,String url,Instant createdAt,RemoteStatus status,Instant updatedAt){
+		static RemoteBranch of(com.aidevos.orchestrator.remote.RemoteBranchRecord v){return new RemoteBranch(v.getRemoteId(),v.getTaskId(),v.getWorkspaceId(),v.getCommitId(),v.getBranch(),v.getRemote(),v.getUrl(),v.getCreatedAt(),v.getStatus(),v.getUpdatedAt());}
+		com.aidevos.orchestrator.remote.RemoteBranchRecord value(){return com.aidevos.orchestrator.remote.RemoteBranchRecord.restore(id,taskId,workspaceId,commitId,branch,remote,url,createdAt,status,updatedAt);}
 	}
 	record ToolApproval(String id,String executionId,String invocationId,String jobId,String providerId,
 		String toolName,String argumentsHash,String workspace,String permissionLevel,String reason,

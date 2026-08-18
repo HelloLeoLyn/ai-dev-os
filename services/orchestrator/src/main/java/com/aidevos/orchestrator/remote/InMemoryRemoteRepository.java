@@ -14,7 +14,7 @@ import org.springframework.stereotype.Repository;
  * implementation can be added later without touching the service.
  */
 @Repository
-@ConditionalOnProperty(prefix = "aidevos.persistence", name = "type", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "aidevos.persistence", name = "type", havingValue = "in-memory", matchIfMissing = true)
 public class InMemoryRemoteRepository implements RemoteRepository {
 
 	private final Map<String, RemoteBranchRecord> records = new LinkedHashMap<>();

@@ -21,6 +21,8 @@ import com.aidevos.orchestrator.network.NetworkSettingsRepository;
 import com.aidevos.orchestrator.backlog.BacklogRepository;
 import com.aidevos.orchestrator.analysis.AnalysisInsightRepository;
 import com.aidevos.orchestrator.analysis.RecommendationDecisionRepository;
+import com.aidevos.orchestrator.remote.RemoteRepository;
+import com.aidevos.orchestrator.remote.RemotePushApprovalRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -134,4 +136,6 @@ public class PostgresRepositoryAutoConfiguration {
 	@Bean RecommendationDecisionRepository recommendationDecisionRepository(DataSource source) {
 		return new PostgresRecommendationDecisionRepository(source);
 	}
+	@Bean RemoteRepository remoteRepository(DataSource source, ObjectMapper mapper) { return new PostgresRemoteRepository(source, mapper); }
+	@Bean RemotePushApprovalRepository remotePushApprovalRepository(DataSource source, ObjectMapper mapper) { return new PostgresRemotePushApprovalRepository(source, mapper); }
 }

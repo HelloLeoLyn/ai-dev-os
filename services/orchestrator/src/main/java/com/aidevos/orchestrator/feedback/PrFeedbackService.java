@@ -165,8 +165,12 @@ public class PrFeedbackService {
 				feedback.getFeedbackId(), from, FeedbackStatus.PUSHED.name(),
 				"Change committed: " + value(commit.getGitHash()),
 				Map.of("commitId", commit.getCommitId()));
-			repository.save(feedback);
-
+			 repository.save(feedback);
+			if (remoteGitService.requiresRemotePushApproval()) {
+				remoteGitService.requestApproval(commit.getCommitId(), null);
+				repository.save(feedback);
+				return feedback;
+			}
 			RemoteBranchRecord push = remoteGitService.push(commit.getCommitId(), null);
 			from = feedback.getStatus().name();
 			feedback.markRechecking();
@@ -195,6 +199,22 @@ public class PrFeedbackService {
 			repository.save(feedback);
 			return feedback;
 		}
+	}
+
+	/** Completes the feedback loop after an independently approved remote push. */
+	public void onRemotePushSucceeded(RemoteBranchRecord push) {
+		if (push == null) return;
+		PrFeedbackRecord feedback = latestByTask(push.getTaskId()).orElse(null);
+		if (feedback == null || !push.getCommitId().equals(feedback.getCommitId())) return;
+		try {
+			if (feedback.getStatus() == FeedbackStatus.WAITING_REVIEW) feedback.markPushed();
+			if (feedback.getStatus() == FeedbackStatus.PUSHED) feedback.markRechecking();
+			repository.save(feedback);
+			if (ciService != null) {
+				CiRunRecord run=ciService.check(feedback.getPullRequestId(), value(commitService.getCommit(push.getCommitId()).map(CommitRecord::getGitHash).orElse("")));
+				if (run != null) { feedback.linkCiRun(run.getCiRunId()); repository.save(feedback); }
+			}
+		} catch (RuntimeException ignored) { feedback.markFailed(); repository.save(feedback); }
 	}
 
 	/**

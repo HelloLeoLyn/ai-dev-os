@@ -14,6 +14,7 @@ import com.aidevos.orchestrator.plan.approval.*;
 import com.aidevos.orchestrator.plan.run.*;
 import com.aidevos.orchestrator.planner.replan.*;
 import com.aidevos.orchestrator.tool.approval.*;
+import com.aidevos.orchestrator.remote.*;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Repository;
 import tools.jackson.databind.ObjectMapper;
@@ -26,6 +27,28 @@ class PostgresCodingApprovalRepository implements CodingApprovalRepository {
 	public CodingApprovalRequest get(String id){var v=store.get(TYPE,id,PersistenceSnapshots.CodingApproval.class);return v==null?null:v.value();}
 	public List<CodingApprovalRequest> getAll(){return store.all(TYPE,PersistenceSnapshots.CodingApproval.class).stream().map(PersistenceSnapshots.CodingApproval::value).toList();}
 	public CodingApprovalRequest findReusable(String taskId,String jobId,String authority,String operation){String key=jobId==null?"task:"+taskId:"job:"+jobId;return store.allBySecondary(TYPE,key,PersistenceSnapshots.CodingApproval.class).stream().map(PersistenceSnapshots.CodingApproval::value).filter(v->v.getStatus()==ApprovalStatus.PENDING||v.getStatus()==ApprovalStatus.APPROVED).filter(v->authority.equals(v.getAuthority())&&operation.equals(v.getOperation())).reduce((a,b)->b).orElse(null);}
+}
+
+@ConditionalOnProperty(prefix="aidevos.persistence",name="type",havingValue="postgresql")
+class PostgresRemotePushApprovalRepository implements RemotePushApprovalRepository {
+	private static final String TYPE="remote-push-approval"; private volatile PostgresDocumentStore store; private final javax.sql.DataSource source; private final tools.jackson.databind.ObjectMapper mapper;
+	PostgresRemotePushApprovalRepository(javax.sql.DataSource source,tools.jackson.databind.ObjectMapper mapper){this.source=source;this.mapper=mapper;}
+	private PostgresDocumentStore store(){if(store==null)synchronized(this){if(store==null)store=new PostgresDocumentStore(source,mapper);}return store;}
+	public void save(RemotePushApproval v){store().put(TYPE,v.getApprovalId(),PersistenceSnapshots.RemotePushApproval.of(v),"push:"+v.getTaskId()+":"+v.getCommitId()+":"+v.getRemote()+":"+v.getExecutionBranch());}
+	public RemotePushApproval get(String id){var v=store().get(TYPE,id,PersistenceSnapshots.RemotePushApproval.class);return v==null?null:v.value();}
+	public List<RemotePushApproval> getAll(){return store().all(TYPE,PersistenceSnapshots.RemotePushApproval.class).stream().map(PersistenceSnapshots.RemotePushApproval::value).toList();}
+	public RemotePushApproval findPending(String taskId,String commitId,String hash,String remote,String branch){return getAll().stream().filter(v->taskId.equals(v.getTaskId())&&commitId.equals(v.getCommitId())&&hash.equals(v.getCommitHash())&&remote.equals(v.getRemote())&&branch.equals(v.getExecutionBranch())).filter(v->v.getStatus()==RemotePushApprovalStatus.PENDING||v.getStatus()==RemotePushApprovalStatus.APPROVED).findFirst().orElse(null);}
+}
+
+@ConditionalOnProperty(prefix="aidevos.persistence",name="type",havingValue="postgresql")
+class PostgresRemoteRepository implements RemoteRepository {
+	private static final String TYPE="remote-branch"; private volatile PostgresDocumentStore store; private final javax.sql.DataSource source; private final tools.jackson.databind.ObjectMapper mapper;
+	PostgresRemoteRepository(javax.sql.DataSource source,tools.jackson.databind.ObjectMapper mapper){this.source=source;this.mapper=mapper;}
+	private PostgresDocumentStore store(){if(store==null)synchronized(this){if(store==null)store=new PostgresDocumentStore(source,mapper);}return store;}
+	public void save(RemoteBranchRecord v){store().put(TYPE,v.getRemoteId(),PersistenceSnapshots.RemoteBranch.of(v),"task:"+v.getTaskId());}
+	public RemoteBranchRecord get(String id){var v=store().get(TYPE,id,PersistenceSnapshots.RemoteBranch.class);return v==null?null:v.value();}
+	public List<RemoteBranchRecord> getByTaskId(String taskId){return store().allBySecondary(TYPE,"task:"+taskId,PersistenceSnapshots.RemoteBranch.class).stream().map(PersistenceSnapshots.RemoteBranch::value).toList();}
+	public List<RemoteBranchRecord> list(){return store().all(TYPE,PersistenceSnapshots.RemoteBranch.class).stream().map(PersistenceSnapshots.RemoteBranch::value).toList();}
 }
 
 @Repository @ConditionalOnProperty(prefix="aidevos.persistence",name="type",havingValue="postgresql")
