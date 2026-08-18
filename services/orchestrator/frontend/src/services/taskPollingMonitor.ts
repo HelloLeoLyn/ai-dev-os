@@ -1,4 +1,5 @@
 import type { TaskRecord, TaskStatus } from '../types/task'
+import { ApiError } from '../api/client'
 
 export const TERMINAL_TASK_STATUSES = new Set<TaskStatus>([
   'SUCCESS', 'COMPLETED', 'FAILED', 'REJECTED',
@@ -115,7 +116,12 @@ export class TaskPollingMonitor {
         lastStatus: task.status,
       })
       this.persist()
-    } catch {
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        this.tasks.delete(taskId)
+        this.persist()
+        return
+      }
       // A transient polling failure is not a Task failure. Keep monitoring.
     } finally {
       if (reschedule && this.started && this.tasks.has(taskId)) this.scheduleNext(taskId)

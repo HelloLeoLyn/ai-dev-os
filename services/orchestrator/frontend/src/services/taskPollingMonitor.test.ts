@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { ApiError } from '../api/client'
 import {
   TaskPollingMonitor,
   type MonitorStorage,
@@ -116,6 +117,36 @@ describe('TaskPollingMonitor', () => {
     await expect(h.monitor.pollNow('route-free')).resolves.toBeUndefined()
     expect(h.monitor.monitoredTaskIds()).toEqual(['route-free'])
     expect(h.onTerminal).not.toHaveBeenCalled()
+  })
+
+  it('stops polling and persists removal when a task no longer exists', async () => {
+    const h = harness()
+    h.monitor.track(task('missing', 'RUNNING'))
+    h.fetchTask.mockRejectedValue(new ApiError(404, 'Task not found'))
+
+    await h.monitor.pollNow('missing')
+
+    expect(h.monitor.monitoredTaskIds()).toEqual([])
+    expect(h.storedTasks()).toEqual([])
+    await h.monitor.pollNow('missing')
+    expect(h.fetchTask).toHaveBeenCalledOnce()
+  })
+
+  it('stops only the missing task while another task keeps polling', async () => {
+    const h = harness()
+    h.monitor.track(task('missing', 'RUNNING'))
+    h.monitor.track(task('active', 'RUNNING'))
+    h.fetchTask.mockImplementation(async (id) => {
+      if (id === 'missing') throw new ApiError(404, 'Task not found')
+      return task(id, 'RUNNING')
+    })
+
+    await h.monitor.pollNow('missing')
+    await h.monitor.pollNow('active')
+
+    expect(h.monitor.monitoredTaskIds()).toEqual(['active'])
+    expect(h.fetchTask).toHaveBeenNthCalledWith(1, 'missing')
+    expect(h.fetchTask).toHaveBeenNthCalledWith(2, 'active')
   })
 
   it('handles REJECTED as a distinct terminal state', async () => {
