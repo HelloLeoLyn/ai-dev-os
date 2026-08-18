@@ -29,6 +29,8 @@ describe('execution transparency UX', () => {
   })
 
   it('requires complete review before allowing promotion and renders new-file diffs', () => {
+    expect(source).toContain("!['COMPLETED', 'PROMOTION_FAILED'].includes(executionWorkspace.value?.status || '')")
+    expect(source).toContain("v-if=\"['COMPLETED','PROMOTION_FAILED'].includes(executionWorkspace?.status || '')\"")
     expect(source).toContain("workspaceReview.value?.completeness !== 'COMPLETE'")
     expect(source).toContain(':disabled="workspaceReview.completeness !== \'COMPLETE\'"')
     expect(source).toContain('Review is incomplete:')
@@ -40,5 +42,10 @@ describe('execution transparency UX', () => {
     expect(source).toContain('getExecutionWorkspace(taskId).then(value => { executionWorkspace.value = value })')
     expect(source).toContain('getExecutionWorkspaceReview(taskId).then(value => { workspaceReview.value = value })')
     expect(source).not.toContain("executionWorkspace?.status === 'PROMOTION_FAILED' && promoteWorkspace")
+    expect(source).toContain("executionWorkspace?.status === 'PROMOTION_FAILED' ? 'Retry Promote to Source Workspace'")
+  })
+
+  it('does not offer promote or reject after terminal promotion outcomes', () => {
+    expect(source).toContain("v-if=\"['COMPLETED','PROMOTION_FAILED'].includes(executionWorkspace?.status || '')\"")
   })
 })
