@@ -2,6 +2,7 @@ package com.aidevos.orchestrator.persistence.postgresql;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import com.aidevos.orchestrator.approval.*;
 import com.aidevos.orchestrator.job.*;
 import com.aidevos.orchestrator.model.TaskDefinition;
@@ -29,6 +30,52 @@ class PersistenceSnapshotsTest {
 		PlanRun run=new PlanRun("run-1","approval-1",plan,List.of(step),Instant.now()); run.markRunning(Instant.now());
 		var runSnapshot=roundTrip(PersistenceSnapshots.Run.of(run),PersistenceSnapshots.Run.class).value();
 		assertEquals(PlanRunStatus.RUNNING,runSnapshot.getStatus()); assertEquals("job-1",runSnapshot.getSteps().getFirst().getCurrentAttempt().getJobId());
+	}
+
+	@Test void legacyPlanApprovalWithoutWorkspaceChangeDefaultsToFalse() throws Exception {
+		String json = """
+			{"id":"approval-legacy","requestId":"request-legacy","plan":{
+			"id":"plan-legacy","version":1,"goal":"legacy","status":"APPROVED",
+			"steps":[{"id":"step-1","name":"legacy step","description":"legacy",
+			"status":"PLANNED","assignment":null,"parameters":{},"inputArtifacts":[],
+			"toolProviderId":null,"toolName":null,"toolArguments":{},"expectedArtifacts":[],
+			"retryPolicy":null,"failurePolicy":null,"skipApproval":false,"operation":null}],
+			"dependencies":[],"snapshot":null,"createdAt":"2026-08-18T00:00:00Z"},
+			"hash":"hash","createdAt":"2026-08-18T00:00:00Z","status":"PENDING",
+			"decision":"PENDING","decidedAt":null,"approver":null,"rejectionReason":null}
+			""";
+		var restored = mapper.readValue(json, PersistenceSnapshots.PlanApproval.class).value();
+		assertFalse(restored.getPlan().steps().getFirst().requiresWorkspaceChange());
+	}
+
+	@Test void legacyPlanApprovalNullWorkspaceChangeDefaultsToFalse() throws Exception {
+		String json = """
+			{"id":"approval-null","requestId":"request-null","plan":{
+			"id":"plan-null","version":1,"goal":"legacy","status":"APPROVED",
+			"steps":[{"id":"step-1","name":"legacy step","description":"legacy",
+			"status":"PLANNED","assignment":null,"parameters":{},"inputArtifacts":[],
+			"toolProviderId":null,"toolName":null,"toolArguments":{},"expectedArtifacts":[],
+			"retryPolicy":null,"failurePolicy":null,"skipApproval":false,"operation":null,
+			"requiresWorkspaceChange":null}],
+			"dependencies":[],"snapshot":null,"createdAt":"2026-08-18T00:00:00Z"},
+			"hash":"hash","createdAt":"2026-08-18T00:00:00Z","status":"PENDING",
+			"decision":"PENDING","decidedAt":null,"approver":null,"rejectionReason":null}
+			""";
+		var restored = mapper.readValue(json, PersistenceSnapshots.PlanApproval.class).value();
+		assertFalse(restored.getPlan().steps().getFirst().requiresWorkspaceChange());
+	}
+
+	@Test void planApprovalWorkspaceChangeTrueRoundTrips() throws Exception {
+		PlanStep step = new PlanStep("step-1", "change", "change", StepStatus.PLANNED,
+				new AgentAssignment("coder", List.of("coding"), List.of()), Map.of(), List.of(), null, null,
+				Map.of(), List.of(), RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN, false, null, true);
+		Plan plan = new Plan("plan-true", 1, "change", PlanStatus.APPROVED, List.of(step),
+				List.of(), null, Instant.parse("2026-08-18T00:00:00Z"));
+		var approval = new com.aidevos.orchestrator.plan.approval.PlanApprovalRequest(
+				"approval-true", "request-true", plan, "hash", Instant.parse("2026-08-18T00:00:00Z"));
+		var restored = roundTrip(PersistenceSnapshots.PlanApproval.of(approval),
+				PersistenceSnapshots.PlanApproval.class).value();
+		assertTrue(restored.getPlan().steps().getFirst().requiresWorkspaceChange());
 	}
 
 	@Test void roundTripsJobControlFields() throws Exception {

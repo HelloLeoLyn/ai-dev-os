@@ -3,6 +3,8 @@ package com.aidevos.orchestrator.plan;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.aidevos.orchestrator.operation.OperationSpec;
 
 public record PlanStep(String id, String name, String description, StepStatus status,
@@ -22,6 +24,24 @@ public record PlanStep(String id, String name, String description, StepStatus st
 			: List.copyOf(new ArrayList<>(expectedArtifacts));
 		retryPolicy = retryPolicy == null ? RetryPolicy.noRetry() : retryPolicy;
 		failurePolicy = failurePolicy == null ? FailurePolicy.STOP_PLAN : failurePolicy;
+	}
+
+	@JsonCreator
+	public PlanStep(
+		@JsonProperty("id") String id, @JsonProperty("name") String name,
+		@JsonProperty("description") String description, @JsonProperty("status") StepStatus status,
+		@JsonProperty("assignment") AgentAssignment assignment,
+		@JsonProperty("parameters") Map<String, Object> parameters,
+		@JsonProperty("inputArtifacts") List<ArtifactReference> inputArtifacts,
+		@JsonProperty("toolProviderId") String toolProviderId, @JsonProperty("toolName") String toolName,
+		@JsonProperty("toolArguments") Map<String, Object> toolArguments,
+		@JsonProperty("expectedArtifacts") List<ExpectedArtifact> expectedArtifacts,
+		@JsonProperty("retryPolicy") RetryPolicy retryPolicy, @JsonProperty("failurePolicy") FailurePolicy failurePolicy,
+		@JsonProperty("skipApproval") boolean skipApproval, @JsonProperty("operation") OperationSpec operation,
+		@JsonProperty("requiresWorkspaceChange") Boolean requiresWorkspaceChange) {
+		this(id, name, description, status, assignment, parameters, inputArtifacts, toolProviderId, toolName,
+			toolArguments, expectedArtifacts, retryPolicy, failurePolicy, skipApproval, operation,
+			Boolean.TRUE.equals(requiresWorkspaceChange));
 	}
 
 	public PlanStep(String id, String name, String description, StepStatus status,
