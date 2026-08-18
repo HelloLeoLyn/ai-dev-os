@@ -5,6 +5,7 @@ import java.util.Map;
 
 import com.aidevos.orchestrator.approval.CodingApprovalRequest;
 import com.aidevos.orchestrator.approval.CodingApprovalService;
+import com.aidevos.orchestrator.approval.ApprovalStatus;
 import com.aidevos.orchestrator.execution.ArtifactContentLimiter;
 import com.aidevos.orchestrator.execution.ExecutionArtifact;
 import com.aidevos.orchestrator.execution.ExecutionContext;
@@ -18,6 +19,8 @@ import com.aidevos.orchestrator.executor.command.CommandResult;
 import com.aidevos.orchestrator.executor.git.GitInspector;
 import com.aidevos.orchestrator.executor.git.GitSnapshot;
 import com.aidevos.orchestrator.executor.git.UntrackedArtifactCollector;
+import com.aidevos.orchestrator.plan.approval.PlanApprovalRequest;
+import com.aidevos.orchestrator.plan.approval.PlanApprovalService;
 import org.springframework.stereotype.Component;
 
 /**
@@ -39,12 +42,23 @@ public class CodexExecutor implements AgentExecutor {
 	private final CodexProperties codexProperties;
 	private final CodexCommandBuilder commandBuilder;
 	private final UntrackedArtifactCollector untrackedArtifactCollector;
+	private final PlanApprovalService planApprovalService;
 
 	public CodexExecutor(CommandExecutor commandExecutor, WorkspaceResolver workspaceResolver,
 			GitInspector gitInspector, CodexResultMapper resultMapper,
 			CodingApprovalService approvalService, ArtifactContentLimiter artifactContentLimiter,
 			CodexProperties codexProperties, CodexCommandBuilder commandBuilder,
 			UntrackedArtifactCollector untrackedArtifactCollector) {
+		this(commandExecutor, workspaceResolver, gitInspector, resultMapper, approvalService,
+			artifactContentLimiter, codexProperties, commandBuilder, untrackedArtifactCollector, null);
+	}
+
+	@org.springframework.beans.factory.annotation.Autowired
+	public CodexExecutor(CommandExecutor commandExecutor, WorkspaceResolver workspaceResolver,
+			GitInspector gitInspector, CodexResultMapper resultMapper,
+			CodingApprovalService approvalService, ArtifactContentLimiter artifactContentLimiter,
+			CodexProperties codexProperties, CodexCommandBuilder commandBuilder,
+			UntrackedArtifactCollector untrackedArtifactCollector, PlanApprovalService planApprovalService) {
 		this.commandExecutor = commandExecutor;
 		this.workspaceResolver = workspaceResolver;
 		this.gitInspector = gitInspector;
@@ -54,6 +68,7 @@ public class CodexExecutor implements AgentExecutor {
 		this.codexProperties = codexProperties;
 		this.commandBuilder = commandBuilder;
 		this.untrackedArtifactCollector = untrackedArtifactCollector;
+		this.planApprovalService = planApprovalService;
 	}
 
 	@Override
@@ -77,9 +92,13 @@ public class CodexExecutor implements AgentExecutor {
 			waiting.getMetadata().put("sandbox", sandbox.cliValue());
 			return waiting;
 		}
+		ApprovedExecutionHandoff handoff = approvedExecutionHandoff(context, workspace.path(), sandbox);
+		if (!readOnly(context) && planApprovalService != null && handoff == null) {
+			throw new IllegalStateException("Approved execution handoff could not be verified");
+		}
 		GitSnapshot before = gitInspector.capture(workspace.path());
 		CommandOptions options = new CommandOptions();
-		options.setCommand(commandBuilder.build(context, workspace.path(), sandbox));
+		options.setCommand(commandBuilder.build(context, workspace.path(), sandbox, handoff));
 		options.setWorkingDirectory(workspace.path());
 		options.setTimeout(codexProperties.getTimeout());
 		CommandResult commandResult = commandExecutor.execute(options);
@@ -91,6 +110,41 @@ public class CodexExecutor implements AgentExecutor {
 		return toExecutionResult(executionResult, codexOutput, sandbox, before, after,
 			contextMetadataString(context, "approvalId"), projectAnalysis(context));
 	}
+
+	private ApprovedExecutionHandoff approvedExecutionHandoff(ExecutionContext context,
+			String executionWorkspace, CodexSandbox sandbox) {
+		if (readOnly(context) || sandbox != CodexSandbox.WORKSPACE_WRITE || planApprovalService == null) {
+			return null;
+		}
+		String planApprovalId = metadataString(context, "planApprovalId");
+		String planId = metadataString(context, "planId");
+		String planVersionText = metadataString(context, "planVersion");
+		String approvalId = metadataString(context, "approvalId");
+		if (blank(planApprovalId) || blank(planId) || blank(planVersionText) || blank(approvalId)) return null;
+		int planVersion;
+		try { planVersion = Integer.parseInt(planVersionText); }
+		catch (NumberFormatException exception) { return null; }
+		PlanApprovalRequest planApproval = planApprovalService.get(planApprovalId);
+		if (planApproval == null || (planApproval.getStatus() != ApprovalStatus.APPROVED
+				&& planApproval.getStatus() != ApprovalStatus.CONSUMED)
+				|| !planId.equals(planApproval.getPlanId()) || planVersion != planApproval.getPlanVersion()) return null;
+		CodingApprovalRequest codingApproval = approvalService.get(approvalId);
+		if (codingApproval == null || codingApproval.getStatus() != ApprovalStatus.CONSUMED
+				|| !context.getTaskId().equals(codingApproval.getTaskId())
+				|| !context.getJobId().equals(codingApproval.getJobId())
+				|| !executionWorkspace.equals(codingApproval.getWorkspace())
+				|| !"CODING".equals(codingApproval.getAuthority())
+				|| !"WORKSPACE_WRITE".equals(codingApproval.getOperation())) return null;
+		return new ApprovedExecutionHandoff(context.getTaskId(), planId, planVersion, context.getJobId(),
+			executionWorkspace, approvalId, codingApproval.getAuthority(), codingApproval.getOperation());
+	}
+
+	private String metadataString(ExecutionContext context, String key) {
+		Object value = context.getMetadata().get(key);
+		return value == null ? null : String.valueOf(value);
+	}
+
+	private boolean blank(String value) { return value == null || value.isBlank(); }
 
 	private boolean readOnly(ExecutionContext context) {
 		Object value = context.getParameters().get("executionMode");

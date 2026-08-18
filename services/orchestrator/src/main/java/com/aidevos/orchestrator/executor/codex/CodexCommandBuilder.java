@@ -28,6 +28,11 @@ public class CodexCommandBuilder {
 	}
 
 	public List<String> build(ExecutionContext context, String workspacePath, CodexSandbox sandbox) {
+		return build(context, workspacePath, sandbox, null);
+	}
+
+	public List<String> build(ExecutionContext context, String workspacePath, CodexSandbox sandbox,
+			ApprovedExecutionHandoff handoff) {
 		List<String> command = new ArrayList<>(List.of(codexProperties.getExecutable(),
 			"--ask-for-approval", codexProperties.getApprovalPolicy().cliValue()));
 		String model = contextString(context, "model");
@@ -38,7 +43,7 @@ public class CodexCommandBuilder {
 		command.addAll(List.of("exec", "--cd", workspacePath, "--sandbox", sandbox.cliValue(),
 			"--json", "--output-schema", projectAnalysis(context)
 				? schemaProvider.path(true) : schemaProvider.path()));
-		command.add(promptBuilder.build(context));
+		command.add(handoff == null ? promptBuilder.build(context) : promptBuilder.build(context, handoff));
 		return List.copyOf(command);
 	}
 
