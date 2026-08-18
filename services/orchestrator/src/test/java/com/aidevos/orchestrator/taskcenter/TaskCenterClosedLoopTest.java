@@ -211,7 +211,8 @@ class TaskCenterClosedLoopTest {
 		when(approvalService.get("approval-1")).thenReturn(approval);
 
 		TaskRecord task = taskCenterService.createTask(new CreateTaskRequest(
-			"Implement login", "Login flow", "Implement a login flow", "hermes", "default"));
+			"Implement login", "Login flow", "Implement a login flow", "hermes", "default",
+			null, ExecutionMode.READ_ONLY));
 		TaskRecord refreshed = taskCenterService.getTask(task.getTaskId()).orElseThrow();
 		assertEquals(TaskStatus.APPROVED, refreshed.getStatus());
 		return refreshed;

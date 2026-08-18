@@ -28,6 +28,7 @@ import com.aidevos.orchestrator.execution.ArtifactContentLimiter;
 import com.aidevos.orchestrator.execution.ExecutionRecordManager;
 import com.aidevos.orchestrator.execution.InMemoryExecutionRecordRepository;
 import com.aidevos.orchestrator.execution.workspace.CodingWorkspaceProperties;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspaceService;
 import com.aidevos.orchestrator.execution.workspace.WorkspaceResolver;
 import com.aidevos.orchestrator.executor.ExecutorManager;
 import com.aidevos.orchestrator.executor.ExecutorRegistry;
@@ -88,6 +89,8 @@ import com.aidevos.orchestrator.timeline.UnifiedTimeline;
 import com.aidevos.orchestrator.workspace.InMemoryWorkspaceRepository;
 import com.aidevos.orchestrator.workspace.WorkspaceService;
 import com.aidevos.orchestrator.workspace.git.ProcessGitCommandExecutor;
+import com.aidevos.orchestrator.testfixture.ExecutionWorkspaceTestFixture;
+import com.aidevos.orchestrator.testfixture.ExecutionAwareWorkspaceRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -142,8 +145,9 @@ class CiLifecycleIntegrationTest {
 		git(repo, "commit", "-m", "init");
 
 		CommandExecutor commandExecutor = new CommandExecutor();
-		WorkspaceService workspaceService = new WorkspaceService(new InMemoryWorkspaceRepository(),
+		WorkspaceService workspaceService = new WorkspaceService(new ExecutionAwareWorkspaceRepository(tempDir.resolve("execution-workspaces")),
 			new ProcessGitCommandExecutor(commandExecutor));
+		ExecutionWorkspaceService executionWorkspaceService = ExecutionWorkspaceTestFixture.service(workspaceService, tempDir);
 		workspaceId = workspaceService.createWorkspace("project-x", repo.toString()).getWorkspaceId();
 
 		CodexProperties codexProperties = new CodexProperties();
@@ -199,7 +203,7 @@ class CiLifecycleIntegrationTest {
 		coordinator = new AgentCoordinatorService(taskCenterService, modelRouterService,
 			plannerService, executorManager, testAgentService, auditService,
 			new AgentCapabilityResolver(agentManager), memoryService, executionRecordManager,
-			workspaceService, changeService);
+			workspaceService, changeService, null, null, null, executionWorkspaceService);
 		taskCenterService.setAgentCoordinatorService(coordinator);
 
 		mockCiProvider = new MockCiProvider();
@@ -291,7 +295,7 @@ class CiLifecycleIntegrationTest {
 		assertEquals("CI_FAILURE", context.sourceType());
 		assertEquals(checked.getCiRunId(), context.sourceId());
 		assertEquals(commit.getGitHash(), context.commitHash());
-		assertEquals("main", context.branch());
+		assertEquals("ai-dev-os/task/" + task.getTaskId(), context.branch());
 		assertTrue(context.changedFiles() >= 1);
 
 		// Repair loop: CI_FAILED -> CI_REPAIR_STARTED -> ... -> REPAIR_SUCCESS.

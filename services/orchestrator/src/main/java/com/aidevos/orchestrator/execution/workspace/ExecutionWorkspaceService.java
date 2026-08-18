@@ -46,6 +46,9 @@ public class ExecutionWorkspaceService {
         String taskId = required(context.getTaskId(), "Task ID");
         ExecutionWorkspace existing = repository.findByTaskId(taskId);
         if (existing != null) {
+            if (existing.getExecutionBranch() == null || existing.getExecutionBranch().isBlank()) {
+                throw new IllegalStateException("Execution workspace has no trusted execution branch: " + taskId);
+            }
             if (existing.getStatus() == ExecutionWorkspaceStatus.READY || existing.getStatus() == ExecutionWorkspaceStatus.COMPLETED
                     || existing.getStatus() == ExecutionWorkspaceStatus.PROMOTED) {
                 try {
@@ -73,15 +76,21 @@ public class ExecutionWorkspaceService {
         Path root = Path.of(properties.getExecutionWorkspaceRoot()).toAbsolutePath().normalize();
         Path target = root.resolve(safe(taskId)).normalize();
         if (!target.startsWith(root) || Files.exists(target)) throw new IllegalStateException("Execution workspace path collision");
+        String executionBranch = branch(taskId);
+        if (executionBranch.equals(source.getBranch())) {
+            throw new IllegalStateException("Execution branch must differ from source branch");
+        }
         String id = "execution-workspace-" + UUID.nameUUIDFromBytes(("task:" + taskId)
             .getBytes(java.nio.charset.StandardCharsets.UTF_8));
         ExecutionWorkspace value = new ExecutionWorkspace(id, taskId, context.getProjectId(), sourceId,
-            sourcePath.toString(), target.toString(), "GIT_WORKTREE", ExecutionWorkspaceStatus.CREATING, base, Instant.now(), Instant.now());
+            sourcePath.toString(), target.toString(), "GIT_WORKTREE", executionBranch,
+            ExecutionWorkspaceStatus.CREATING, base, Instant.now(), Instant.now());
         repository.save(value);
         auditService.executionWorkspaceFlow("EXECUTION_WORKSPACE_CREATING", taskId, context.getJobId(), id, value.getSourceWorkspace(), value.getExecutionWorkspace(), value.getStrategy(), base, value.getStatus().name(), "creating git worktree", null);
         try {
             try { Files.createDirectories(root); } catch (java.io.IOException ex) { throw new IllegalStateException("Execution workspace root unavailable", ex); }
-            git(sourcePath, List.of("git", "worktree", "add", "--detach", target.toString(), base), "create worktree");
+            git(sourcePath, List.of("git", "worktree", "add", "-b", executionBranch,
+                target.toString(), base), "create worktree");
             value.mark(ExecutionWorkspaceStatus.READY); repository.save(value); auditService.executionWorkspaceFlow("EXECUTION_WORKSPACE_READY", taskId, context.getJobId(), id, value.getSourceWorkspace(), value.getExecutionWorkspace(), value.getStrategy(), base, value.getStatus().name(), "git worktree ready", null); return value;
         } catch (RuntimeException ex) {
             value.mark(ExecutionWorkspaceStatus.FAILED); repository.save(value); auditService.executionWorkspaceFlow("EXECUTION_WORKSPACE_FAILED", taskId, context.getJobId(), id, value.getSourceWorkspace(), value.getExecutionWorkspace(), value.getStrategy(), base, value.getStatus().name(), ex.getMessage(), "WORKTREE_CREATE_FAILED"); throw ex;
@@ -111,13 +120,14 @@ public class ExecutionWorkspaceService {
     private boolean recover(ExecutionWorkspace value) {
         try {
             return Files.isDirectory(Path.of(value.getExecutionWorkspace()))
+                && value.getExecutionBranch().equals(git(Path.of(value.getExecutionWorkspace()), List.of("git", "branch", "--show-current"), "worktree branch").trim())
                 && value.getBaseRevision().equals(git(Path.of(value.getExecutionWorkspace()), List.of("git", "rev-parse", "HEAD"), "worktree revision").trim());
         }
         catch (RuntimeException ex) {
             return false;
         }
     }
-    private void validate(ExecutionWorkspace value) { if (!Files.isDirectory(Path.of(value.getExecutionWorkspace())) || !value.getBaseRevision().equals(git(Path.of(value.getExecutionWorkspace()), List.of("git", "rev-parse", "HEAD"), "worktree revision").trim())) throw new IllegalStateException("Execution workspace validation failed"); }
+    private void validate(ExecutionWorkspace value) { Path path = Path.of(value.getExecutionWorkspace()); if (!Files.isDirectory(path) || !value.getExecutionBranch().equals(git(path, List.of("git", "branch", "--show-current"), "worktree branch").trim()) || !value.getBaseRevision().equals(git(path, List.of("git", "rev-parse", "HEAD"), "worktree revision").trim())) throw new IllegalStateException("Execution workspace validation failed"); }
     private String git(Path cwd, List<String> command, String label) {
         CommandOptions options=new CommandOptions(); options.setCommand(command); options.setWorkingDirectory(cwd.toString()); options.setTimeout(Duration.ofMinutes(2));
         CommandResult result=commandExecutor.execute(options); if (!result.isSuccess()) throw new IllegalStateException(label + " failed: " + result.getError()); return result.getOutput();
@@ -126,4 +136,11 @@ public class ExecutionWorkspaceService {
     private String required(String value,String label){if(value==null||value.isBlank())throw new IllegalArgumentException(label+" is required");return value;}
     private String string(java.util.Map<String,Object> map,String key){Object value=map.get(key);return value instanceof String s&&!s.isBlank()?s:null;}
     private String safe(String value){String normalized=value.replaceAll("[^A-Za-z0-9._-]", "_"); if(normalized.isBlank()||normalized.equals(".")||normalized.equals(".."))throw new IllegalArgumentException("Invalid task id"); return normalized;}
+    private String branch(String taskId) {
+        String value = "ai-dev-os/task/" + safe(taskId);
+        if (value.equals("main") || value.equals("master")) {
+            throw new IllegalArgumentException("Invalid execution branch");
+        }
+        return value;
+    }
 }

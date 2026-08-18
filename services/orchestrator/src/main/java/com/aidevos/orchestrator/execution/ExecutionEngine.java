@@ -216,10 +216,12 @@ public class ExecutionEngine {
 			return;
 		}
 		ExecutionWorkspace workspace = executionWorkspaceService.ensureReady(context);
-		context.setWorkspace(workspace.getExecutionWorkspace());
+        context.setWorkspace(workspace.getExecutionWorkspace());
+        context.setExecutionBranch(workspace.getExecutionBranch());
 		context.getMetadata().put("executionWorkspaceId", workspace.getId());
 		context.getMetadata().put("sourceWorkspace", workspace.getSourceWorkspace());
-		context.getMetadata().put("baseRevision", workspace.getBaseRevision());
+        context.getMetadata().put("baseRevision", workspace.getBaseRevision());
+        context.getMetadata().put("executionBranch", workspace.getExecutionBranch());
 	}
 
 	private ExecutionAttempt startAttempt(TaskDefinition taskDefinition, String jobId,

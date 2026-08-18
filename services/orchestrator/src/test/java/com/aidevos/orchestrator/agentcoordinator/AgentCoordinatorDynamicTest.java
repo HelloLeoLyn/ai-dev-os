@@ -26,6 +26,7 @@ import com.aidevos.orchestrator.planner.PlanningRequest;
 import com.aidevos.orchestrator.planner.PlanningResult;
 import com.aidevos.orchestrator.taskcenter.TaskCenterService;
 import com.aidevos.orchestrator.taskcenter.TaskRecord;
+import com.aidevos.orchestrator.taskcenter.ExecutionMode;
 import com.aidevos.orchestrator.testagent.CreateTestRequest;
 import com.aidevos.orchestrator.testagent.TestAgentService;
 import com.aidevos.orchestrator.testagent.TestPlan;
@@ -225,7 +226,8 @@ class AgentCoordinatorDynamicTest {
 	}
 
 	private TaskRecord task() {
-		return new TaskRecord("task-1", "Login flow", "Implement login flow");
+		return new TaskRecord("task-1", "Login flow", "Implement login flow", "project-1",
+			"workspace-1", ExecutionMode.READ_ONLY);
 	}
 
 	private TestPlan successfulTest() {

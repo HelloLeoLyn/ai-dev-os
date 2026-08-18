@@ -60,6 +60,12 @@ public class ChangeService {
 	 */
 	public ChangeSet createChange(String taskId, String workspaceId, String projectId,
 			String executionId) {
+		return createChange(taskId, workspaceId, projectId, executionId, null);
+	}
+
+	/** Creates a change using the server-bound execution branch when present. */
+	public ChangeSet createChange(String taskId, String workspaceId, String projectId,
+			String executionId, String executionBranch) {
 		if (qualityGateService != null) qualityGateService.assertAllowed(taskId);
 		Workspace workspace = workspaceService.getWorkspace(workspaceId)
 			.orElseThrow(() -> new ResourceNotFoundException("Workspace", workspaceId));
@@ -67,9 +73,11 @@ public class ChangeService {
 		GitDiff gitDiff = workspaceService.getGitDiff(workspaceId);
 		String diffContent = workspaceService.getGitDiffContent(workspaceId);
 		Instant now = Instant.now();
+		String branch = executionBranch == null || executionBranch.isBlank()
+			? gitStatus.getBranch() : executionBranch;
 		ChangeSet changeSet = new ChangeSet("change-" + UUID.randomUUID(), taskId, workspaceId,
 			projectId == null || projectId.isBlank() ? workspace.getProjectId() : projectId,
-			executionId, gitStatus.getBranch(), diffContent, gitDiff.getStat(),
+			executionId, branch, diffContent, gitDiff.getStat(),
 			gitDiff.getFilesChanged(), gitDiff.getInsertions(), gitDiff.getDeletions(),
 			gitStatus.getModified(), gitStatus.getAdded(), gitStatus.getDeleted(), now);
 		repository.save(changeSet);

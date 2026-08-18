@@ -545,11 +545,17 @@ public class AgentCoordinatorService {
 		}
 		try {
 			changeService.createChange(task.getTaskId(), workspaceId, task.getProjectId(),
-				executionId);
+				executionId, executionBranch(task));
 		}
 		catch (RuntimeException exception) {
 			// Change tracking must not break the agent flow.
 		}
+	}
+
+	private String executionBranch(TaskRecord task) {
+		if (executionWorkspaceService == null) return null;
+		var workspace = executionWorkspaceService.findByTaskId(task.getTaskId());
+		return workspace == null ? null : workspace.getExecutionBranch();
 	}
 
 	private String runBrowser(TaskRecord task, String agentName, String workspaceId) {

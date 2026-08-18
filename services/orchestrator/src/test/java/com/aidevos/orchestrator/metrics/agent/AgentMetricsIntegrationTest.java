@@ -23,6 +23,7 @@ import com.aidevos.orchestrator.execution.ArtifactContentLimiter;
 import com.aidevos.orchestrator.execution.ExecutionRecordManager;
 import com.aidevos.orchestrator.execution.InMemoryExecutionRecordRepository;
 import com.aidevos.orchestrator.execution.workspace.CodingWorkspaceProperties;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspaceService;
 import com.aidevos.orchestrator.execution.workspace.WorkspaceResolver;
 import com.aidevos.orchestrator.executor.ExecutorManager;
 import com.aidevos.orchestrator.executor.ExecutorRegistry;
@@ -66,6 +67,8 @@ import com.aidevos.orchestrator.testagent.browser.BrowserTestResult;
 import com.aidevos.orchestrator.workspace.InMemoryWorkspaceRepository;
 import com.aidevos.orchestrator.workspace.WorkspaceService;
 import com.aidevos.orchestrator.workspace.git.ProcessGitCommandExecutor;
+import com.aidevos.orchestrator.testfixture.ExecutionWorkspaceTestFixture;
+import com.aidevos.orchestrator.testfixture.ExecutionAwareWorkspaceRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -116,8 +119,9 @@ class AgentMetricsIntegrationTest {
 		git(repo, "commit", "-m", "init");
 
 		CommandExecutor commandExecutor = new CommandExecutor();
-		WorkspaceService workspaceService = new WorkspaceService(new InMemoryWorkspaceRepository(),
+		WorkspaceService workspaceService = new WorkspaceService(new ExecutionAwareWorkspaceRepository(tempDir.resolve("execution-workspaces")),
 			new ProcessGitCommandExecutor(commandExecutor));
+		ExecutionWorkspaceService executionWorkspaceService = ExecutionWorkspaceTestFixture.service(workspaceService, tempDir);
 		workspaceId = workspaceService.createWorkspace("project-x", repo.toString()).getWorkspaceId();
 
 		CodexProperties codexProperties = new CodexProperties();
@@ -166,7 +170,7 @@ class AgentMetricsIntegrationTest {
 		coordinator = new AgentCoordinatorService(taskCenterService, modelRouterService,
 			plannerService, executorManager, testAgentService, auditService,
 			new AgentCapabilityResolver(agentManager), memoryService, executionRecordManager,
-			workspaceService, changeService);
+			workspaceService, changeService, null, null, null, executionWorkspaceService);
 		taskCenterService.setAgentCoordinatorService(coordinator);
 		RepairCoordinator repairCoordinator = new RepairCoordinator(taskCenterService,
 			testAgentService, plannerService, codexExecutor, workspaceService, memoryService,

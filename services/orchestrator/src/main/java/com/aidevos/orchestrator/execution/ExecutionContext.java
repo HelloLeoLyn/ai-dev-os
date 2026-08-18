@@ -15,6 +15,7 @@ public class ExecutionContext {
 	private String externalAgentId;
 	private String input;
 	private String workspace;
+	private String executionBranch;
 	private Map<String, Object> metadata = new LinkedHashMap<>();
 	private Map<String, Object> parameters = new LinkedHashMap<>();
 
@@ -100,6 +101,10 @@ public class ExecutionContext {
 	public void setWorkspace(String workspace) {
 		this.workspace = workspace;
 	}
+
+	public String getExecutionBranch() { return executionBranch; }
+
+	public void setExecutionBranch(String executionBranch) { this.executionBranch = executionBranch; }
 
 	public Map<String, Object> getMetadata() {
 		return metadata;

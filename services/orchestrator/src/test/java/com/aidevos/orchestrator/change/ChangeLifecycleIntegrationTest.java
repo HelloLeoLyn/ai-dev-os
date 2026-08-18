@@ -21,6 +21,7 @@ import com.aidevos.orchestrator.execution.ArtifactContentLimiter;
 import com.aidevos.orchestrator.execution.ExecutionRecordManager;
 import com.aidevos.orchestrator.execution.InMemoryExecutionRecordRepository;
 import com.aidevos.orchestrator.execution.workspace.CodingWorkspaceProperties;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspaceService;
 import com.aidevos.orchestrator.execution.workspace.WorkspaceResolver;
 import com.aidevos.orchestrator.executor.ExecutorManager;
 import com.aidevos.orchestrator.executor.ExecutorRegistry;
@@ -69,12 +70,15 @@ import com.aidevos.orchestrator.timeline.UnifiedTimeline;
 import com.aidevos.orchestrator.workspace.InMemoryWorkspaceRepository;
 import com.aidevos.orchestrator.workspace.WorkspaceService;
 import com.aidevos.orchestrator.workspace.git.ProcessGitCommandExecutor;
+import com.aidevos.orchestrator.testfixture.ExecutionWorkspaceTestFixture;
+import com.aidevos.orchestrator.testfixture.ExecutionAwareWorkspaceRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.ObjectMapper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -93,6 +97,7 @@ class ChangeLifecycleIntegrationTest {
 	Path tempDir;
 
 	private Path repo;
+	private ExecutionWorkspaceService executionWorkspaceService;
 	private PlannerService plannerService;
 	private PlanApprovalService approvalService;
 	private PlanRunRepository planRunRepository;
@@ -116,8 +121,9 @@ class ChangeLifecycleIntegrationTest {
 		git(repo, "commit", "-m", "init");
 
 		CommandExecutor commandExecutor = new CommandExecutor();
-		WorkspaceService workspaceService = new WorkspaceService(new InMemoryWorkspaceRepository(),
+		WorkspaceService workspaceService = new WorkspaceService(new ExecutionAwareWorkspaceRepository(tempDir.resolve("execution-workspaces")),
 			new ProcessGitCommandExecutor(commandExecutor));
+		executionWorkspaceService = ExecutionWorkspaceTestFixture.service(workspaceService, tempDir);
 		workspaceId = workspaceService.createWorkspace("project-x", repo.toString()).getWorkspaceId();
 
 		CodexProperties codexProperties = new CodexProperties();
@@ -166,7 +172,7 @@ class ChangeLifecycleIntegrationTest {
 		coordinator = new AgentCoordinatorService(taskCenterService, modelRouterService,
 			plannerService, executorManager, testAgentService, auditService,
 			new AgentCapabilityResolver(agentManager), memoryService, executionRecordManager,
-			workspaceService, changeService);
+			workspaceService, changeService, null, null, null, executionWorkspaceService);
 		taskCenterService.setAgentCoordinatorService(coordinator);
 
 		when(modelRouterService.route(any(TaskType.class))).thenReturn(
@@ -187,7 +193,10 @@ class ChangeLifecycleIntegrationTest {
 
 		// No automatic commit: working tree stays dirty, HEAD unchanged.
 		assertEquals(headBefore, gitOut(repo, "rev-parse", "HEAD"));
-		assertTrue(Files.readString(repo.resolve("a.txt")).contains("change"));
+		assertFalse(Files.readString(repo.resolve("a.txt")).contains("change"));
+		Path executionPath = Path.of(executionWorkspaceService.findByTaskId(task.getTaskId())
+			.getExecutionWorkspace());
+		assertTrue(Files.readString(executionPath.resolve("a.txt")).contains("change"));
 
 		// ChangeSet snapshot with diff + statistics, linked to task/workspace.
 		List<ChangeSet> changes = changeService.getChangesByTask(task.getTaskId());
@@ -195,7 +204,7 @@ class ChangeLifecycleIntegrationTest {
 		ChangeSet change = changes.get(0);
 		assertEquals(task.getTaskId(), change.getTaskId());
 		assertEquals(workspaceId, change.getWorkspaceId());
-		assertEquals("main", change.getBranch());
+		assertEquals("ai-dev-os/task/" + task.getTaskId(), change.getBranch());
 		assertEquals(ChangeStatus.CREATED, change.getStatus());
 		assertTrue(change.getDiff().contains("a.txt"));
 		assertTrue(change.getDiffStat().contains("a.txt"));
@@ -206,7 +215,7 @@ class ChangeLifecycleIntegrationTest {
 			.filter(record -> "coder".equals(record.getAgentName()))
 			.findFirst().orElseThrow();
 		assertEquals(coding.getExecutionId(), change.getExecutionId());
-		assertEquals("main", coding.getBranch());
+		assertEquals("ai-dev-os/task/" + task.getTaskId(), coding.getBranch());
 
 		// Review lifecycle.
 		changeService.startReview(change.getChangeId());

@@ -21,6 +21,7 @@ import com.aidevos.orchestrator.execution.ArtifactContentLimiter;
 import com.aidevos.orchestrator.execution.ExecutionRecordManager;
 import com.aidevos.orchestrator.execution.InMemoryExecutionRecordRepository;
 import com.aidevos.orchestrator.execution.workspace.CodingWorkspaceProperties;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspaceService;
 import com.aidevos.orchestrator.execution.workspace.WorkspaceResolver;
 import com.aidevos.orchestrator.executor.ExecutorManager;
 import com.aidevos.orchestrator.executor.ExecutorRegistry;
@@ -70,6 +71,8 @@ import com.aidevos.orchestrator.timeline.UnifiedTimeline;
 import com.aidevos.orchestrator.workspace.InMemoryWorkspaceRepository;
 import com.aidevos.orchestrator.workspace.WorkspaceService;
 import com.aidevos.orchestrator.workspace.git.ProcessGitCommandExecutor;
+import com.aidevos.orchestrator.testfixture.ExecutionWorkspaceTestFixture;
+import com.aidevos.orchestrator.testfixture.ExecutionAwareWorkspaceRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -106,6 +109,7 @@ class RepairLoopIntegrationTest {
 	private InMemoryExecutionRecordRepository recordRepository;
 	private RepairCoordinator repairCoordinator;
 	private String workspaceId;
+	private ExecutionWorkspaceService executionWorkspaceService;
 
 	@BeforeEach
 	void setUp() throws Exception {
@@ -119,8 +123,9 @@ class RepairLoopIntegrationTest {
 		git(repo, "commit", "-m", "init");
 
 		CommandExecutor commandExecutor = new CommandExecutor();
-		WorkspaceService workspaceService = new WorkspaceService(new InMemoryWorkspaceRepository(),
+		WorkspaceService workspaceService = new WorkspaceService(new ExecutionAwareWorkspaceRepository(tempDir.resolve("execution-workspaces")),
 			new ProcessGitCommandExecutor(commandExecutor));
+		executionWorkspaceService = ExecutionWorkspaceTestFixture.service(workspaceService, tempDir);
 		workspaceId = workspaceService.createWorkspace("project-x", repo.toString()).getWorkspaceId();
 
 		CodexProperties codexProperties = new CodexProperties();
@@ -169,7 +174,7 @@ class RepairLoopIntegrationTest {
 		coordinator = new AgentCoordinatorService(taskCenterService, modelRouterService,
 			plannerService, executorManager, testAgentService, auditService,
 			new AgentCapabilityResolver(agentManager), memoryService, executionRecordManager,
-			workspaceService);
+			workspaceService, null, null, null, null, executionWorkspaceService);
 		taskCenterService.setAgentCoordinatorService(coordinator);
 		ChangeService changeService = new ChangeService(new InMemoryChangeRepository(),
 			workspaceService, auditService);
@@ -196,7 +201,9 @@ class RepairLoopIntegrationTest {
 
 		assertEquals(RepairStatus.SUCCESS, repair.getStatus());
 		assertTrue(repair.getLastResult().contains("attempt"));
-		assertTrue(Files.readString(repo.resolve("a.txt")).contains("fix"));
+		Path executionPath = Path.of(executionWorkspaceService.findByTaskId(task.getTaskId())
+			.getExecutionWorkspace());
+		assertTrue(Files.readString(executionPath.resolve("a.txt")).contains("fix"));
 
 		// Memory: BUG_RECORD resolved=true + AGENT_EXPERIENCE.
 		MemoryRecord bug = memoryRepository.list("project-x", MemoryType.BUG_RECORD).stream()

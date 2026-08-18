@@ -26,6 +26,7 @@ import com.aidevos.orchestrator.execution.ExecutionRecordManager;
 import com.aidevos.orchestrator.execution.ExecutionResult;
 import com.aidevos.orchestrator.execution.InMemoryExecutionRecordRepository;
 import com.aidevos.orchestrator.execution.workspace.CodingWorkspaceProperties;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspaceService;
 import com.aidevos.orchestrator.execution.workspace.WorkspaceResolver;
 import com.aidevos.orchestrator.executor.ExecutorManager;
 import com.aidevos.orchestrator.executor.ExecutorRegistry;
@@ -65,6 +66,8 @@ import com.aidevos.orchestrator.workspace.WorkspaceService;
 import com.aidevos.orchestrator.workspace.git.GitDiff;
 import com.aidevos.orchestrator.workspace.git.GitStatus;
 import com.aidevos.orchestrator.workspace.git.ProcessGitCommandExecutor;
+import com.aidevos.orchestrator.testfixture.ExecutionWorkspaceTestFixture;
+import com.aidevos.orchestrator.testfixture.ExecutionAwareWorkspaceRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -92,6 +95,7 @@ class CodexWorkspaceIntegrationTest {
 	private CodexProperties codexProperties;
 	private CodexExecutor codexExecutor;
 	private WorkspaceService workspaceService;
+	private ExecutionWorkspaceService executionWorkspaceService;
 	private String workspaceId;
 	private InMemoryExecutionRecordRepository recordRepository;
 	private InMemoryAuditRepository auditRepository;
@@ -127,8 +131,9 @@ class CodexWorkspaceIntegrationTest {
 			codexProperties, new CodexCommandBuilder(codexProperties, new CoderPromptBuilder(),
 				schemaProvider), new UntrackedArtifactCollector(limiter, 100_000));
 
-		workspaceService = new WorkspaceService(new InMemoryWorkspaceRepository(),
+		workspaceService = new WorkspaceService(new ExecutionAwareWorkspaceRepository(tempDir.resolve("execution-workspaces")),
 			new ProcessGitCommandExecutor(commandExecutor));
+		executionWorkspaceService = ExecutionWorkspaceTestFixture.service(workspaceService, tempDir);
 		workspaceId = workspaceService.createWorkspace("project-x", repo.toString()).getWorkspaceId();
 	}
 
@@ -175,7 +180,7 @@ class CodexWorkspaceIntegrationTest {
 
 		assertEquals(TaskStatus.COMPLETED, task.getStatus());
 		ExecutionRecord coding = executionRecord("coder");
-		assertEquals(repo.toString(), coding.getWorkspace());
+		assertEquals(executionWorkspaceService.findByTaskId(task.getTaskId()).getExecutionWorkspace(), coding.getWorkspace());
 		assertEquals(0, coding.getExitCode());
 		assertTrue(coding.getGitStatus() != null && coding.getGitStatus().contains("modified=1"));
 		assertTrue(coding.getGitDiffStat() != null && coding.getGitDiffStat().contains("a.txt"));
@@ -215,7 +220,7 @@ class CodexWorkspaceIntegrationTest {
 		AgentCoordinatorService coordinator = new AgentCoordinatorService(taskCenterService,
 			modelRouterService, plannerService, executorManager, testAgentService, auditService,
 			new AgentCapabilityResolver(agentManager), memoryService, executionRecordManager,
-			workspaceService);
+			workspaceService, null, null, null, null, executionWorkspaceService);
 		taskCenterService.setAgentCoordinatorService(coordinator);
 
 		when(modelRouterService.route(any(TaskType.class))).thenReturn(

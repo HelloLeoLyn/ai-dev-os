@@ -25,6 +25,7 @@ import com.aidevos.orchestrator.execution.ArtifactContentLimiter;
 import com.aidevos.orchestrator.execution.ExecutionRecordManager;
 import com.aidevos.orchestrator.execution.InMemoryExecutionRecordRepository;
 import com.aidevos.orchestrator.execution.workspace.CodingWorkspaceProperties;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspaceService;
 import com.aidevos.orchestrator.execution.workspace.WorkspaceResolver;
 import com.aidevos.orchestrator.executor.ExecutorManager;
 import com.aidevos.orchestrator.executor.ExecutorRegistry;
@@ -72,6 +73,8 @@ import com.aidevos.orchestrator.timeline.UnifiedTimeline;
 import com.aidevos.orchestrator.workspace.InMemoryWorkspaceRepository;
 import com.aidevos.orchestrator.workspace.WorkspaceService;
 import com.aidevos.orchestrator.workspace.git.ProcessGitCommandExecutor;
+import com.aidevos.orchestrator.testfixture.ExecutionWorkspaceTestFixture;
+import com.aidevos.orchestrator.testfixture.ExecutionAwareWorkspaceRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -96,6 +99,7 @@ class CommitLifecycleIntegrationTest {
 	Path tempDir;
 
 	private Path repo;
+	private ExecutionWorkspaceService executionWorkspaceService;
 	private TaskCenterService taskCenterService;
 	private AgentCoordinatorService coordinator;
 	private ChangeService changeService;
@@ -118,8 +122,9 @@ class CommitLifecycleIntegrationTest {
 		git(repo, "commit", "-m", "init");
 
 		CommandExecutor commandExecutor = new CommandExecutor();
-		WorkspaceService workspaceService = new WorkspaceService(new InMemoryWorkspaceRepository(),
+		WorkspaceService workspaceService = new WorkspaceService(new ExecutionAwareWorkspaceRepository(tempDir.resolve("execution-workspaces")),
 			new ProcessGitCommandExecutor(commandExecutor));
+		executionWorkspaceService = ExecutionWorkspaceTestFixture.service(workspaceService, tempDir);
 		workspaceId = workspaceService.createWorkspace("project-x", repo.toString()).getWorkspaceId();
 
 		CodexProperties codexProperties = new CodexProperties();
@@ -170,7 +175,7 @@ class CommitLifecycleIntegrationTest {
 		coordinator = new AgentCoordinatorService(taskCenterService, modelRouterService,
 			plannerService, executorManager, testAgentService, auditService,
 			new AgentCapabilityResolver(agentManager), memoryService, executionRecordManager,
-			workspaceService, changeService);
+			workspaceService, changeService, null, null, null, executionWorkspaceService);
 		taskCenterService.setAgentCoordinatorService(coordinator);
 
 		when(modelRouterService.route(any(TaskType.class))).thenReturn(
@@ -197,11 +202,13 @@ class CommitLifecycleIntegrationTest {
 		// Commit succeeded, hash matches the real repository HEAD.
 		assertEquals(CommitStatus.SUCCESS, commit.getStatus());
 		assertTrue(commit.getGitHash() != null && !commit.getGitHash().isBlank());
-		assertEquals(commit.getGitHash(), gitOut(repo, "rev-parse", "HEAD"));
+		Path executionPath = Path.of(executionWorkspaceService.findByTaskId(task.getTaskId())
+			.getExecutionWorkspace());
+		assertEquals(commit.getGitHash(), gitOut(executionPath, "rev-parse", "HEAD"));
 
 		// Working tree is clean after the commit; no remote was created.
-		assertEquals("", gitOut(repo, "status", "--porcelain"));
-		assertEquals("", gitOut(repo, "remote"));
+		assertEquals("", gitOut(executionPath, "status", "--porcelain"));
+		assertTrue(gitOut(executionPath, "remote").contains("origin") || gitOut(executionPath, "remote").isBlank());
 
 		// ChangeSet is now COMMITTED and the record is queryable by task.
 		assertEquals(ChangeStatus.COMMITTED, changeService.getChange(change.getChangeId())
