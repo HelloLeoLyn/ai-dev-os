@@ -116,16 +116,21 @@ public class ExecutionWorkspacePromotionService {
                 throw new PromotionException("SOURCE_WORKSPACE_DIRTY", "Source workspace has uncommitted changes");
             }
             String patch = git(execution, List.of("git", "diff", "--binary", workspace.getBaseRevision()), "execution patch");
-            patchFile = Files.createTempFile("ai-dev-os-promotion-", ".patch");
-            Files.writeString(patchFile, patch, StandardCharsets.UTF_8);
-            auditService.promotionFlow("PROMOTION_VALIDATING", workspace, currentRevision, null);
-            CommandResult check = gitResult(source, List.of("git", "apply", "--check", "--binary", patchFile.toString()), "patch check");
-            if (!check.isSuccess()) throw new PromotionException("PATCH_CHECK_FAILED", check.getError());
             List<String> untracked = untracked(execution);
             validateUntrackedPaths(source, execution, untracked);
-            CommandResult apply = gitResult(source, List.of("git", "apply", "--binary", patchFile.toString()), "patch apply");
-            if (!apply.isSuccess()) throw new PromotionException("PATCH_APPLY_FAILED", apply.getError());
-            applied = true;
+            if (patch.isBlank() && untracked.isEmpty()) {
+                throw new PromotionException("NO_CHANGES_TO_PROMOTE", "Execution workspace has no tracked or untracked changes");
+            }
+            auditService.promotionFlow("PROMOTION_VALIDATING", workspace, currentRevision, null);
+            if (!patch.isBlank()) {
+                patchFile = Files.createTempFile("ai-dev-os-promotion-", ".patch");
+                Files.writeString(patchFile, patch, StandardCharsets.UTF_8);
+                CommandResult check = gitResult(source, List.of("git", "apply", "--check", "--binary", patchFile.toString()), "patch check");
+                if (!check.isSuccess()) throw new PromotionException("PATCH_CHECK_FAILED", check.getError());
+                CommandResult apply = gitResult(source, List.of("git", "apply", "--binary", patchFile.toString()), "patch apply");
+                if (!apply.isSuccess()) throw new PromotionException("PATCH_APPLY_FAILED", apply.getError());
+                applied = true;
+            }
             for (String relative : untracked) {
                 Path target = source.resolve(relative).normalize();
                 Files.createDirectories(target.getParent());

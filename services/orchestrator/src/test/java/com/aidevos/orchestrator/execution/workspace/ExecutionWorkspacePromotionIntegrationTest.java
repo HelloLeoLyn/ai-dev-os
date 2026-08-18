@@ -42,6 +42,98 @@ class ExecutionWorkspacePromotionIntegrationTest {
     }
 
     @Test
+    void promotesUntrackedOnlyChangesWithoutApplyingEmptyPatch() throws Exception {
+        Path source = initRepo();
+        Fixture fixture = fixture(source, "task-untracked-only");
+        Path worktree = Path.of(fixture.ready().getExecutionWorkspace());
+        Files.writeString(worktree.resolve("new.txt"), "created\n");
+        fixture.complete();
+
+        ExecutionWorkspace promoted = fixture.service.promote("task-untracked-only");
+
+        assertEquals(ExecutionWorkspaceStatus.PROMOTED, promoted.getStatus());
+        assertEquals("created\n", Files.readString(source.resolve("new.txt")));
+        assertEquals("?? new.txt\n", run(source, "git", "status", "--porcelain"));
+    }
+
+    @Test
+    void noTrackedOrUntrackedChangesHaveExplicitFailure() throws Exception {
+        Path source = initRepo();
+        Fixture fixture = fixture(source, "task-no-changes");
+        fixture.ready();
+        fixture.complete();
+
+        PromotionException error = assertThrows(PromotionException.class,
+            () -> fixture.service.promote("task-no-changes"));
+
+        assertEquals("NO_CHANGES_TO_PROMOTE", error.getErrorCode());
+        assertEquals(ExecutionWorkspaceStatus.PROMOTION_FAILED,
+            fixture.repository.findByTaskId("task-no-changes").getStatus());
+        assertEquals("", run(source, "git", "status", "--porcelain"));
+    }
+
+    @Test
+    void failedUntrackedOnlyPromotionCanRetryOnSameWorkspace() throws Exception {
+        Path source = initRepo();
+        Fixture fixture = fixture(source, "task-untracked-retry");
+        Path worktree = Path.of(fixture.ready().getExecutionWorkspace());
+        Files.writeString(worktree.resolve("new.txt"), "created\n");
+        Files.writeString(source.resolve("tracked.txt"), "user\n");
+        fixture.complete();
+
+        PromotionException first = assertThrows(PromotionException.class,
+            () -> fixture.service.promote("task-untracked-retry"));
+        assertEquals("SOURCE_WORKSPACE_DIRTY", first.getErrorCode());
+        assertEquals(ExecutionWorkspaceStatus.PROMOTION_FAILED,
+            fixture.repository.findByTaskId("task-untracked-retry").getStatus());
+        Files.writeString(source.resolve("tracked.txt"), "baseline\n");
+
+        ExecutionWorkspace promoted = fixture.service.promote("task-untracked-retry");
+
+        assertEquals(ExecutionWorkspaceStatus.PROMOTED, promoted.getStatus());
+        assertEquals("created\n", Files.readString(source.resolve("new.txt")));
+        assertEquals(worktree, Path.of(promoted.getExecutionWorkspace()));
+    }
+
+    @Test
+    void unsafeUntrackedSymlinkIsBlockedWithoutSourceChange() throws Exception {
+        Path source = initRepo();
+        Fixture fixture = fixture(source, "task-unsafe-untracked");
+        Path worktree = Path.of(fixture.ready().getExecutionWorkspace());
+        Files.createSymbolicLink(worktree.resolve("unsafe.txt"), source.resolve("tracked.txt"));
+        fixture.complete();
+
+        PromotionException error = assertThrows(PromotionException.class,
+            () -> fixture.service.promote("task-unsafe-untracked"));
+
+        assertEquals("REVIEW_INCOMPLETE", error.getErrorCode());
+        assertEquals("", run(source, "git", "status", "--porcelain"));
+        assertFalse(Files.exists(source.resolve("unsafe.txt")));
+    }
+
+    @Test
+    void existingUntrackedTargetIsBlockedWithoutOverwrite() throws Exception {
+        Path source = initRepo();
+        Files.writeString(source.resolve(".gitignore"), "conflict.txt\n");
+        run(source, "git", "add", ".gitignore");
+        commit(source, "ignore promotion conflict", null);
+        Files.writeString(source.resolve("conflict.txt"), "user\n");
+
+        Fixture fixture = fixture(source, "task-untracked-conflict");
+        Path worktree = Path.of(fixture.ready().getExecutionWorkspace());
+        Files.delete(worktree.resolve(".gitignore"));
+        Files.writeString(worktree.resolve("conflict.txt"), "ai\n");
+        fixture.complete();
+
+        PromotionException error = assertThrows(PromotionException.class,
+            () -> fixture.service.promote("task-untracked-conflict"));
+
+        assertEquals("UNTRACKED_TARGET_EXISTS", error.getErrorCode());
+        assertEquals("user\n", Files.readString(source.resolve("conflict.txt")));
+        assertTrue(Files.exists(source.resolve("conflict.txt")));
+    }
+
+    @Test
     void reviewIncludesTrackedAndUntrackedDiffWithoutChangingSourceOrIndex() throws Exception {
         Path source = initRepo();
         Fixture fixture = fixture(source, "task-review");
