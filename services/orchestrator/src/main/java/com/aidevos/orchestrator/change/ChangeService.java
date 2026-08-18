@@ -136,6 +136,7 @@ public class ChangeService {
 		ChangeSet changeSet = requireChange(changeId);
 		String from = changeSet.getStatus().name();
 		changeSet.markReviewing();
+		repository.save(changeSet);
 		auditService.changeEvent(EventType.CHANGE_REVIEWING, changeSet.getTaskId(),
 			changeSet.getChangeId(), from, ChangeStatus.REVIEWING.name(),
 			"Change review started", Map.of());
@@ -146,6 +147,7 @@ public class ChangeService {
 		ChangeSet changeSet = requireChange(changeId);
 		String from = changeSet.getStatus().name();
 		changeSet.markApproved(reviewer(reviewer));
+		repository.save(changeSet);
 		auditService.changeEvent(EventType.CHANGE_APPROVED, changeSet.getTaskId(),
 			changeSet.getChangeId(), from, ChangeStatus.APPROVED.name(),
 			"Change approved", Map.of("reviewedBy", reviewer(reviewer)));
@@ -159,6 +161,7 @@ public class ChangeService {
 		ChangeSet changeSet = requireChange(changeId);
 		String from = changeSet.getStatus().name();
 		changeSet.markRejected(reviewer(reviewer));
+		repository.save(changeSet);
 		auditService.changeEvent(EventType.CHANGE_REJECTED, changeSet.getTaskId(),
 			changeSet.getChangeId(), from, ChangeStatus.REJECTED.name(),
 			"Change rejected", Map.of("reviewedBy", reviewer(reviewer)));
@@ -169,6 +172,7 @@ public class ChangeService {
 		ChangeSet changeSet = requireChange(changeId);
 		String from = changeSet.getStatus().name();
 		changeSet.markCommitted();
+		repository.save(changeSet);
 		auditService.changeEvent(EventType.CHANGE_COMMITTED, changeSet.getTaskId(),
 			changeSet.getChangeId(), from, ChangeStatus.COMMITTED.name(),
 			"Change committed", Map.of());

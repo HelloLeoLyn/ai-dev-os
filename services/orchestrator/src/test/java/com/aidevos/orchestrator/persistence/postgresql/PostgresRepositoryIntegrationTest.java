@@ -383,6 +383,38 @@ class PostgresRepositoryIntegrationTest {
 	}
 
 	@Test
+	void changeServiceStateTransitionsPersistAcrossPostgresReloads() {
+		PostgresChangeRepository changes = new PostgresChangeRepository(jdbc);
+		WorkspaceService workspaces = org.mockito.Mockito.mock(WorkspaceService.class);
+		Workspace workspace = new Workspace("workspace-state", "project-1", tempDir.resolve("repo").toString(),
+			"main", WorkspaceStatus.READY, NOW, NOW);
+		org.mockito.Mockito.when(workspaces.getWorkspace("workspace-state"))
+			.thenReturn(java.util.Optional.of(workspace));
+		org.mockito.Mockito.when(workspaces.checkGitStatus("workspace-state"))
+			.thenReturn(new com.aidevos.orchestrator.workspace.git.GitStatus("main", 1, 0, 0));
+		org.mockito.Mockito.when(workspaces.getGitDiff("workspace-state"))
+			.thenReturn(new com.aidevos.orchestrator.workspace.git.GitDiff(1, 1, 0, "1 file changed"));
+		org.mockito.Mockito.when(workspaces.getGitDiffContent("workspace-state"))
+			.thenReturn("diff --git a/a.txt b/a.txt\n");
+		com.aidevos.orchestrator.change.ChangeService service =
+			new com.aidevos.orchestrator.change.ChangeService(changes, workspaces, AuditService.noop());
+
+		ChangeSet change = service.createChange("task-state", "workspace-state", "project-1", "exec-state");
+		assertEquals(ChangeStatus.CREATED, changes.get(change.getChangeId()).getStatus());
+		service.startReview(change.getChangeId());
+		assertEquals(ChangeStatus.REVIEWING, changes.get(change.getChangeId()).getStatus());
+		service.approve(change.getChangeId(), "user-1");
+		assertEquals(ChangeStatus.APPROVED, changes.get(change.getChangeId()).getStatus());
+		service.markCommitted(change.getChangeId());
+		assertEquals(ChangeStatus.COMMITTED, changes.get(change.getChangeId()).getStatus());
+
+		ChangeSet rejected = service.createChange("task-state-reject", "workspace-state", "project-1", "exec-reject");
+		service.startReview(rejected.getChangeId());
+		service.reject(rejected.getChangeId(), "user-2");
+		assertEquals(ChangeStatus.REJECTED, changes.get(rejected.getChangeId()).getStatus());
+	}
+
+	@Test
 	void repairTraceUsageRoundTrip() {
 		PostgresRepairRepository repairs = new PostgresRepairRepository(jdbc, mapper);
 		FailureContext context = new FailureContext("task-1", "workspace-1", "test-1",
