@@ -18,6 +18,9 @@ import com.aidevos.orchestrator.qualitygate.QualityGateService;
 import com.aidevos.orchestrator.workspace.Workspace;
 import com.aidevos.orchestrator.workspace.WorkspaceService;
 import com.aidevos.orchestrator.workspace.git.GitCommandExecutor;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspaceService;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspace;
+import com.aidevos.orchestrator.remote.RemoteGitService;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
@@ -36,6 +39,8 @@ public class CommitService {
 	private final GitCommandExecutor gitCommandExecutor;
 	private final AuditService auditService;
 	private volatile QualityGateService qualityGateService;
+	private volatile ExecutionWorkspaceService executionWorkspaceService;
+	private volatile RemoteGitService remoteGitService;
 
 	public CommitService(CommitRepository repository, ChangeService changeService,
 			WorkspaceService workspaceService, GitCommandExecutor gitCommandExecutor,
@@ -47,6 +52,8 @@ public class CommitService {
 		this.auditService = auditService;
 	}
 	@Autowired(required=false) @Lazy public void setQualityGateService(QualityGateService service){this.qualityGateService=service;}
+	@Autowired(required=false) public void setExecutionWorkspaceService(ExecutionWorkspaceService service){this.executionWorkspaceService=service;}
+	@Autowired(required=false) @Lazy public void setRemoteGitService(RemoteGitService service){this.remoteGitService=service;}
 
 	/**
 	 * Commits the workspace changes behind an APPROVED change set and records
@@ -60,9 +67,17 @@ public class CommitService {
 			throw new IllegalStateException("Only an APPROVED change can be committed "
 				+ "(current: " + change.getStatus() + ")");
 		}
-		Workspace workspace = workspaceService.getWorkspace(change.getWorkspaceId())
-			.orElseThrow(() -> new ResourceNotFoundException("Workspace",
-				change.getWorkspaceId()));
+		Workspace workspace = workspaceService.getWorkspace(change.getWorkspaceId()).orElse(null);
+		if (workspace == null && executionWorkspaceService != null) {
+			ExecutionWorkspace execution = executionWorkspaceService.findByTaskId(change.getTaskId());
+			if (execution != null && execution.getId().equals(change.getWorkspaceId())) {
+				workspace = new Workspace(execution.getId(), execution.getProjectId(),
+					execution.getExecutionWorkspace(), execution.getExecutionBranch(),
+					com.aidevos.orchestrator.workspace.WorkspaceStatus.READY,
+					execution.getCreatedAt(), execution.getUpdatedAt());
+			}
+		}
+		if (workspace == null) throw new ResourceNotFoundException("Workspace", change.getWorkspaceId());
 		String message = "AI change " + changeId + " for task " + change.getTaskId();
 		CommitRecord record = new CommitRecord("commit-" + UUID.randomUUID(), changeId,
 			change.getTaskId(), change.getWorkspaceId(), change.getBranch(), message,
@@ -70,6 +85,9 @@ public class CommitService {
 		repository.save(record);
 		String from = record.getStatus().name();
 		record.markCommitting();
+		auditService.commitEvent(EventType.COMMIT_REQUESTED, record.getTaskId(),
+			record.getCommitId(), record.getChangeId(), from, CommitStatus.COMMITTING.name(),
+			"Commit requested", Map.of("workspaceId", change.getWorkspaceId()));
 		auditService.commitEvent(EventType.COMMIT_STARTED, record.getTaskId(),
 			record.getCommitId(), record.getChangeId(), from, CommitStatus.COMMITTING.name(),
 			"Commit started", Map.of("workspaceId", change.getWorkspaceId()));
@@ -81,6 +99,10 @@ public class CommitService {
 			}
 			record.markSuccess(hash);
 			changeService.markCommitted(changeId);
+			if (remoteGitService != null && gitCommandExecutor.listRemotes(workspace.getPath())
+					.lines().anyMatch(line -> line.trim().startsWith("origin "))) {
+				remoteGitService.requestApproval(record.getCommitId(), "origin");
+			}
 			auditService.commitEvent(EventType.COMMIT_SUCCESS, record.getTaskId(),
 				record.getCommitId(), record.getChangeId(), CommitStatus.COMMITTING.name(),
 				CommitStatus.SUCCESS.name(), "Commit succeeded: " + hash,

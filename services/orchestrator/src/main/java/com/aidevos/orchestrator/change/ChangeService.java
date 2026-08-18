@@ -63,6 +63,9 @@ public class ChangeService {
 		return createChange(taskId, workspaceId, projectId, executionId, null);
 	}
 
+	/** Persists a server-generated ChangeSet (used by completion projection). */
+	public void save(ChangeSet changeSet) { repository.save(changeSet); }
+
 	/** Creates a change using the server-bound execution branch when present. */
 	public ChangeSet createChange(String taskId, String workspaceId, String projectId,
 			String executionId, String executionBranch) {
@@ -103,6 +106,19 @@ public class ChangeService {
 		List<ChangeSet> result = new ArrayList<>(repository.getByTaskId(taskId));
 		result.sort(Comparator.comparing(ChangeSet::getCreatedAt).reversed());
 		return result;
+	}
+
+	/** Returns the change captured for one execution, if projection already ran. */
+	public Optional<ChangeSet> findByExecution(String taskId, String executionId) {
+		if (taskId == null || taskId.isBlank() || executionId == null || executionId.isBlank()) {
+			return Optional.empty();
+		}
+		return getChangesByTask(taskId).stream()
+			.filter(change -> executionId.equals(change.getExecutionId())).findFirst();
+	}
+	public Optional<ChangeSet> findByWorkspace(String taskId, String workspaceId) {
+		if (taskId == null || workspaceId == null) return Optional.empty();
+		return getChangesByTask(taskId).stream().filter(c -> workspaceId.equals(c.getWorkspaceId())).findFirst();
 	}
 
 	/** All change sets, newest first (read-only, for metrics/observability). */

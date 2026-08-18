@@ -5,6 +5,7 @@ import java.util.List;
 import com.aidevos.orchestrator.change.ChangeReviewRequest;
 import com.aidevos.orchestrator.change.ChangeService;
 import com.aidevos.orchestrator.change.ChangeSet;
+import com.aidevos.orchestrator.change.ExecutionCompletionHandoffService;
 import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -25,13 +26,22 @@ import org.springframework.web.bind.annotation.RestController;
 public class ChangeController {
 
 	private final ChangeService changeService;
+	private final ExecutionCompletionHandoffService completionHandoff;
 
-	public ChangeController(ChangeService changeService) {
-		this.changeService = changeService;
+	public ChangeController(ChangeService changeService) { this(changeService, null); }
+	@org.springframework.beans.factory.annotation.Autowired
+	public ChangeController(ChangeService changeService, ExecutionCompletionHandoffService completionHandoff) {
+		this.changeService = changeService; this.completionHandoff = completionHandoff;
 	}
 
 	@GetMapping("/tasks/{taskId}/changes")
 	public List<ChangeSet> listByTask(@PathVariable String taskId) {
+		return changeService.getChangesByTask(taskId);
+	}
+
+	@PostMapping("/tasks/{taskId}/changes/projection/retry")
+	public List<ChangeSet> retryProjection(@PathVariable String taskId) {
+		if (completionHandoff != null) completionHandoff.retry(taskId);
 		return changeService.getChangesByTask(taskId);
 	}
 

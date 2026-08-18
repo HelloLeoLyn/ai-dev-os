@@ -86,6 +86,10 @@ public class ExecutionWorkspacePromotionService {
         }
     }
 
+    /** Read-only lookup for completion projections. */
+    public ExecutionWorkspace workspace(String taskId) { return requiredWorkspace(taskId); }
+    public ExecutionWorkspace findWorkspace(String taskId) { return repository.findByTaskId(taskId); }
+
     public synchronized ExecutionWorkspace promote(String taskId) {
         ExecutionWorkspace workspace = requiredWorkspace(taskId);
         if (workspace.getStatus() == ExecutionWorkspaceStatus.PROMOTED) return workspace;

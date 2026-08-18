@@ -25,6 +25,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.aidevos.orchestrator.analysis.AnalysisProjectionCoordinator;
+import com.aidevos.orchestrator.change.ExecutionCompletionHandoffService;
 
 /**
  * Unified task entry point: User Request -> Task -> Plan -> Approval ->
@@ -45,6 +46,12 @@ public class TaskCenterService {
 	private final PlanScheduler planScheduler;
 	private AgentCoordinatorService agentCoordinatorService;
 	private AnalysisProjectionCoordinator analysisProjectionCoordinator;
+	private ExecutionCompletionHandoffService completionHandoff;
+
+	@Autowired(required = false)
+	public void setCompletionHandoff(@Lazy ExecutionCompletionHandoffService service) {
+		this.completionHandoff = service;
+	}
 
 	public TaskCenterService(PlannerService plannerService,
 			PlanApprovalService approvalService, PlanRunRepository planRunRepository) {
@@ -368,6 +375,10 @@ public class TaskCenterService {
 			if (before != TaskStatus.SUCCESS && task.getStatus() == TaskStatus.SUCCESS
 					&& analysisProjectionCoordinator != null) {
 				analysisProjectionCoordinator.schedule(task.getTaskId());
+			}
+			if (before != TaskStatus.SUCCESS && task.getStatus() == TaskStatus.SUCCESS
+					&& completionHandoff != null) {
+				completionHandoff.project(task.getTaskId(), runId);
 			}
 		}
 	}

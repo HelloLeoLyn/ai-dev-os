@@ -21,6 +21,10 @@ import type { ExecutionWorkspaceReview } from '../api/executions'
 import type { ExecutionWorkspace } from '../types/executionWorkspace'
 import { getRemotePushApprovals, approveRemotePush, rejectRemotePush, pushRemote } from '../api/remotePush'
 import type { RemotePushApproval } from '../api/remotePush'
+import { getTaskChanges, reviewChange, approveChange, rejectChange, commitChange, retryChangeProjection as retryChangeProjectionApi } from '../api/changes'
+import type { ChangeSet } from '../api/changes'
+import { getTaskCommits } from '../api/commits'
+import type { CommitRecord } from '../api/commits'
 
 const route = useRoute()
 const taskId = String(route.params.taskId || '')
@@ -38,6 +42,9 @@ const diffVisible = ref(false)
 const approvalBusy = ref(false)
 const taskNotifications = useTaskNotifications()
 const remotePushApprovals = ref<RemotePushApproval[]>([])
+const changes = ref<ChangeSet[]>([])
+const commits = ref<CommitRecord[]>([])
+const changeRetrying = ref(false)
 const monitoredTask = taskNotifications.taskState(taskId)
 const pendingRecord = computed(() => executions.records.value.slice().reverse().find(record => record.status === 'WAITING_APPROVAL' && record.approvalId && record.jobId && jobs.value[record.jobId]?.status === 'WAITING_APPROVAL' && codingApprovals.value[record.approvalId]?.status === 'PENDING') ?? null)
 const pendingApproval = computed(() => pendingRecord.value?.approvalId ? codingApprovals.value[pendingRecord.value.approvalId] ?? null : null)
@@ -72,6 +79,24 @@ async function loadExecutionState(): Promise<void> {
   executionWorkspace.value = await getExecutionWorkspace(taskId).catch(() => null)
   workspaceReview.value = executionWorkspace.value ? await getExecutionWorkspaceReview(taskId).catch(() => null) : null
   remotePushApprovals.value = await getRemotePushApprovals(taskId).catch(() => [])
+  changes.value = await getTaskChanges(taskId).catch(() => [])
+  commits.value = await getTaskCommits(taskId).catch(() => [])
+}
+async function changeAction(id: string, action: 'review'|'approve'|'reject'|'commit'): Promise<void> {
+  try {
+    if (action === 'review') await reviewChange(id)
+    else if (action === 'approve') await approveChange(id)
+    else if (action === 'reject') await rejectChange(id)
+    else await commitChange(id)
+    await loadExecutionState()
+  } catch (error) { ElMessage.error(error instanceof Error ? error.message : 'Change action failed.') }
+}
+async function retryChangeProjection(): Promise<void> {
+  if (changeRetrying.value) return
+  changeRetrying.value = true
+  try { await retryChangeProjectionApi(taskId); await loadExecutionState() }
+  catch (error) { ElMessage.error(error instanceof Error ? error.message : 'ChangeSet projection failed.') }
+  finally { changeRetrying.value = false }
 }
 async function decideRemotePush(action: 'approve' | 'reject'): Promise<void> {
   const approval = pendingRemotePush.value
@@ -152,6 +177,24 @@ function reload(): void { void Promise.all([context.load(taskId), loadExecutionS
       <ul class="changed-files"><li v-for="file in workspaceReview.changedFiles" :key="file">{{ file }}</li></ul>
       <div class="review-actions"><el-button @click="diffVisible = true">View Diff</el-button><el-button v-if="['COMPLETED','PROMOTION_FAILED'].includes(executionWorkspace?.status || '')" type="primary" :loading="promotionBusy" :disabled="workspaceReview.completeness !== 'COMPLETE'" @click="promoteWorkspace">{{ executionWorkspace?.status === 'PROMOTION_FAILED' ? 'Retry Promote to Source Workspace' : 'Promote to Source Workspace' }}</el-button><el-button v-if="['COMPLETED','PROMOTION_FAILED'].includes(executionWorkspace?.status || '')" :loading="promotionBusy" @click="rejectWorkspace">Reject Changes</el-button></div>
       <p v-if="executionWorkspace?.promotionErrorCode" class="error">{{ executionWorkspace.promotionErrorCode }}: {{ executionWorkspace.promotionReason }}</p>
+    </section>
+    <section v-if="changes.length || commits.length || remotePushApprovals.length" class="delivery-flow" aria-label="Delivery Flow">
+      <p class="page-eyebrow">Delivery</p><h2>ChangeSet → Commit → Remote Push</h2>
+      <div v-for="change in changes" :key="change.changeId" class="delivery-card">
+        <div><strong>ChangeSet</strong> <TechnicalId :value="change.changeId" label="ChangeSet" /><StatusBadge :status="change.status" /></div>
+        <p>Branch: <code>{{ change.branch }}</code> · Files Changed: {{ change.filesChanged }}</p>
+        <div class="approval-actions">
+          <el-button v-if="change.status === 'CREATED'" @click="changeAction(change.changeId, 'review')">Start Review</el-button>
+          <el-button v-if="change.status === 'REVIEWING'" type="primary" @click="changeAction(change.changeId, 'approve')">Approve Change</el-button>
+          <el-button v-if="change.status === 'REVIEWING'" @click="changeAction(change.changeId, 'reject')">Reject Change</el-button>
+          <el-button v-if="change.status === 'APPROVED'" type="primary" @click="changeAction(change.changeId, 'commit')">Commit Change</el-button>
+        </div>
+      </div>
+      <div v-for="commit in commits" :key="commit.commitId" class="delivery-card"><strong>Commit</strong> <TechnicalId :value="commit.commitId" label="Commit" /> <StatusBadge :status="commit.status" /><span> {{ commit.branch }} {{ commit.gitHash || '' }}</span></div>
+    </section>
+    <section v-else-if="executionWorkspace?.status === 'COMPLETED' && context.task.value.executionMode === 'READ_WRITE'" class="delivery-flow" aria-label="Delivery Flow">
+      <p class="page-eyebrow">Delivery</p><h2>ChangeSet not generated</h2><p class="error">Execution succeeded, but the ChangeSet projection is not available.</p>
+      <el-button :loading="changeRetrying" @click="retryChangeProjection">Retry ChangeSet projection</el-button>
     </section>
     <section class="flow-summary" aria-label="Execution diagnostics"><article><span>Current Task Status</span><strong>{{ context.task.value.status }}</strong></article><article><span>Current PlanRun Status</span><strong>{{ currentPlanRunStatus }}</strong></article><article><span>Current Job Status</span><strong>{{ latestJob?.status || 'Unknown' }}</strong></article><article><span>Current Approval Status</span><strong>{{ pendingApproval?.status || context.approval.value?.status || 'None' }}</strong></article><article><span>Latest Attempt</span><strong>{{ latestRecord?.status || 'Unknown' }}</strong></article><article><span>Resolved Executor</span><strong>{{ latestRecord?.executorName || 'Unknown' }}</strong></article><article><span>Last Flow Event</span><strong>{{ lastFlowEvent?.eventType || 'Unknown' }}</strong></article><article><span>Blocked Reason</span><strong>{{ latestRecord?.status === 'WAITING_APPROVAL' ? (latestRecord.message || 'Approval required') : 'None' }}</strong></article></section>
     <el-card v-for="(record, index) in executions.records.value" :key="record.id" shadow="never" :class="['record-card', { 'historical-attempt': record !== latestRecord }]">
