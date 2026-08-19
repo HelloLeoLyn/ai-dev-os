@@ -12,6 +12,7 @@ import com.aidevos.orchestrator.job.JobLease;
 import com.aidevos.orchestrator.model.AgentDefinition;
 import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.model.TaskDefinition;
+import com.aidevos.orchestrator.modelregistry.ModelResolutionException;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -65,6 +66,25 @@ class ExecutionEngineAttemptTest {
 		ExecutionAttempt attempt = harness.attempts().getByJob("job-1").get(0);
 		assertEquals(ExecutionAttemptStatus.FAILED, attempt.getStatus());
 		assertEquals("EXECUTOR_FAILURE", attempt.getFailureCode());
+	}
+
+	@Test
+	void modelResolutionExceptionPersistsErrorEvidence() {
+		AgentExecutor executor = mock(AgentExecutor.class);
+		when(executor.getType()).thenReturn("codex");
+		when(executor.execute(any(ExecutionContext.class)))
+			.thenThrow(new ModelResolutionException(ModelResolutionException.Code.CREDENTIAL_MISSING,
+				"Credential reference DEEPSEEK_API_KEY is not set in the environment"));
+		Harness harness = harness(executor);
+
+		ExecutionResult result = harness.engine().execute(task("planner"), "job-1");
+
+		assertEquals(false, result.isSuccess());
+		assertEquals("CREDENTIAL_MISSING", result.getMetadata().get("errorCode"));
+		ExecutionRecord record = harness.records().getAll().get(0);
+		assertEquals("CREDENTIAL_MISSING", record.getErrorCode());
+		assertTrue(record.getErrorMessage().contains("DEEPSEEK_API_KEY"));
+		assertEquals("FAILED", record.getStatus());
 	}
 
 	@Test

@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { createTask, getTasks } from '../api/tasks'
+import { modelRegistryApi } from '../api/models'
 import { getProjects, getProjectWorkspaces } from '../api/projects'
 import TaskTable from '../components/TaskTable.vue'
 import AsyncState from '../components/AsyncState.vue'
@@ -10,6 +11,7 @@ import { getTaskApproval } from '../composables/useTaskContext'
 import { useTaskNotifications } from '../composables/useTaskNotifications'
 import { duplicateTaskDraft, rememberTaskCreateMetadata, taskCreateMetadata } from '../services/taskDuplicate'
 import type { CreateTaskRequest, TaskRecord } from '../types/task'
+import type { ModelDefinition } from '../types/model'
 import type { Project } from '../types/project'
 import type { Workspace } from '../types/workspace'
 import type { PlanApprovalStatus } from '../types/planApproval'
@@ -19,9 +21,11 @@ const tasks = ref<TaskRecord[]>([]), loading = ref(true), submitting = ref(false
 const errorMessage = ref<string | null>(null), submitError = ref<string | null>(null)
 const projects = ref<Project[]>([]), workspaces = ref<Workspace[]>([]), loadingWorkspaces = ref(false)
 const createVisible = ref(false), duplicateNotice = ref<string | null>(null)
+const models = ref<ModelDefinition[]>([])
+const modelOptions = computed(() => models.value.filter(model => model.enabled))
 const approvalStatuses = ref<Record<string, PlanApprovalStatus | null>>({})
 const filters = reactive({ search: '', status: '', projectId: '', executionMode: '' })
-const form = reactive<CreateTaskRequest>({ name: '', description: '', goal: '', plannerName: 'hermes', projectId: '', workspaceId: '', executionMode: 'READ_ONLY' })
+const form = reactive<CreateTaskRequest>({ name: '', description: '', goal: '', plannerName: 'hermes', projectId: '', workspaceId: '', executionMode: 'READ_ONLY', requestedModelId: '' })
 const plannerOptions = ['hermes', 'fake']
 const statuses = computed(() => [...new Set(tasks.value.map(task => task.status))])
 const filteredTasks = computed(() => {
@@ -46,6 +50,7 @@ async function loadTasks(): Promise<void> {
   finally { loading.value = false }
 }
 async function loadProjects(): Promise<void> { projects.value = (await getProjects()).filter(project => project.status === 'ACTIVE') }
+async function loadModels(): Promise<void> { try { models.value = await modelRegistryApi.listModels() } catch { models.value = [] } }
 async function loadWorkspaces(projectId?: string): Promise<void> {
   form.workspaceId = ''; workspaces.value = []
   if (!projectId) return
@@ -57,7 +62,7 @@ async function loadWorkspaces(projectId?: string): Promise<void> {
 watch(() => form.projectId, loadWorkspaces)
 watch(filters, value => sessionStorage.setItem('task-center-filters', JSON.stringify(value)), { deep: true })
 function selectTask(task: TaskRecord): void { sessionStorage.setItem('task-center-scroll', String(window.scrollY)); void router.push(`/tasks/${encodeURIComponent(task.taskId)}`) }
-function resetForm(): void { Object.assign(form, { name: '', description: '', goal: '', plannerName: 'hermes', projectId: '', workspaceId: '', executionMode: 'READ_ONLY' }); duplicateNotice.value = null; submitError.value = null }
+function resetForm(): void { Object.assign(form, { name: '', description: '', goal: '', plannerName: 'hermes', projectId: '', workspaceId: '', executionMode: 'READ_ONLY', requestedModelId: '' }); duplicateNotice.value = null; submitError.value = null }
 async function handleCreate(): Promise<void> {
   if (!form.name.trim() || !form.goal.trim() || !form.projectId || !form.workspaceId) { submitError.value = '任务名称、目标、Project 与 Workspace 为必填项。'; return }
   submitting.value = true; submitError.value = null
@@ -93,7 +98,7 @@ onMounted(async () => {
   <el-card shadow="never" class="filters"><el-input v-model="filters.search" clearable placeholder="Search title, description or Task ID" /><el-select v-model="filters.status" clearable placeholder="Status"><el-option v-for="status in statuses" :key="status" :label="status" :value="status" /></el-select><el-select v-model="filters.projectId" clearable placeholder="Project"><el-option v-for="project in projects" :key="project.projectId" :label="project.name" :value="project.projectId" /></el-select><el-select v-model="filters.executionMode" clearable placeholder="Execution Mode"><el-option label="READ_ONLY" value="READ_ONLY" /><el-option label="READ_WRITE" value="READ_WRITE" /></el-select></el-card>
   <AsyncState :loading="loading && !tasks.length" :error="errorMessage" :empty="!loading && !filteredTasks.length" empty-text="没有符合条件的 Task" @retry="loadTasks"><el-card shadow="never"><TaskTable :tasks="filteredTasks" :loading="loading" :approval-statuses="approvalStatuses" @select="selectTask" /></el-card></AsyncState>
   <el-dialog v-model="createVisible" title="Create Task" width="min(760px, 94vw)" destroy-on-close @closed="submitError = null">
-    <el-form label-position="top" @submit.prevent="handleCreate"><el-row :gutter="16"><el-col :xs="24" :sm="12"><el-form-item label="任务名称" required><el-input v-model="form.name" /></el-form-item></el-col><el-col :xs="24" :sm="12"><el-form-item label="Planner"><el-select v-model="form.plannerName" style="width:100%"><el-option v-for="planner in plannerOptions" :key="planner" :label="planner" :value="planner" /></el-select></el-form-item></el-col></el-row><el-row :gutter="16"><el-col :xs="24" :sm="8"><el-form-item label="Project" required><el-select v-model="form.projectId" style="width:100%"><el-option v-for="item in projects" :key="item.projectId" :label="item.name" :value="item.projectId" /></el-select></el-form-item></el-col><el-col :xs="24" :sm="8"><el-form-item label="Workspace" required><el-select v-model="form.workspaceId" :loading="loadingWorkspaces" :disabled="!form.projectId" style="width:100%"><el-option v-for="item in workspaces" :key="item.workspaceId" :label="`${item.path} (${item.branch || 'unknown'})`" :value="item.workspaceId" /></el-select></el-form-item></el-col><el-col :xs="24" :sm="8"><el-form-item label="Execution Mode" required><el-select v-model="form.executionMode" style="width:100%"><el-option label="READ_ONLY" value="READ_ONLY" /><el-option label="READ_WRITE" value="READ_WRITE" /></el-select></el-form-item></el-col></el-row><el-form-item label="Description"><el-input v-model="form.description" /></el-form-item><el-form-item label="Goal" required><el-input v-model="form.goal" type="textarea" :rows="3" /></el-form-item><p v-if="duplicateNotice" class="notice">{{ duplicateNotice }}</p><p v-if="submitError" class="error">{{ submitError }}</p></el-form>
+    <el-form label-position="top" @submit.prevent="handleCreate"><el-row :gutter="16"><el-col :xs="24" :sm="12"><el-form-item label="任务名称" required><el-input v-model="form.name" /></el-form-item></el-col><el-col :xs="24" :sm="12"><el-form-item label="Planner"><el-select v-model="form.plannerName" style="width:100%"><el-option v-for="planner in plannerOptions" :key="planner" :label="planner" :value="planner" /></el-select></el-form-item></el-col><el-col :xs="24" :sm="12"><el-form-item label="Model"><el-select v-model="form.requestedModelId" style="width:100%" placeholder="Auto"><el-option label="Auto（Agent 默认模型）" value="" /><el-option v-for="model in modelOptions" :key="model.modelId" :label="model.displayName || model.modelId" :value="model.modelId" /></el-select></el-form-item></el-col></el-row><el-row :gutter="16"><el-col :xs="24" :sm="8"><el-form-item label="Project" required><el-select v-model="form.projectId" style="width:100%"><el-option v-for="item in projects" :key="item.projectId" :label="item.name" :value="item.projectId" /></el-select></el-form-item></el-col><el-col :xs="24" :sm="8"><el-form-item label="Workspace" required><el-select v-model="form.workspaceId" :loading="loadingWorkspaces" :disabled="!form.projectId" style="width:100%"><el-option v-for="item in workspaces" :key="item.workspaceId" :label="`${item.path} (${item.branch || 'unknown'})`" :value="item.workspaceId" /></el-select></el-form-item></el-col><el-col :xs="24" :sm="8"><el-form-item label="Execution Mode" required><el-select v-model="form.executionMode" style="width:100%"><el-option label="READ_ONLY" value="READ_ONLY" /><el-option label="READ_WRITE" value="READ_WRITE" /></el-select></el-form-item></el-col></el-row><el-form-item label="Description"><el-input v-model="form.description" /></el-form-item><el-form-item label="Goal" required><el-input v-model="form.goal" type="textarea" :rows="3" /></el-form-item><p v-if="duplicateNotice" class="notice">{{ duplicateNotice }}</p><p v-if="submitError" class="error">{{ submitError }}</p></el-form>
     <template #footer><el-button @click="createVisible = false">Cancel</el-button><el-button type="primary" :loading="submitting" :disabled="!form.projectId || !form.workspaceId" @click="handleCreate">创建并规划</el-button></template>
   </el-dialog>
 </section></template>

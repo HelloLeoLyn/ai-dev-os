@@ -23,6 +23,7 @@ describe('duplicateTaskDraft', () => {
         name: 'Analyze JJX - 副本', description: 'Read only analysis',
         goal: 'Inspect the repository safely', plannerName: 'fake',
         projectId: 'project-jjx', workspaceId: 'workspace-jjx', executionMode: 'READ_ONLY',
+        requestedModelId: '',
       },
     })
     expect(duplicate.request).not.toHaveProperty('taskId')

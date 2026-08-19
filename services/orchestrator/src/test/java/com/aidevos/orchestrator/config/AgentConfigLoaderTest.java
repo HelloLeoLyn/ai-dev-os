@@ -26,7 +26,7 @@ class AgentConfigLoaderTest {
 		assertEquals("main", agents.get(4).getExecutorConfig().get("agentId"));
 		assertEquals("main", agents.get(5).getExecutorConfig().get("agentId"));
 		assertEquals(null, agents.get(3).getExecutorConfig().get("workspace"));
-		assertEquals(null, agents.get(3).getExecutorConfig().get("model"));
+		assertEquals("deepseek-v4-flash", agents.get(3).getExecutorConfig().get("model"));
 		assertEquals("1.0.0", agents.get(3).getVersion());
 		assertEquals("1.0.0", agents.get(0).getVersion());
 		assertEquals("Executes coding tasks", agents.get(3).getDescription());

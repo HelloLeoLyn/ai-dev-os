@@ -63,6 +63,8 @@ public class StepTaskFactory {
 		parameters.put("workspaceId", metadata.get("workspaceId"));
 		parameters.put("workspacePath", metadata.get("workspacePath"));
 		parameters.put("executionMode", metadata.get("executionMode"));
+		String requestedModelId = snapshotValue(planRun, "requestedModelId");
+		if (!requestedModelId.isBlank()) parameters.put("requestedModelId", requestedModelId);
 		String taskType = snapshotValue(planRun, "taskType");
 		if (!taskType.isBlank()) parameters.put("taskType", taskType);
 		if ("READ_ONLY".equals(metadata.get("executionMode"))) {

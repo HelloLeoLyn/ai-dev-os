@@ -11,5 +11,7 @@ public record ExecutionRecordDetail(String id, String taskId, String agentName, 
 		String planRunId, String stepRunId, String attemptId,
 		String workspace, String sandbox, String approvalId, String branch,
 		String beforeHead, String afterHead, Integer exitCode, String codexThreadId,
+		String requestedModelId, String resolvedModelId, String modelProvider,
+		String modelExecutor, String errorCode, String errorMessage,
 		Instant startedAt, Instant completedAt) {
 }

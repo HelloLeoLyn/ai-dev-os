@@ -34,6 +34,7 @@ export interface TaskRecord {
   executionMode: ExecutionMode
   errorMessage: string | null
   sourceBacklogItemId?: string | null
+  requestedModelId?: string | null
 }
 
 export type ExecutionMode = 'READ_ONLY' | 'READ_WRITE'
@@ -46,4 +47,5 @@ export interface CreateTaskRequest {
   projectId?: string
   workspaceId?: string
   executionMode: ExecutionMode
+  requestedModelId?: string | null
 }

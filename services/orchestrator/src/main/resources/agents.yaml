@@ -37,7 +37,7 @@ agents:
     executor: codex
     codex:
       workspace:
-      model:
+      model: deepseek-v4-flash
       sandbox: workspace-write
     capabilities:
       - coding

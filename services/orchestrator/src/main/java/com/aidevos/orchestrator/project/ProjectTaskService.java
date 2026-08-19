@@ -76,7 +76,7 @@ public class ProjectTaskService {
 			request.goal(), request.plannerName(), normalizedProjectId, workspace.getWorkspaceId(),
 			request.executionMode() == null
 				? com.aidevos.orchestrator.taskcenter.ExecutionMode.READ_ONLY
-				: request.executionMode());
+				: request.executionMode(), request.requestedModelId());
 		return sourceBacklogItemId == null
 			? taskCenterService.createTask(validated, workspace.getPath())
 			: taskCenterService.createTask(validated, workspace.getPath(), sourceBacklogItemId);

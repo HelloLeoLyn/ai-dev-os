@@ -311,6 +311,12 @@ class PostgresRepositoryIntegrationTest {
 		record.setOutput("done");
 		record.setBranch("main");
 		record.setGitDiffStat("1 file changed");
+		record.setRequestedModelId("deepseek-v4-flash");
+		record.setResolvedModelId("deepseek-v4-flash");
+		record.setModelProvider("deepseek");
+		record.setModelExecutor("codex");
+		record.setErrorCode("USAGE_LIMIT");
+		record.setErrorMessage("You've hit your usage limit.");
 		record.setStartedAt(NOW);
 		record.setCompletedAt(NOW.plusSeconds(5));
 		ExecutionReport report = new ExecutionReport();
@@ -334,6 +340,12 @@ class PostgresRepositoryIntegrationTest {
 		assertEquals("CODEX", loaded.getReport().getAgentName());
 		assertEquals(1, loaded.getArtifacts().size());
 		assertEquals("run.log", loaded.getArtifacts().getFirst().getName());
+		assertEquals("deepseek-v4-flash", loaded.getRequestedModelId());
+		assertEquals("deepseek-v4-flash", loaded.getResolvedModelId());
+		assertEquals("deepseek", loaded.getModelProvider());
+		assertEquals("codex", loaded.getModelExecutor());
+		assertEquals("USAGE_LIMIT", loaded.getErrorCode());
+		assertEquals("You've hit your usage limit.", loaded.getErrorMessage());
 		assertEquals(1, repository.getAll().size());
 	}
 

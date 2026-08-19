@@ -55,6 +55,12 @@ export interface ExecutionRecordDetail extends ExecutionRecordSummary {
   afterHead: string | null
   exitCode: number | null
   codexThreadId: string | null
+  requestedModelId: string | null
+  resolvedModelId: string | null
+  modelProvider: string | null
+  modelExecutor: string | null
+  errorCode: string | null
+  errorMessage: string | null
   startedAt: string | null
   completedAt: string | null
 }

@@ -37,12 +37,12 @@ class PostgresMigrationValidationTest {
 	static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
 
 	@Test
-	void freshDatabaseAppliesAllMigrationsV1ThroughV30() throws Exception {
+	void freshDatabaseAppliesAllMigrationsV1ThroughV31() throws Exception {
 		PGSimpleDataSource dataSource = dataSource(POSTGRES.getDatabaseName());
 		new PostgresDocumentStore(dataSource, new ObjectMapper());
 
 		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
-				18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30),
+				18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31),
 			appliedVersions(dataSource));
 		for (String table : List.of("repository_documents", "audit_events",
 				"plan_version_freezes", "audit_outbox", "jobs", "execution_attempts",
@@ -57,6 +57,13 @@ class PostgresMigrationValidationTest {
 				"projects column missing: " + column);
 			assertTrue(columnNullable(dataSource, "projects", column),
 				"projects column must be nullable: " + column);
+		}
+		for (String column : List.of("requested_model_id", "resolved_model_id",
+				"model_provider", "model_executor", "error_code", "error_message")) {
+			assertTrue(columnExists(dataSource, "execution_records", column),
+				"execution_records column missing: " + column);
+			assertTrue(columnNullable(dataSource, "execution_records", column),
+				"execution_records column must be nullable: " + column);
 		}
 		assertTrue(columnNullable(dataSource, "workspaces", "repository_url"),
 			"workspaces repository_url must be nullable");
@@ -131,7 +138,7 @@ class PostgresMigrationValidationTest {
 		assertTrue(indexExists(dataSource, "idx_recommendation_decision_analysis"));
 		assertTrue(indexExists(dataSource, "idx_recommendation_decision_status"));
 		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
-				18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30),
+				18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31),
 			appliedVersions(dataSource));
 		assertTrue(columnNullable(dataSource, "workspaces", "repository_url"),
 			"upgraded workspaces repository_url must be nullable");
@@ -190,7 +197,7 @@ class PostgresMigrationValidationTest {
 		// Re-running the migration remains idempotent.
 		new PostgresDocumentStore(dataSource, new ObjectMapper());
 		assertEquals(Set.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
-				18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30),
+				18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31),
 			appliedVersions(dataSource));
 	}
 

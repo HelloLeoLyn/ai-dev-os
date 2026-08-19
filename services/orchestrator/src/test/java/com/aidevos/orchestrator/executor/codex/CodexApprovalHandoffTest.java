@@ -27,6 +27,8 @@ import com.aidevos.orchestrator.executor.command.CommandOptions;
 import com.aidevos.orchestrator.executor.git.GitInspector;
 import com.aidevos.orchestrator.executor.git.GitSnapshot;
 import com.aidevos.orchestrator.executor.git.UntrackedArtifactCollector;
+import com.aidevos.orchestrator.modelregistry.ModelResolver;
+import com.aidevos.orchestrator.modelregistry.ResolvedModel;
 import com.aidevos.orchestrator.plan.Plan;
 import com.aidevos.orchestrator.plan.PlanStatus;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalRequest;
@@ -167,10 +169,14 @@ class CodexApprovalHandoffTest {
 		CodexProperties properties = new CodexProperties(); properties.setTimeout(Duration.ofMinutes(1));
 		CodexOutputSchemaProvider schema = mock(CodexOutputSchemaProvider.class);
 		when(schema.path()).thenReturn("/tmp/schema.json");
+		ModelResolver modelResolver = mock(ModelResolver.class);
+		when(modelResolver.resolve(org.mockito.ArgumentMatchers.nullable(String.class),
+			org.mockito.ArgumentMatchers.nullable(String.class)))
+			.thenReturn(new ResolvedModel("AUTO", "gpt-5.6-codex", "openai", "codex", null, null));
 		return new CodexExecutor(commands, resolver, git, new CodexResultMapper(new ObjectMapper()), coding,
 			new ArtifactContentLimiter(10_000), properties,
 			new CodexCommandBuilder(properties, new CoderPromptBuilder(), schema),
-			mock(UntrackedArtifactCollector.class), plans);
+			mock(UntrackedArtifactCollector.class), plans, modelResolver);
 	}
 
 	private CodingApprovalRequest consumedCodingApproval(String taskId, String jobId, String workspace) {

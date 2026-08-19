@@ -19,6 +19,9 @@ import com.aidevos.orchestrator.executor.command.CommandResult;
 import com.aidevos.orchestrator.executor.git.GitInspector;
 import com.aidevos.orchestrator.executor.git.GitSnapshot;
 import com.aidevos.orchestrator.executor.git.UntrackedArtifactCollector;
+import com.aidevos.orchestrator.modelregistry.ModelResolutionException;
+import com.aidevos.orchestrator.modelregistry.ModelResolver;
+import com.aidevos.orchestrator.modelregistry.ResolvedModel;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalRequest;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalService;
 import org.springframework.stereotype.Component;
@@ -43,6 +46,8 @@ public class CodexExecutor implements AgentExecutor {
 	private final CodexCommandBuilder commandBuilder;
 	private final UntrackedArtifactCollector untrackedArtifactCollector;
 	private final PlanApprovalService planApprovalService;
+	private final ModelResolver modelResolver;
+	private final CodexErrorClassifier errorClassifier;
 
 	public CodexExecutor(CommandExecutor commandExecutor, WorkspaceResolver workspaceResolver,
 			GitInspector gitInspector, CodexResultMapper resultMapper,
@@ -50,7 +55,29 @@ public class CodexExecutor implements AgentExecutor {
 			CodexProperties codexProperties, CodexCommandBuilder commandBuilder,
 			UntrackedArtifactCollector untrackedArtifactCollector) {
 		this(commandExecutor, workspaceResolver, gitInspector, resultMapper, approvalService,
-			artifactContentLimiter, codexProperties, commandBuilder, untrackedArtifactCollector, null);
+			artifactContentLimiter, codexProperties, commandBuilder, untrackedArtifactCollector,
+			null, null, null);
+	}
+
+	public CodexExecutor(CommandExecutor commandExecutor, WorkspaceResolver workspaceResolver,
+			GitInspector gitInspector, CodexResultMapper resultMapper,
+			CodingApprovalService approvalService, ArtifactContentLimiter artifactContentLimiter,
+			CodexProperties codexProperties, CodexCommandBuilder commandBuilder,
+			UntrackedArtifactCollector untrackedArtifactCollector, PlanApprovalService planApprovalService) {
+		this(commandExecutor, workspaceResolver, gitInspector, resultMapper, approvalService,
+			artifactContentLimiter, codexProperties, commandBuilder, untrackedArtifactCollector,
+			planApprovalService, null, null);
+	}
+
+	public CodexExecutor(CommandExecutor commandExecutor, WorkspaceResolver workspaceResolver,
+			GitInspector gitInspector, CodexResultMapper resultMapper,
+			CodingApprovalService approvalService, ArtifactContentLimiter artifactContentLimiter,
+			CodexProperties codexProperties, CodexCommandBuilder commandBuilder,
+			UntrackedArtifactCollector untrackedArtifactCollector, PlanApprovalService planApprovalService,
+			ModelResolver modelResolver) {
+		this(commandExecutor, workspaceResolver, gitInspector, resultMapper, approvalService,
+			artifactContentLimiter, codexProperties, commandBuilder, untrackedArtifactCollector,
+			planApprovalService, modelResolver, new CodexErrorClassifier());
 	}
 
 	@org.springframework.beans.factory.annotation.Autowired
@@ -58,7 +85,8 @@ public class CodexExecutor implements AgentExecutor {
 			GitInspector gitInspector, CodexResultMapper resultMapper,
 			CodingApprovalService approvalService, ArtifactContentLimiter artifactContentLimiter,
 			CodexProperties codexProperties, CodexCommandBuilder commandBuilder,
-			UntrackedArtifactCollector untrackedArtifactCollector, PlanApprovalService planApprovalService) {
+			UntrackedArtifactCollector untrackedArtifactCollector, PlanApprovalService planApprovalService,
+			ModelResolver modelResolver, CodexErrorClassifier errorClassifier) {
 		this.commandExecutor = commandExecutor;
 		this.workspaceResolver = workspaceResolver;
 		this.gitInspector = gitInspector;
@@ -69,6 +97,8 @@ public class CodexExecutor implements AgentExecutor {
 		this.commandBuilder = commandBuilder;
 		this.untrackedArtifactCollector = untrackedArtifactCollector;
 		this.planApprovalService = planApprovalService;
+		this.modelResolver = modelResolver;
+		this.errorClassifier = errorClassifier;
 	}
 
 	@Override
@@ -81,6 +111,7 @@ public class CodexExecutor implements AgentExecutor {
 		WorkspaceSnapshot workspace = workspaceResolver.resolve(context);
 		CodexSandbox sandbox = readOnly(context) ? CodexSandbox.READ_ONLY
 			: CodexSandbox.parse(codingConfig(context, "sandbox", "workspace-write"));
+		ResolvedModel resolved = resolveModel(context);
 		CodingApprovalRequest approval = approvalService.requireApproval(context, workspace.path(), sandbox);
 		if (approval != null) {
 			ExecutionResult waiting = new ExecutionResult();
@@ -90,6 +121,7 @@ public class CodexExecutor implements AgentExecutor {
 			waiting.setMessage("APPROVAL_REQUIRED");
 			waiting.getMetadata().put("workspace", workspace.path());
 			waiting.getMetadata().put("sandbox", sandbox.cliValue());
+			applyModelEvidence(waiting, resolved);
 			return waiting;
 		}
 		ApprovedExecutionHandoff handoff = approvedExecutionHandoff(context, workspace.path(), sandbox);
@@ -101,6 +133,7 @@ public class CodexExecutor implements AgentExecutor {
 		options.setCommand(commandBuilder.build(context, workspace.path(), sandbox, handoff));
 		options.setWorkingDirectory(workspace.path());
 		options.setTimeout(codexProperties.getTimeout());
+		injectCredential(options, resolved);
 		CommandResult commandResult = commandExecutor.execute(options);
 		GitSnapshot after = gitInspector.capture(workspace.path());
 		CodexOutput codexOutput = resultMapper.map(commandResult.getOutput());
@@ -108,7 +141,62 @@ public class CodexExecutor implements AgentExecutor {
 			commandResult.getExitCode(), commandResult.getOutput(), commandResult.getError(),
 			workspace.path(), after.branch().trim(), after.status(), after.diffStat());
 		return toExecutionResult(executionResult, codexOutput, sandbox, before, after,
-			contextMetadataString(context, "approvalId"), projectAnalysis(context));
+			contextMetadataString(context, "approvalId"), projectAnalysis(context), resolved);
+	}
+
+	private ResolvedModel resolveModel(ExecutionContext context) {
+		if (modelResolver == null) {
+			throw new IllegalStateException(
+				"Model resolver is not configured; model resolution must fail closed before the CLI runs");
+		}
+		String requestedModelId = parameterString(context, "requestedModelId");
+		String agentDefaultModelId = parameterString(context, "agentDefaultModelId");
+		ResolvedModel resolved;
+		try {
+			resolved = modelResolver.resolve(requestedModelId, agentDefaultModelId);
+		}
+		catch (ModelResolutionException exception) {
+			throw new ModelResolutionException(exception.code(),
+				"Model resolution failed: " + exception.getMessage());
+		}
+		modelResolver.requireExecutor(resolved, "codex");
+		java.util.LinkedHashMap<String, Object> parameters =
+			new java.util.LinkedHashMap<>(context.getParameters());
+		parameters.put("model", resolved.resolvedModelId());
+		parameters.put("modelProvider", resolved.providerId());
+		parameters.put("providerBaseUrl", resolved.baseUrl());
+		parameters.put("credentialRef", resolved.credentialRef());
+		context.setParameters(parameters);
+		return resolved;
+	}
+
+	private void injectCredential(CommandOptions options, ResolvedModel resolved) {
+		if (resolved == null || resolved.credentialRef() == null || resolved.credentialRef().isBlank()) {
+			return;
+		}
+		String credentialValue = environmentValue(resolved.credentialRef());
+		if (credentialValue != null && !credentialValue.isBlank()) {
+			options.getEnvironment().put(resolved.credentialRef(), credentialValue);
+		}
+	}
+
+	private void applyModelEvidence(ExecutionResult result, ResolvedModel resolved) {
+		if (resolved == null) {
+			return;
+		}
+		result.getMetadata().put("requestedModelId", resolved.requestedModelId());
+		result.getMetadata().put("resolvedModelId", resolved.resolvedModelId());
+		result.getMetadata().put("modelProvider", resolved.providerId());
+		result.getMetadata().put("modelExecutor", resolved.executorType());
+	}
+
+	protected String environmentValue(String name) {
+		return System.getenv(name);
+	}
+
+	private String parameterString(ExecutionContext context, String key) {
+		Object value = context.getParameters().get(key);
+		return value instanceof String string && !string.isBlank() ? string : null;
 	}
 
 	private ApprovedExecutionHandoff approvedExecutionHandoff(ExecutionContext context,
@@ -153,16 +241,35 @@ public class CodexExecutor implements AgentExecutor {
 
 	private ExecutionResult toExecutionResult(CodexExecutionResult executionResult,
 			CodexOutput codexOutput, CodexSandbox sandbox, GitSnapshot before, GitSnapshot after,
-			String approvalId, boolean projectAnalysis) {
+			String approvalId, boolean projectAnalysis, ResolvedModel resolved) {
 		ExecutionResult result = new ExecutionResult();
 		result.setSuccess(executionResult.success());
+		applyModelEvidence(result, resolved);
 		if (executionResult.success()) {
 			result.setMessage("Task executed successfully");
 			result.setOutput(codexOutput.summary() == null
 				? executionResult.stdout() : codexOutput.summary());
 		}
 		else {
-			result.setMessage(executionResult.stderr());
+			String structuredError = codexOutput.failureMessage();
+			String errorCode = errorClassifier == null ? null
+				: errorClassifier.classify(structuredError, codexOutput.failureType());
+			String stderr = executionResult.stderr();
+			String message;
+			if (structuredError != null && !structuredError.isBlank()) {
+				message = structuredError;
+			}
+			else if (errorCode != null && !"EXECUTOR_FAILED".equals(errorCode)) {
+				message = "Codex execution failed: " + errorCode;
+			}
+			else {
+				message = stderr;
+			}
+			result.setMessage(message);
+			if (errorCode != null) {
+				result.getMetadata().put("errorCode", errorCode);
+				result.getMetadata().put("errorMessage", message);
+			}
 		}
 		result.getArtifacts().add(textArtifact("git-status-before", "git-status-before.txt", before.status()));
 		result.getArtifacts().add(textArtifact("git-status-after", "git-status-after.txt", after.status()));

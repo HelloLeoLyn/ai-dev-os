@@ -6,6 +6,7 @@ import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.agent.AgentResolver;
 import com.aidevos.orchestrator.agent.ResolvedAgent;
 import com.aidevos.orchestrator.executor.AgentExecutor;
+import com.aidevos.orchestrator.modelregistry.ModelResolutionException;
 import com.aidevos.orchestrator.operation.DeterministicOperationExecutor;
 import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspace;
 import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspaceService;
@@ -129,6 +130,7 @@ public class ExecutionEngine {
 			}
 			catch (Exception exception) {
 				result = failedResult(executorFailureMessage(executor, exception));
+				applyModelResolutionFailure(result, exception);
 				failAttempt(attempt, EXECUTOR_FAILURE);
 				auditService.executionFlow("EXECUTOR_FINISHED", context.getTaskId(),
 					taskMetadataString(taskDefinition, "planRunId"), taskMetadataString(taskDefinition, "stepRunId"),
@@ -279,7 +281,7 @@ public class ExecutionEngine {
 		if (taskDefinition.getParameters() != null) {
 			parameters.putAll(taskDefinition.getParameters());
 		}
-		parameters.putAll(agent.getExecutorConfig());
+		mergeExecutorConfig(parameters, agent.getExecutorConfig());
 		if (executionMode != null) {
 			parameters.put("executionMode", executionMode);
 			if ("READ_ONLY".equals(executionMode)) {
@@ -295,6 +297,34 @@ public class ExecutionEngine {
 		}
 		context.setParameters(parameters);
 		return context;
+	}
+
+	private void mergeExecutorConfig(Map<String, Object> parameters, Map<String, Object> executorConfig) {
+		if (executorConfig == null) {
+			return;
+		}
+		for (Map.Entry<String, Object> entry : executorConfig.entrySet()) {
+			Object value = entry.getValue();
+			// Never let a blank agent default (e.g. an empty model) clobber task-provided values.
+			if (value instanceof String text && text.isBlank()) {
+				continue;
+			}
+			if ("model".equals(entry.getKey())) {
+				// The agent's configured default model id is the Auto fallback; the resolved
+				// model is written by the executor and must not be conflated with it.
+				parameters.put("agentDefaultModelId", value);
+				continue;
+			}
+			parameters.put(entry.getKey(), value);
+		}
+	}
+
+	private void applyModelResolutionFailure(ExecutionResult result, Exception exception) {
+		if (!(exception instanceof ModelResolutionException resolution)) {
+			return;
+		}
+		result.getMetadata().put("errorCode", resolution.code().name());
+		result.getMetadata().put("errorMessage", resolution.getMessage());
 	}
 
 	private String executorFailureMessage(AgentExecutor executor, Exception exception) {
@@ -359,6 +389,12 @@ public class ExecutionEngine {
 		record.setAfterHead(metadataString(result, "afterHead"));
 		record.setExitCode(metadataInteger(result, "exitCode"));
 		record.setCodexThreadId(metadataString(result, "codexThreadId"));
+		record.setRequestedModelId(metadataString(result, "requestedModelId"));
+		record.setResolvedModelId(metadataString(result, "resolvedModelId"));
+		record.setModelProvider(metadataString(result, "modelProvider"));
+		record.setModelExecutor(metadataString(result, "modelExecutor"));
+		record.setErrorCode(metadataString(result, "errorCode"));
+		record.setErrorMessage(metadataString(result, "errorMessage"));
 		record.setStartedAt(startedAt);
 		record.setCompletedAt(Instant.now());
 		record.setReport(report);

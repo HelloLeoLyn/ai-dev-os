@@ -1,5 +1,6 @@
 package com.aidevos.orchestrator.commit;
 
+import com.aidevos.orchestrator.modelregistry.ModelTestSupport;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -142,7 +143,8 @@ class CommitLifecycleIntegrationTest {
 			new GitInspector(new GitExecutor(commandExecutor)),
 			new CodexResultMapper(new ObjectMapper()), mock(CodingApprovalService.class), limiter,
 			codexProperties, new CodexCommandBuilder(codexProperties, new CoderPromptBuilder(),
-				schemaProvider), new UntrackedArtifactCollector(limiter, 100_000));
+				schemaProvider), new UntrackedArtifactCollector(limiter, 100_000),
+			null, ModelTestSupport.defaultResolver());
 
 		PlannerService plannerService = mock(PlannerService.class);
 		approvalService = mock(PlanApprovalService.class);

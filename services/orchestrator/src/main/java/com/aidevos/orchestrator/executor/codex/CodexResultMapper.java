@@ -17,6 +17,8 @@ public class CodexResultMapper {
 		String threadId = null;
 		String summary = null;
 		String structuredPayload = null;
+		String failureMessage = null;
+		String failureType = null;
 		if (jsonLines == null) {
 			return new CodexOutput(null, null, null);
 		}
@@ -36,12 +38,31 @@ public class CodexResultMapper {
 					summary = structuredSummary(message);
 					structuredPayload = structuredPayload(message);
 				}
+				if ("turn.failed".equals(text(event, "type"))) {
+					JsonNode failure = event.get("failure");
+					if (failure != null) {
+						JsonNode error = failure.get("error");
+						if (error != null) {
+							failureType = text(error, "type");
+							failureMessage = text(error, "message");
+						}
+						if (failureMessage == null) {
+							failureMessage = text(failure, "message");
+						}
+						if (failureMessage == null) {
+							failureMessage = text(failure, "reason");
+						}
+					}
+					if (failureMessage == null) {
+						failureMessage = text(event, "error");
+					}
+				}
 			}
 			catch (Exception ignored) {
 				// Non-JSON lines are retained in the events artifact and do not break result mapping.
 			}
 		}
-		return new CodexOutput(threadId, summary, structuredPayload);
+		return new CodexOutput(threadId, summary, structuredPayload, failureMessage, failureType);
 	}
 
 	private String structuredPayload(String text) {

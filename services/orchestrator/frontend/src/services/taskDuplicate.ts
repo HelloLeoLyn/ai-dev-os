@@ -5,6 +5,7 @@ const METADATA_KEY = 'ai-dev-os.task-create-metadata.v1'
 
 export interface TaskCreateMetadata {
   plannerName: string
+  requestedModelId?: string | null
 }
 
 export interface DuplicateTaskDraft {
@@ -24,7 +25,7 @@ function readMetadata(): Record<string, TaskCreateMetadata> {
 export function rememberTaskCreateMetadata(taskId: string, request: CreateTaskRequest): void {
   if (typeof window === 'undefined') return
   const metadata = readMetadata()
-  metadata[taskId] = { plannerName: request.plannerName }
+  metadata[taskId] = { plannerName: request.plannerName, requestedModelId: request.requestedModelId ?? null }
   window.localStorage.setItem(METADATA_KEY, JSON.stringify(metadata))
 }
 
@@ -46,6 +47,7 @@ export function duplicateTaskDraft(
       projectId: task.projectId,
       workspaceId: task.workspaceId || '',
       executionMode: task.executionMode,
+      requestedModelId: metadata?.requestedModelId || '',
     },
     plannerWasRecovered: Boolean(metadata?.plannerName),
   }

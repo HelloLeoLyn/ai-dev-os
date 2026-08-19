@@ -37,6 +37,21 @@ describe('execution transparency UX', () => {
     expect(source).toContain("'Unable to render untracked file diff.'")
   })
 
+  it('renders compact model/provider/executor evidence and structured errors', () => {
+    expect(source).toContain("record.resolvedModelId")
+    expect(source).toContain("record.modelProvider")
+    expect(source).toContain("record.modelExecutor")
+    expect(source).toContain("record.requestedModelId")
+    expect(source).toContain('record.errorCode')
+    expect(source).toContain('record.errorMessage')
+    expect(source).toContain('<dt>Error Code</dt>')
+  })
+
+  it('does not fall back to Actual Executor = Unknown when executor is known', () => {
+    expect(source).toContain("record.executorName || 'Unknown'")
+    expect(source).not.toContain('Actual Executor = Unknown')
+  })
+
   it('refreshes authoritative workspace state after promotion failure and exposes reject only for review states', () => {
     expect(source).toContain("['COMPLETED','PROMOTION_FAILED'].includes(executionWorkspace?.status || '')")
     expect(source).toContain('getExecutionWorkspace(taskId).then(value => { executionWorkspace.value = value })')

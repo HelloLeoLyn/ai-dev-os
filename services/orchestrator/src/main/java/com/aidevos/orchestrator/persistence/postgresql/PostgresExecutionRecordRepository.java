@@ -20,7 +20,8 @@ final class PostgresExecutionRecordRepository implements ExecutionRecordReposito
 	private static final String COLUMNS = "id,task_id,agent_name,status,message,output,report,"
 		+ "artifacts,execution_id,job_id,plan_run_id,step_run_id,attempt_id,workspace,sandbox,"
 		+ "approval_id,branch,before_head,after_head,exit_code,codex_thread_id,git_status,"
-		+ "git_diff_stat,started_at,completed_at";
+		+ "git_diff_stat,started_at,completed_at,requested_model_id,resolved_model_id,"
+		+ "model_provider,model_executor,error_code,error_message";
 
 	private final PostgresJdbc jdbc;
 	private final ObjectMapper mapper;
@@ -33,7 +34,7 @@ final class PostgresExecutionRecordRepository implements ExecutionRecordReposito
 	@Override
 	public void save(ExecutionRecord record) {
 		jdbc.update("INSERT INTO execution_records(" + COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?,?,"
-			+ "?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+			+ "?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
 			+ "ON CONFLICT(id) DO UPDATE SET task_id=EXCLUDED.task_id,"
 			+ "agent_name=EXCLUDED.agent_name,status=EXCLUDED.status,message=EXCLUDED.message,"
 			+ "output=EXCLUDED.output,report=EXCLUDED.report,artifacts=EXCLUDED.artifacts,"
@@ -45,7 +46,10 @@ final class PostgresExecutionRecordRepository implements ExecutionRecordReposito
 			+ "after_head=EXCLUDED.after_head,exit_code=EXCLUDED.exit_code,"
 			+ "codex_thread_id=EXCLUDED.codex_thread_id,git_status=EXCLUDED.git_status,"
 			+ "git_diff_stat=EXCLUDED.git_diff_stat,started_at=EXCLUDED.started_at,"
-			+ "completed_at=EXCLUDED.completed_at",
+			+ "completed_at=EXCLUDED.completed_at,requested_model_id=EXCLUDED.requested_model_id,"
+			+ "resolved_model_id=EXCLUDED.resolved_model_id,model_provider=EXCLUDED.model_provider,"
+			+ "model_executor=EXCLUDED.model_executor,error_code=EXCLUDED.error_code,"
+			+ "error_message=EXCLUDED.error_message",
 			record.getId(), record.getTaskId(), record.getAgentName(), record.getStatus(),
 			record.getMessage(), record.getOutput(), json(record.getReport()),
 			json(record.getArtifacts()), record.getExecutionId(), record.getJobId(),
@@ -54,7 +58,10 @@ final class PostgresExecutionRecordRepository implements ExecutionRecordReposito
 			record.getBranch(), record.getBeforeHead(), record.getAfterHead(),
 			record.getExitCode(), record.getCodexThreadId(), record.getGitStatus(),
 			record.getGitDiffStat(), PostgresJdbc.timestamp(record.getStartedAt()),
-			PostgresJdbc.timestamp(record.getCompletedAt()));
+			PostgresJdbc.timestamp(record.getCompletedAt()),
+			record.getRequestedModelId(), record.getResolvedModelId(),
+			record.getModelProvider(), record.getModelExecutor(),
+			record.getErrorCode(), record.getErrorMessage());
 	}
 
 	@Override
@@ -112,6 +119,12 @@ final class PostgresExecutionRecordRepository implements ExecutionRecordReposito
 		record.setGitDiffStat(result.getString("git_diff_stat"));
 		record.setStartedAt(PostgresJdbc.instant(result, "started_at"));
 		record.setCompletedAt(PostgresJdbc.instant(result, "completed_at"));
+		record.setRequestedModelId(result.getString("requested_model_id"));
+		record.setResolvedModelId(result.getString("resolved_model_id"));
+		record.setModelProvider(result.getString("model_provider"));
+		record.setModelExecutor(result.getString("model_executor"));
+		record.setErrorCode(result.getString("error_code"));
+		record.setErrorMessage(result.getString("error_message"));
 		record.setReport(fromJson(result.getString("report"), ExecutionReport.class));
 		record.setArtifacts(fromJsonList(result.getString("artifacts")));
 		return record;

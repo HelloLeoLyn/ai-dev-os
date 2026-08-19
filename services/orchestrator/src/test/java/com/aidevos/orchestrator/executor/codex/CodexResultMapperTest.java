@@ -39,4 +39,33 @@ class CodexResultMapperTest {
 		assertEquals("{\"summary\":\"Tests passed\",\"changedFiles\":[],\"tests\":[],\"risks\":[]}",
 			output.structuredPayload());
 	}
+
+	@Test
+	void shouldExtractStructuredTurnFailureOverStderr() {
+		String events = """
+			{"type":"thread.started","thread_id":"thread-9"}
+			{"type":"turn.failed","failure":{"error":{"type":"usage_limit","message":"You've hit your usage limit. Please try again later."}}}
+			""";
+
+		CodexOutput output = new CodexResultMapper(new ObjectMapper()).map(events);
+
+		assertEquals("thread-9", output.threadId());
+		assertEquals("usage_limit", output.failureType());
+		assertEquals("You've hit your usage limit. Please try again later.", output.failureMessage());
+	}
+
+	@Test
+	void shouldFallBackToFailureReasonAndEventError() {
+		String reason = """
+			{"type":"turn.failed","failure":{"reason":"Provider disabled"}}
+			""";
+		CodexOutput fromReason = new CodexResultMapper(new ObjectMapper()).map(reason);
+		assertEquals("Provider disabled", fromReason.failureMessage());
+
+		String eventError = """
+			{"type":"turn.failed","error":"Model not found"}
+			""";
+		CodexOutput fromEvent = new CodexResultMapper(new ObjectMapper()).map(eventError);
+		assertEquals("Model not found", fromEvent.failureMessage());
+	}
 }

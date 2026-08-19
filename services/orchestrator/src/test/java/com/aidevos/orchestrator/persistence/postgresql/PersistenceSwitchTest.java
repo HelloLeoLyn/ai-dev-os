@@ -67,6 +67,8 @@ class PersistenceSwitchTest {
 			.withUserConfiguration(PostgresRepositories.class)
 			.withBean(DataSource.class, () -> dataSource)
 			.withBean(ObjectMapper.class, ObjectMapper::new)
+			.withBean(PostgresDocumentStore.class,
+				() -> org.mockito.Mockito.mock(PostgresDocumentStore.class))
 			.withPropertyValues("aidevos.persistence.type=postgresql");
 
 		runner.run(context -> {

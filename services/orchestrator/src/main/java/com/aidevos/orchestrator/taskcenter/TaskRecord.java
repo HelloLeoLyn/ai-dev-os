@@ -21,6 +21,7 @@ public class TaskRecord {
 	private volatile String planRunId;
 	private volatile String errorMessage;
 	private final String sourceBacklogItemId;
+	private final String requestedModelId;
 
 	public TaskRecord(String taskId, String name, String description) {
 		this(taskId, name, description, null, null, ExecutionMode.READ_WRITE);
@@ -42,6 +43,13 @@ public class TaskRecord {
 
 	public TaskRecord(String taskId, String name, String description, String projectId,
 			String workspaceId, ExecutionMode executionMode, String sourceBacklogItemId) {
+		this(taskId, name, description, projectId, workspaceId, executionMode,
+			sourceBacklogItemId, null);
+	}
+
+	public TaskRecord(String taskId, String name, String description, String projectId,
+			String workspaceId, ExecutionMode executionMode, String sourceBacklogItemId,
+			String requestedModelId) {
 		this.taskId = taskId;
 		this.name = name;
 		this.description = description;
@@ -50,13 +58,16 @@ public class TaskRecord {
 			? null : workspaceId.trim();
 		this.executionMode = executionMode == null ? ExecutionMode.READ_WRITE : executionMode;
 		this.sourceBacklogItemId = normalize(sourceBacklogItemId);
+		this.requestedModelId = normalize(requestedModelId);
+		this.status = TaskStatus.CREATED;
 		this.createdAt = Instant.now();
 		this.updatedAt = this.createdAt;
 	}
 
 	private TaskRecord(String taskId, String name, String description, String projectId,
 			String workspaceId, ExecutionMode executionMode, TaskStatus status, Instant createdAt, Instant updatedAt,
-			String approvalId, String planRunId, String errorMessage, String sourceBacklogItemId) {
+			String approvalId, String planRunId, String errorMessage, String sourceBacklogItemId,
+			String requestedModelId) {
 		this.taskId = taskId;
 		this.name = name;
 		this.description = description;
@@ -72,6 +83,7 @@ public class TaskRecord {
 		this.planRunId = planRunId;
 		this.errorMessage = errorMessage;
 		this.sourceBacklogItemId = normalize(sourceBacklogItemId);
+		this.requestedModelId = normalize(requestedModelId);
 	}
 
 	/**
@@ -93,7 +105,7 @@ public class TaskRecord {
 			String planRunId, String errorMessage) {
 		return new TaskRecord(taskId, name, description, projectId, workspaceId,
 			executionMode, status,
-			createdAt, updatedAt, approvalId, planRunId, errorMessage, null);
+			createdAt, updatedAt, approvalId, planRunId, errorMessage, null, null);
 	}
 
 	public static TaskRecord restore(String taskId, String name, String description,
@@ -102,7 +114,7 @@ public class TaskRecord {
 			String planRunId, String errorMessage, String sourceBacklogItemId) {
 		return new TaskRecord(taskId, name, description, projectId, workspaceId,
 			executionMode, status, createdAt, updatedAt, approvalId, planRunId, errorMessage,
-			sourceBacklogItemId);
+			sourceBacklogItemId, null);
 	}
 
 	public synchronized void markPlanning(String approvalId) {
@@ -224,5 +236,6 @@ public class TaskRecord {
 	}
 
 	public String getSourceBacklogItemId() { return sourceBacklogItemId; }
+	public String getRequestedModelId() { return requestedModelId; }
 	private static String normalize(String value) { return value == null || value.isBlank() ? null : value.trim(); }
 }

@@ -22,11 +22,48 @@ class CodexCommandBuilderTest {
 
 		ExecutionContext context = new ExecutionContext();
 		context.setDescription("Implement a new feature");
+		context.getParameters().put("model", "gpt-5.4");
 		List<String> command = builder.build(context, "/workspace/project", CodexSandbox.WORKSPACE_WRITE);
 
-		assertEquals(List.of("codex", "--ask-for-approval", "never", "exec", "--cd",
-			"/workspace/project", "--sandbox", "workspace-write", "--json",
+		assertEquals(List.of("codex", "--ask-for-approval", "never", "--model", "gpt-5.4",
+			"exec", "--cd", "/workspace/project", "--sandbox", "workspace-write", "--json",
 			"--output-schema", "/tmp/schema.json", "Implement a new feature"), command);
+	}
+
+	@Test
+	void shouldRouteDeepSeekThroughProviderOverrides() {
+		CodexProperties properties = properties("codex", CodexApprovalPolicy.NEVER);
+		CodexCommandBuilder builder = new CodexCommandBuilder(properties,
+			prompt("Implement a new feature"), schemaProvider("/tmp/schema.json"));
+
+		ExecutionContext context = new ExecutionContext();
+		context.setDescription("Implement a new feature");
+		context.getParameters().put("model", "deepseek-v4-flash");
+		context.getParameters().put("modelProvider", "deepseek");
+		context.getParameters().put("providerBaseUrl", "https://api.deepseek.com");
+		context.getParameters().put("credentialRef", "OPENAI_API_KEY");
+		List<String> command = builder.build(context, "/workspace/project", CodexSandbox.WORKSPACE_WRITE);
+
+		assertEquals(List.of("codex", "--ask-for-approval", "never", "--model", "deepseek-v4-flash",
+			"-c", "model_provider=\"deepseek\"",
+			"-c", "model_providers.deepseek.base_url=\"https://api.deepseek.com\"",
+			"-c", "model_providers.deepseek.env_key=\"OPENAI_API_KEY\"",
+			"exec", "--cd", "/workspace/project", "--sandbox", "workspace-write", "--json",
+			"--output-schema", "/tmp/schema.json", "Implement a new feature"), command);
+	}
+
+	@Test
+	void failsClosedWhenResolvedModelIsMissing() {
+		CodexProperties properties = properties("codex", CodexApprovalPolicy.NEVER);
+		CodexCommandBuilder builder = new CodexCommandBuilder(properties,
+			prompt("Implement a new feature"), schemaProvider("/tmp/schema.json"));
+
+		ExecutionContext context = new ExecutionContext();
+		context.setDescription("Implement a new feature");
+		IllegalStateException exception = org.junit.jupiter.api.Assertions.assertThrows(
+			IllegalStateException.class,
+			() -> builder.build(context, "/workspace/project", CodexSandbox.WORKSPACE_WRITE));
+		org.junit.jupiter.api.Assertions.assertTrue(exception.getMessage().contains("Resolved model is missing"));
 	}
 
 	@Test
@@ -58,6 +95,7 @@ class CodexCommandBuilderTest {
 
 		ExecutionContext context = new ExecutionContext();
 		context.setDescription("Analyze the project");
+		context.getParameters().put("model", "gpt-5.4");
 		context.getParameters().put("taskType", "project-analysis");
 		List<String> command = builder.build(context, "/workspace/project", CodexSandbox.READ_ONLY);
 
@@ -69,6 +107,7 @@ class CodexCommandBuilderTest {
 		CodexCommandBuilder builder=new CodexCommandBuilder(properties("codex",CodexApprovalPolicy.NEVER),
 			new CoderPromptBuilder(),schemaProvider("/tmp/schema.json","/tmp/analysis-schema.json"));
 		ExecutionContext context=new ExecutionContext(); context.setDescription("Analyze safely");
+		context.getParameters().put("model","gpt-5.4");
 		context.getParameters().put("taskType","project-analysis");
 		String prompt=builder.build(context,"/workspace/project",CodexSandbox.READ_ONLY).getLast();
 		assertTrue(prompt.contains("use only SOURCE_FILE or ARTIFACT"));

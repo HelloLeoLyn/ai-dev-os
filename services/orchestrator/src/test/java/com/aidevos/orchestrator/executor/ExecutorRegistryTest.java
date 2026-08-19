@@ -1,5 +1,6 @@
 package com.aidevos.orchestrator.executor;
 
+import com.aidevos.orchestrator.modelregistry.ModelTestSupport;
 import com.aidevos.orchestrator.executor.command.CommandExecutor;
 import com.aidevos.orchestrator.openclaw.service.OpenClawTaskService;
 import com.aidevos.orchestrator.browser.BrowserResultMapper;
@@ -44,7 +45,7 @@ class ExecutorRegistryTest {
 			mock(CodingApprovalService.class), new ArtifactContentLimiter(10_000),
 			new CodexProperties(), new CodexCommandBuilder(new CodexProperties(),
 				new CoderPromptBuilder(), mock(CodexOutputSchemaProvider.class)),
-			mock(UntrackedArtifactCollector.class));
+			mock(UntrackedArtifactCollector.class), null, ModelTestSupport.defaultResolver());
 		ExecutorRegistry executorRegistry = new ExecutorRegistry(List.of(codexExecutor));
 
 		assertSame(codexExecutor, executorRegistry.get("codex"));

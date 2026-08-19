@@ -1,5 +1,6 @@
 package com.aidevos.orchestrator.executor.codex;
 
+import com.aidevos.orchestrator.modelregistry.ModelTestSupport;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -82,7 +83,7 @@ class CodexCodingApprovalExecutionIntegrationTest {
 			new GitInspector(new GitExecutor(commands)), new CodexResultMapper(new ObjectMapper()),
 			approvals, limiter, properties,
 			new CodexCommandBuilder(properties, new CoderPromptBuilder(), schema),
-			new UntrackedArtifactCollector(limiter, 100_000));
+			new UntrackedArtifactCollector(limiter, 100_000), null, ModelTestSupport.defaultResolver());
 
 		AgentManager agents = new AgentManager();
 		AgentDefinition coder = new AgentDefinition();

@@ -1,5 +1,6 @@
 package com.aidevos.orchestrator.plan.schedule;
 
+import com.aidevos.orchestrator.modelregistry.ModelTestSupport;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -102,7 +103,7 @@ class ReadOnlyProjectAnalysisEndToEndTest {
 			new GitInspector(new GitExecutor(commands)), new CodexResultMapper(new ObjectMapper()),
 			mock(CodingApprovalService.class), limiter, properties,
 			new CodexCommandBuilder(properties, new CoderPromptBuilder(), schema),
-			new UntrackedArtifactCollector(limiter, 100_000));
+			new UntrackedArtifactCollector(limiter, 100_000), null, ModelTestSupport.defaultResolver());
 
 		AgentManager agents = new AgentManager();
 		agents.register(agent("planner", "mock", null, List.of("planning", "analysis")));

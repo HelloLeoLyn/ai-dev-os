@@ -120,7 +120,8 @@ public class TaskCenterService {
 		TaskRecord existing = repository.get(taskId);
 		if (existing != null) return existing;
 		TaskRecord task = new TaskRecord(taskId, request.name(), request.description(),
-			request.projectId(), request.workspaceId(), request.executionMode(), sourceBacklogItemId);
+			request.projectId(), request.workspaceId(), request.executionMode(), sourceBacklogItemId,
+			request.requestedModelId());
 		repository.save(task);
 		auditService.taskSubmitted(taskId,
 			"User submitted task", Map.of("name", request.name(),
@@ -389,6 +390,7 @@ public class TaskCenterService {
 		metadata.put("workspaceId", task.getWorkspaceId() == null ? "" : task.getWorkspaceId());
 		metadata.put("workspacePath", workspacePath == null ? "" : workspacePath);
 		metadata.put("executionMode", task.getExecutionMode().name());
+		metadata.put("requestedModelId", task.getRequestedModelId() == null ? "" : task.getRequestedModelId());
 		if (task.getExecutionMode() == ExecutionMode.READ_ONLY
 				&& workspacePath != null && !workspacePath.isBlank()) {
 			metadata.put("taskType", "project-analysis");

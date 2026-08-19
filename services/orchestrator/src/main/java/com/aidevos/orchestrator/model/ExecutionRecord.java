@@ -33,6 +33,12 @@ public class ExecutionRecord {
 	private String codexThreadId;
 	private String gitStatus;
 	private String gitDiffStat;
+	private String requestedModelId;
+	private String resolvedModelId;
+	private String modelProvider;
+	private String modelExecutor;
+	private String errorCode;
+	private String errorMessage;
 	private Instant startedAt;
 	private Instant completedAt;
 
@@ -129,6 +135,18 @@ public class ExecutionRecord {
 	public void setBeforeHead(String beforeHead) { this.beforeHead = beforeHead; }
 	public String getAfterHead() { return afterHead; }
 	public void setAfterHead(String afterHead) { this.afterHead = afterHead; }
+	public String getRequestedModelId() { return requestedModelId; }
+	public void setRequestedModelId(String requestedModelId) { this.requestedModelId = requestedModelId; }
+	public String getResolvedModelId() { return resolvedModelId; }
+	public void setResolvedModelId(String resolvedModelId) { this.resolvedModelId = resolvedModelId; }
+	public String getModelProvider() { return modelProvider; }
+	public void setModelProvider(String modelProvider) { this.modelProvider = modelProvider; }
+	public String getModelExecutor() { return modelExecutor; }
+	public void setModelExecutor(String modelExecutor) { this.modelExecutor = modelExecutor; }
+	public String getErrorCode() { return errorCode; }
+	public void setErrorCode(String errorCode) { this.errorCode = errorCode; }
+	public String getErrorMessage() { return errorMessage; }
+	public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
 	public Integer getExitCode() { return exitCode; }
 	public void setExitCode(Integer exitCode) { this.exitCode = exitCode; }
 	public String getCodexThreadId() { return codexThreadId; }
