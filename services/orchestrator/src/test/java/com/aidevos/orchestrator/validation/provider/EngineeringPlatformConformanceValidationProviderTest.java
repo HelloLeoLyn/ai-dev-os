@@ -56,6 +56,6 @@ class EngineeringPlatformConformanceValidationProviderTest {
 
 	private ValidationContext context() {
 		return new ValidationContext("run-1", "task-1", "project-1", "workspace-1", Path.of("."),
-			ValidationCheckType.CONTRACT, Map.of("engineeringPlatformProjectYaml", "project.yaml"));
+			ValidationCheckType.CONTRACT, Map.of("engineeringPlatformProjectYaml", "project.yaml"), false);
 	}
 }

@@ -49,11 +49,24 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class RealSecurityScannerEndToEndTest {
-	private static final String FAKE_SECRET = "AKIAQYLPMN5HHDE4VP5K";
+	// Generated at runtime in the AWS access key ID charset (base32, A-Z2-7)
+	// so the repository baseline contains no static scanner-detectable secret
+	// while the E2E still proves gitleaks detects the fixture secret.
+	private static final String FAKE_SECRET = "AKIA" + randomBase32(16);
 	private static final Set<EventType> REQUIRED_EVENTS = EnumSet.of(
 		EventType.SECURITY_VALIDATION_STARTED, EventType.SECURITY_SCANNER_STARTED,
 		EventType.SECURITY_SCANNER_COMPLETED, EventType.SECURITY_REPORT_CREATED,
 		EventType.SECURITY_VALIDATION_COMPLETED);
+
+	private static String randomBase32(int length) {
+		String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+		java.security.SecureRandom random = new java.security.SecureRandom();
+		StringBuilder value = new StringBuilder(length);
+		for (int i = 0; i < length; i++) {
+			value.append(alphabet.charAt(random.nextInt(alphabet.length())));
+		}
+		return value.toString();
+	}
 
 	@TempDir Path tempDir;
 

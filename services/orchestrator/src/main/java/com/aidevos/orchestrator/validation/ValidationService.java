@@ -207,7 +207,8 @@ public class ValidationService {
 		Map<String,Object> contextCapabilities = new java.util.LinkedHashMap<>(capabilities);
 		contextCapabilities.put("validationCheckId", check.getCheckId());
 		ValidationContext context = new ValidationContext(run.getValidationRunId(), run.getTaskId(),
-			run.getProjectId(), run.getWorkspaceId(), workspace, type, Map.copyOf(contextCapabilities));
+			run.getProjectId(), run.getWorkspaceId(), workspace, type, Map.copyOf(contextCapabilities),
+			run.isDelivery());
 		ValidationProvider provider = providers.stream().filter(candidate -> candidate.supports(context))
 			.findFirst().orElse(null);
 		ValidationCheckResult result;

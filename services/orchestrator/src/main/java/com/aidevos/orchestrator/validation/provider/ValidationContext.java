@@ -7,4 +7,4 @@ import com.aidevos.orchestrator.validation.ValidationCheckType;
 
 public record ValidationContext(String validationRunId, String taskId, String projectId,
 		String workspaceId, Path workspacePath, ValidationCheckType type,
-		Map<String, Object> capabilities) { }
+		Map<String, Object> capabilities, boolean delivery) { }

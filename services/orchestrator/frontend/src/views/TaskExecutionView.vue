@@ -88,7 +88,8 @@ async function loadExecutionState(): Promise<void> {
   commits.value = await getTaskCommits(taskId).catch(() => [])
   const validationRuns = await getTaskValidations(taskId).catch(() => [])
   deliveryValidation.value = validationRuns.filter(run => run.delivery).sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0] ?? null
-  deliveryGate.value = deliveryValidation.value ? (await getQualityGates(deliveryValidation.value.validationRunId).catch(() => []))[0] ?? null : null
+  deliveryGate.value = deliveryValidation.value ? (await getQualityGates(deliveryValidation.value.validationRunId).catch(() => []))
+    .slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null : null
 }
 async function changeAction(id: string, action: 'review'|'approve'|'reject'|'commit'): Promise<void> {
   try {
@@ -221,7 +222,7 @@ function reload(): void { void Promise.all([context.load(taskId), loadExecutionS
         <div v-if="change.status === 'APPROVED'" class="validation-delivery">
           <span>Validation: <StatusBadge :status="deliveryValidation?.status || 'NOT_RUN'" /></span>
           <span>Quality Gate: <StatusBadge :status="deliveryGate?.decision || 'NOT_EVALUATED'" /></span>
-          <el-button v-if="!deliveryValidation || deliveryValidation.status === 'FAILED'" :loading="validationBusy" @click="runDeliveryValidation(change)">Run Validation</el-button>
+          <el-button v-if="!deliveryValidation || deliveryValidation.status === 'FAILED' || deliveryGate?.decision === 'BLOCK'" :loading="validationBusy" @click="runDeliveryValidation(change)">{{ deliveryValidation?.status === 'FAILED' || deliveryGate?.decision === 'BLOCK' ? 'Re-run Validation' : 'Run Validation' }}</el-button>
           <el-button v-if="deliveryValidation?.status === 'SUCCESS' && !deliveryGate" :loading="validationBusy" @click="evaluateDeliveryGate">Evaluate Quality Gate</el-button>
           <template v-if="deliveryGate?.decision === 'REQUIRE_APPROVAL'"><el-button type="warning" :loading="validationBusy" @click="decideDeliveryGate(true)">Approve Quality Gate</el-button><el-button :loading="validationBusy" @click="decideDeliveryGate(false)">Reject Quality Gate</el-button></template>
         </div>

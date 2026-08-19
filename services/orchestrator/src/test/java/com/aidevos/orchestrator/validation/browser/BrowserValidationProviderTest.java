@@ -49,7 +49,7 @@ class BrowserValidationProviderTest {
 			new ValidationEvidenceService(new InMemoryValidationArtifactRepository(), new ArtifactContentLimiter(100_000)),
 			AuditService.noop(), new ObjectMapper(), configured);
 	}
-	private ValidationContext context(BrowserScenario scenario) { return new ValidationContext("run-1", "task-1", "project-1", "workspace-1", Path.of("."), ValidationCheckType.BROWSER, Map.of("browserScenario", scenario)); }
+	private ValidationContext context(BrowserScenario scenario) { return new ValidationContext("run-1", "task-1", "project-1", "workspace-1", Path.of("."), ValidationCheckType.BROWSER, Map.of("browserScenario", scenario), false); }
 	private BrowserScenario scenario(boolean required) { return new BrowserScenario("login", "Login", "http://127.0.0.1:4173/login", required,
 		List.of(new BrowserStep("navigate", "Open login", BrowserAction.NAVIGATE, null, null, 5000L,
 			List.of(new BrowserAssertion(BrowserAssertionType.TEXT, "body", "Dashboard", 5000L)), false, true))); }

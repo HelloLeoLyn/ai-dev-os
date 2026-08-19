@@ -60,6 +60,6 @@ class RealEngineeringPlatformIntegrationTrialTest {
 
 	private ValidationContext context(Path generated, ValidationCheckType type) {
 		return new ValidationContext("trial-run", "trial-task", "trial-project", "trial-workspace",
-			workspace, type, Map.of("mavenDirectory", generated.toString()));
+			workspace, type, Map.of("mavenDirectory", generated.toString()), false);
 	}
 }
