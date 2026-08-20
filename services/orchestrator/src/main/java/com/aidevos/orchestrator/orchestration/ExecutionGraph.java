@@ -12,7 +12,7 @@ import com.aidevos.orchestrator.memory.MemoryContext;
  * dependencies) and the downstream edges. A repair graph additionally
  * declares a bounded loop (loopStart/loopEnd/maxAttempts) so a failed
  * TEST_AGENT_VERIFY re-enters REPAIR_AGENT_ANALYZE without an unbounded
- * retry; maxAttempts defaults to the existing RepairPolicy bound.
+ * retry; maxAttempts defaults to the unified ExecutionLimits repair ceiling.
  */
 public class ExecutionGraph {
 

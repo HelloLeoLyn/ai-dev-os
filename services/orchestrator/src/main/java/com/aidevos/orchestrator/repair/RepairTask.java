@@ -55,6 +55,11 @@ public class RepairTask {
 		this.updatedAt = Instant.now();
 	}
 
+	/** True once the repair reached a terminal state and may be restarted. */
+	public boolean isTerminal() {
+		return status == RepairStatus.SUCCESS || status == RepairStatus.FAILED;
+	}
+
 	public synchronized void incrementRetry() {
 		this.retryCount++;
 		this.updatedAt = Instant.now();

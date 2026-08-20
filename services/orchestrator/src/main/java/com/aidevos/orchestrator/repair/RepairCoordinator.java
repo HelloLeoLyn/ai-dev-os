@@ -12,6 +12,7 @@ import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.change.ChangeService;
 import com.aidevos.orchestrator.execution.ExecutionContext;
+import com.aidevos.orchestrator.execution.ExecutionLimits;
 import com.aidevos.orchestrator.feedback.PrFeedbackService;
 import com.aidevos.orchestrator.execution.ExecutionResult;
 import com.aidevos.orchestrator.executor.codex.CodexExecutor;
@@ -38,7 +39,8 @@ import org.springframework.stereotype.Service;
 /**
  * Automatic repair loop for failed tasks: TestAgent failure -> FailureContext
  * -> Hermes analysis -> Codex fix in the workspace -> TestAgent re-verification.
- * The loop is bounded by RepairPolicy.MAX_RETRY; a repair that never passes
+ * The loop is bounded by the unified {@link ExecutionLimits} repair ceiling
+ * (ExecutionLimits.DEFAULT_MAX_REPAIR_ATTEMPTS); a repair that never passes
  * verification becomes FAILED (never runs forever). Scheduler, Worker and
  * ExecutionEngine are not touched.
  */
@@ -82,6 +84,10 @@ public class RepairCoordinator {
 	}
 
 	public RepairTask start(String taskId) {
+		RepairTask active = activeRepair(taskId);
+		if (active != null) {
+			return active;
+		}
 		TaskRecord task = taskCenterService.getTask(taskId)
 			.orElseThrow(() -> new IllegalArgumentException("Task not found: " + taskId));
 		TestPlan failedTest = latestFailedTest(taskId);
@@ -120,6 +126,10 @@ public class RepairCoordinator {
 		if (failureContext == null || failureContext.taskId() == null
 			|| failureContext.taskId().isBlank()) {
 			throw new IllegalArgumentException("FailureContext with a taskId is required");
+		}
+		RepairTask active = activeRepair(failureContext.taskId());
+		if (active != null) {
+			return active;
 		}
 		TaskRecord task = taskCenterService.getTask(failureContext.taskId())
 			.orElseThrow(() -> new IllegalArgumentException(
@@ -216,6 +226,19 @@ public class RepairCoordinator {
 		return Optional.ofNullable(pendingFailures.get(taskId));
 	}
 
+	/**
+	 * Returns the in-flight repair for a task when one exists. A second
+	 * automatic repair for the same task is never started concurrently; a
+	 * terminal repair may only be restarted by an explicit retry.
+	 */
+	private RepairTask activeRepair(String taskId) {
+		if (taskId == null || taskId.isBlank()) {
+			return null;
+		}
+		RepairTask repairTask = repairs.get(taskId);
+		return repairTask != null && !repairTask.isTerminal() ? repairTask : null;
+	}
+
 	/** Read-only snapshot of all registered failure contexts. */
 	public List<FailureContext> listFailureContexts() {
 		return List.copyOf(pendingFailures.values());
@@ -228,7 +251,7 @@ public class RepairCoordinator {
 
 	private void repair(RepairTask repairTask, TaskRecord task) {
 		String lastError = null;
-		while (repairTask.getRetryCount() < RepairPolicy.MAX_RETRY) {
+		while (repairTask.getRetryCount() < ExecutionLimits.DEFAULT_MAX_REPAIR_ATTEMPTS) {
 			try {
 				analyze(repairTask, task);
 				fix(repairTask, task);
@@ -250,7 +273,8 @@ public class RepairCoordinator {
 		repairTask.markFailed("Repair failed: " + value(lastError));
 		auditService.repairEvent(EventType.REPAIR_FAILED, task.getTaskId(),
 			repairTask.getRepairId(), RepairStatus.VERIFYING.name(), RepairStatus.FAILED.name(),
-			"Repair failed after " + RepairPolicy.MAX_RETRY + " attempts", Map.of());
+			"Repair failed after " + ExecutionLimits.DEFAULT_MAX_REPAIR_ATTEMPTS
+				+ " attempts", Map.of());
 		rememberFailure(repairTask, task, value(lastError));
 	}
 

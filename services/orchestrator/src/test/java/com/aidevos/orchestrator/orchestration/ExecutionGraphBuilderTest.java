@@ -2,8 +2,8 @@ package com.aidevos.orchestrator.orchestration;
 
 import java.util.List;
 
+import com.aidevos.orchestrator.execution.ExecutionLimits;
 import com.aidevos.orchestrator.modelrouter.TaskType;
-import com.aidevos.orchestrator.repair.RepairPolicy;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -43,7 +43,7 @@ class ExecutionGraphBuilderTest {
 		assertTrue(graph.hasLoop());
 		assertEquals("REPAIR_AGENT_ANALYZE", graph.getLoopStartNodeId());
 		assertEquals("TEST_AGENT_VERIFY", graph.getLoopEndNodeId());
-		assertEquals(RepairPolicy.MAX_RETRY, graph.getMaxAttempts());
+		assertEquals(ExecutionLimits.DEFAULT_MAX_REPAIR_ATTEMPTS, graph.getMaxAttempts());
 	}
 
 	@Test

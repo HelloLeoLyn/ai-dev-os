@@ -3,6 +3,8 @@ package com.aidevos.orchestrator.repair;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventQuery;
@@ -10,6 +12,7 @@ import com.aidevos.orchestrator.audit.EventRecord;
 import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.audit.InMemoryAuditRepository;
 import com.aidevos.orchestrator.change.ChangeService;
+import com.aidevos.orchestrator.execution.ExecutionLimits;
 import com.aidevos.orchestrator.execution.ExecutionResult;
 import com.aidevos.orchestrator.executor.codex.CodexExecutor;
 import com.aidevos.orchestrator.memory.InMemoryMemoryRepository;
@@ -37,6 +40,8 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -132,8 +137,9 @@ class RepairCoordinatorTest {
 		RepairTask repair = coordinator.start("task-1");
 
 		assertEquals(RepairStatus.FAILED, repair.getStatus());
-		assertEquals(RepairPolicy.MAX_RETRY, repair.getRetryCount());
-		verify(testAgentService, times(RepairPolicy.MAX_RETRY)).createTest(any());
+		assertEquals(ExecutionLimits.DEFAULT_MAX_REPAIR_ATTEMPTS, repair.getRetryCount());
+		verify(testAgentService, times(ExecutionLimits.DEFAULT_MAX_REPAIR_ATTEMPTS))
+			.createTest(any());
 		assertTrue(events().stream().anyMatch(event -> event.type() == EventType.REPAIR_FAILED));
 
 		MemoryRecord bug = memoryRepository.list("project-a", MemoryType.BUG_RECORD).stream()
@@ -160,6 +166,43 @@ class RepairCoordinatorTest {
 
 		assertThrows(IllegalArgumentException.class, () -> coordinator.start("task-1"));
 		assertFalse(coordinator.get("task-1").isPresent());
+	}
+
+	@Test
+	void shouldReuseInFlightRepairAndRestartAfterTerminal() throws Exception {
+		CountDownLatch fixStarted = new CountDownLatch(1);
+		CountDownLatch releaseFix = new CountDownLatch(1);
+		when(codexExecutor.execute(any())).thenAnswer(invocation -> {
+			fixStarted.countDown();
+			releaseFix.await();
+			return success();
+		});
+		when(testAgentService.createTest(any(CreateTestRequest.class))).thenReturn(passingTest());
+
+		Thread repairThread = new Thread(() -> coordinator.start("task-1"));
+		repairThread.start();
+		assertTrue(fixStarted.await(5, TimeUnit.SECONDS), "repair should reach the fix step");
+
+		// A second automatic start while the first repair is in flight reuses it.
+		RepairTask inFlight = coordinator.start("task-1");
+		assertFalse(inFlight.isTerminal());
+		verify(codexExecutor, times(1)).execute(any());
+		verify(testAgentService, times(0)).createTest(any());
+
+		releaseFix.countDown();
+		repairThread.join(TimeUnit.SECONDS.toMillis(5));
+		assertFalse(repairThread.isAlive());
+
+		RepairTask first = coordinator.get("task-1").orElseThrow();
+		assertSame(inFlight, first);
+		assertEquals(RepairStatus.SUCCESS, first.getStatus());
+
+		// A terminal repair may be restarted; the restart is a new run.
+		RepairTask restarted = coordinator.start("task-1");
+		assertNotEquals(first.getRepairId(), restarted.getRepairId());
+		assertEquals(RepairStatus.SUCCESS, restarted.getStatus());
+		verify(codexExecutor, times(2)).execute(any());
+		verify(testAgentService, times(2)).createTest(any());
 	}
 
 	private TaskRecord task() {

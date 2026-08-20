@@ -4,11 +4,11 @@ import java.util.List;
 import java.util.UUID;
 
 import com.aidevos.orchestrator.agent.AgentType;
+import com.aidevos.orchestrator.execution.ExecutionLimits;
 import com.aidevos.orchestrator.memory.MemoryContext;
 import com.aidevos.orchestrator.modelrouter.TaskType;
 import com.aidevos.orchestrator.optimization.OptimizationRecord;
 import com.aidevos.orchestrator.optimization.OptimizationType;
-import com.aidevos.orchestrator.repair.RepairPolicy;
 import com.aidevos.orchestrator.taskcenter.TaskRecord;
 import org.springframework.stereotype.Component;
 
@@ -17,8 +17,8 @@ import org.springframework.stereotype.Component;
  * get HERMES_PLANNING -> CODEX_IMPLEMENTATION -> TEST_AGENT_VERIFY; a repair
  * task gets TEST_AGENT_ANALYZE -> REPAIR_AGENT_ANALYZE -> CODEX_FIX ->
  * TEST_AGENT_VERIFY with a bounded loop (REPAIR_AGENT_ANALYZE ->
- * TEST_AGENT_VERIFY) capped by the existing RepairPolicy.MAX_RETRY, so a
- * failed verification re-enters the repair analysis without ever looping
+ * TEST_AGENT_VERIFY) capped by the unified ExecutionLimits repair ceiling, so
+ * a failed verification re-enters the repair analysis without ever looping
  * forever.
  */
 @Component
@@ -187,7 +187,7 @@ public class ExecutionGraphBuilder {
 		ExecutionNode verify = node("TEST_AGENT_VERIFY", AgentType.TEST_AGENT, "CODEX_FIX");
 		return new ExecutionGraph(graphId, taskId,
 			java.util.List.of(analyze, repair, fix, verify), "REPAIR_AGENT_ANALYZE",
-			"TEST_AGENT_VERIFY", RepairPolicy.MAX_RETRY);
+			"TEST_AGENT_VERIFY", ExecutionLimits.DEFAULT_MAX_REPAIR_ATTEMPTS);
 	}
 
 	private ExecutionNode node(String nodeId, AgentType agentType, String... dependencies) {

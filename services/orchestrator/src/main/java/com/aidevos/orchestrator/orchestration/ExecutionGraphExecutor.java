@@ -35,7 +35,7 @@ import org.springframework.stereotype.Component;
  * (with graphId / nodeId / agentType / duration metadata). A failed node
  * stops the downstream nodes; in a repair graph a failed TEST_AGENT_VERIFY
  * re-enters the bounded loop (loopStart -> loopEnd) up to maxAttempts, which
- * reuses the existing RepairPolicy bound, so it never runs forever.
+ * reuses the unified ExecutionLimits repair ceiling, so it never runs forever.
  * <p>When the agent runtime is wired, executing a graph creates a runtime
  * session before the run, saves a checkpoint after every completed node and
  * a failure checkpoint on a failed node, and finalizes the session

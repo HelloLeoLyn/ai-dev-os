@@ -7,6 +7,10 @@ import java.util.List;
 import java.util.Optional;
 
 import com.aidevos.orchestrator.audit.AuditService;
+import com.aidevos.orchestrator.audit.EventQuery;
+import com.aidevos.orchestrator.audit.EventRecord;
+import com.aidevos.orchestrator.audit.EventType;
+import com.aidevos.orchestrator.audit.InMemoryAuditRepository;
 import com.aidevos.orchestrator.execution.ArtifactContentLimiter;
 import com.aidevos.orchestrator.taskcenter.TaskCenterService;
 import com.aidevos.orchestrator.taskcenter.TaskRecord;
@@ -26,6 +30,8 @@ import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.ObjectMapper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -84,6 +90,53 @@ class ValidationServiceTest {
 		assertEquals(ValidationDecision.PASS, run.getDecision());
 	}
 
+	@Test void deliveryValidationReusesUnchangedSuccessAndRefreshesOnFingerprintChange() {
+		TaskCenterService tasks = mock(TaskCenterService.class);
+		WorkspaceService sources = mock(WorkspaceService.class);
+		ChangeService changes = mock(ChangeService.class);
+		ExecutionWorkspacePromotionService execution = mock(ExecutionWorkspacePromotionService.class);
+		ChangeSet change = new ChangeSet("change-delivery", "task-1", "exec-ws-1", "project-1", "exec-1",
+			"ai-dev-os/task-1", "diff", "stat", 1, 1, 0, 1, 0, 0, Instant.now());
+		change.markReviewing(); change.markApproved("user");
+		when(changes.getChange("change-delivery")).thenReturn(Optional.of(change));
+		ExecutionWorkspace workspace = new ExecutionWorkspace("exec-ws-1", "task-1", "project-1", "source-1",
+			"/source", workspacePath.toString(), "GIT_WORKTREE", "ai-dev-os/task-1",
+			ExecutionWorkspaceStatus.COMPLETED, "base-1", Instant.now(), Instant.now());
+		when(execution.findWorkspace("task-1")).thenReturn(workspace);
+		when(execution.changeFingerprint("task-1")).thenReturn("fp-1");
+		InMemoryValidationRepository repository = new InMemoryValidationRepository();
+		InMemoryAuditRepository auditRepository = new InMemoryAuditRepository();
+		ValidationService service = new ValidationService(repository, tasks, sources,
+			new ProjectCapabilityDetector(new ObjectMapper()), List.of(),
+			new ValidationEvidenceService(new InMemoryValidationArtifactRepository(),
+				new ArtifactContentLimiter(1024)), new AuditService(auditRepository));
+		service.setChangeService(changes); service.setExecutionWorkspaces(execution);
+
+		ValidationRun previous = new ValidationRun("validation-previous", "task-1", "project-1",
+			"workspace-1", null, "exec-1");
+		previous.setDelivery(true);
+		previous.setChangeSetId("change-delivery");
+		previous.setExecutionWorkspaceId("exec-ws-1");
+		previous.setValidatedChangeFingerprint("fp-1");
+		previous.setStatus(ValidationStatus.SUCCESS);
+		previous.setStartedAt(Instant.now());
+		repository.save(previous);
+
+		// Unchanged fingerprint reuses the previous SUCCESS run without re-running checks.
+		ValidationRun reused = service.startDelivery("change-delivery");
+		assertSame(previous, reused);
+		assertEquals(1, repository.findByTaskId("task-1").size());
+		assertTrue(events(auditRepository).stream()
+			.anyMatch(event -> event.type() == EventType.VALIDATION_REUSED));
+
+		// A changed fingerprint invalidates the cache and forces a fresh run.
+		when(execution.changeFingerprint("task-1")).thenReturn("fp-2");
+		ValidationRun refreshed = service.startDelivery("change-delivery");
+		assertNotEquals(previous.getValidationRunId(), refreshed.getValidationRunId());
+		assertEquals("fp-2", refreshed.getValidatedChangeFingerprint());
+		assertEquals(2, repository.findByTaskId("task-1").size());
+	}
+
 	@Test void engineeringConformanceEvidenceIsRecordedThroughValidationService() throws Exception {
 		Files.writeString(workspacePath.resolve("project.yaml"), "project: trial");
 		TaskCenterService tasks = mock(TaskCenterService.class);
@@ -134,4 +187,8 @@ class ValidationServiceTest {
 	}
 
 	private record Fixture(ValidationService service) { }
+
+	private List<EventRecord> events(InMemoryAuditRepository auditRepository) {
+		return auditRepository.query(EventQuery.all());
+	}
 }

@@ -3,6 +3,7 @@ package com.aidevos.orchestrator.orchestrator;
 import java.time.Instant;
 import java.util.List;
 
+import com.aidevos.orchestrator.execution.ExecutionLimits;
 import com.aidevos.orchestrator.memory.MemoryContext;
 import com.aidevos.orchestrator.modelrouter.TaskType;
 import com.aidevos.orchestrator.optimization.OptimizationRecord;
@@ -10,7 +11,6 @@ import com.aidevos.orchestrator.optimization.OptimizationType;
 import com.aidevos.orchestrator.orchestration.ExecutionGraph;
 import com.aidevos.orchestrator.orchestration.ExecutionGraphBuilder;
 import com.aidevos.orchestrator.orchestration.ExecutionNode;
-import com.aidevos.orchestrator.repair.RepairPolicy;
 import com.aidevos.orchestrator.taskcenter.TaskRecord;
 import org.junit.jupiter.api.Test;
 
@@ -52,7 +52,7 @@ class DynamicGraphPlanningTest {
 		assertTrue(graph.hasLoop());
 		assertEquals("REPAIR_AGENT_ANALYZE", graph.getLoopStartNodeId());
 		assertEquals("TEST_AGENT_VERIFY", graph.getLoopEndNodeId());
-		assertEquals(RepairPolicy.MAX_RETRY, graph.getMaxAttempts());
+		assertEquals(ExecutionLimits.DEFAULT_MAX_REPAIR_ATTEMPTS, graph.getMaxAttempts());
 		assertTrue(graph.getTopologicalOrder().contains("CODEX_FIX"));
 	}
 

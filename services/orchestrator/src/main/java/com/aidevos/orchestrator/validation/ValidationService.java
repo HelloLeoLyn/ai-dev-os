@@ -116,6 +116,14 @@ public class ValidationService {
 			throw new IllegalStateException("Approved change is not bound to a completed execution workspace");
 		Path path = Path.of(workspace.getExecutionWorkspace()).toAbsolutePath().normalize();
 		if (!Files.isDirectory(path)) throw new IllegalStateException("Execution workspace is unavailable");
+		String fingerprint = executionWorkspaces.changeFingerprint(change.getTaskId());
+		ValidationRun reused = reusableDeliveryRun(change, fingerprint);
+		if (reused != null) {
+			audit(reused, EventType.VALIDATION_REUSED, null, null,
+				"Reused unchanged delivery validation " + reused.getValidationRunId(),
+				Map.of("changeSetId", changeSetId, "fingerprint", fingerprint));
+			return reused;
+		}
 		ValidationRun run = new ValidationRun("validation-" + UUID.randomUUID(), change.getTaskId(),
 			change.getProjectId(), workspace.getId(), null, change.getExecutionId());
 		run.setExecutionWorkspaceId(workspace.getId());
@@ -123,12 +131,33 @@ public class ValidationService {
 		run.setBaseRevision(workspace.getBaseRevision());
 		run.setChangeSetId(changeSetId);
 		run.setDelivery(true);
-		run.setValidatedChangeFingerprint(executionWorkspaces.changeFingerprint(change.getTaskId()));
+		run.setValidatedChangeFingerprint(fingerprint);
 		run.setStatus(ValidationStatus.RUNNING); run.setStartedAt(Instant.now()); repository.save(run);
 		audit(run, EventType.VALIDATION_STARTED, null, ValidationStatus.RUNNING,
 			"Delivery validation started", Map.of("changeSetId", changeSetId,
 				"executionWorkspaceId", workspace.getId()));
 		return executeChecks(run, path, null);
+	}
+
+	/**
+	 * Reuses a previous SUCCESS delivery validation for the same ChangeSet
+	 * when the execution-workspace fingerprint is unchanged. A different
+	 * fingerprint (or a FAILED/ERROR run) invalidates the cache and forces a
+	 * fresh run.
+	 */
+	private ValidationRun reusableDeliveryRun(ChangeSet change, String fingerprint) {
+		if (fingerprint == null || fingerprint.isBlank()) {
+			return null;
+		}
+		for (ValidationRun candidate : repository.findByTaskId(change.getTaskId())) {
+			if (candidate.isDelivery()
+					&& change.getChangeId().equals(candidate.getChangeSetId())
+					&& candidate.getStatus() == ValidationStatus.SUCCESS
+					&& fingerprint.equals(candidate.getValidatedChangeFingerprint())) {
+				return candidate;
+			}
+		}
+		return null;
 	}
 
 	private ValidationRun executeChecks(ValidationRun run, Path workspacePath, String browserScenarioId) {
