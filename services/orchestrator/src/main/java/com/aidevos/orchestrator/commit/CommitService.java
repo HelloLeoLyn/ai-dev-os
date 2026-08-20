@@ -91,6 +91,7 @@ public class CommitService {
 		repository.save(record);
 		String from = record.getStatus().name();
 		record.markCommitting();
+		repository.save(record);
 		auditService.commitEvent(EventType.COMMIT_REQUESTED, record.getTaskId(),
 			record.getCommitId(), record.getChangeId(), from, CommitStatus.COMMITTING.name(),
 			"Commit requested", Map.of("workspaceId", change.getWorkspaceId()));
@@ -104,25 +105,29 @@ public class CommitService {
 					+ workspace.getPath());
 			}
 			record.markSuccess(hash);
+			repository.save(record);
 			changeService.markCommitted(changeId);
-			if (remoteGitService != null && gitCommandExecutor.listRemotes(workspace.getPath())
-					.lines().anyMatch(line -> line.trim().startsWith("origin "))) {
-				remoteGitService.requestApproval(record.getCommitId(), "origin");
-			}
 			auditService.commitEvent(EventType.COMMIT_SUCCESS, record.getTaskId(),
 				record.getCommitId(), record.getChangeId(), CommitStatus.COMMITTING.name(),
 				CommitStatus.SUCCESS.name(), "Commit succeeded: " + hash,
 				Map.of("gitHash", hash));
-			return record;
 		}
 		catch (RuntimeException exception) {
-			record.markFailed();
-			auditService.commitEvent(EventType.COMMIT_FAILED, record.getTaskId(),
-				record.getCommitId(), record.getChangeId(), CommitStatus.COMMITTING.name(),
-				CommitStatus.FAILED.name(), "Commit failed: " + message(exception),
-				Map.of());
+			if (record.getStatus() == CommitStatus.COMMITTING) {
+				record.markFailed();
+				repository.save(record);
+				auditService.commitEvent(EventType.COMMIT_FAILED, record.getTaskId(),
+					record.getCommitId(), record.getChangeId(), CommitStatus.COMMITTING.name(),
+					CommitStatus.FAILED.name(), "Commit failed: " + message(exception),
+					Map.of());
+			}
 			throw exception;
 		}
+		if (remoteGitService != null && RemoteGitService.isRegisteredRemote("origin",
+				gitCommandExecutor.listRemotes(workspace.getPath()))) {
+			remoteGitService.requestApproval(record.getCommitId(), "origin");
+		}
+		return record;
 	}
 
 	public Optional<CommitRecord> getCommit(String commitId) {

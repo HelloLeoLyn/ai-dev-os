@@ -3,6 +3,7 @@ package com.aidevos.orchestrator.controller;
 import java.util.List;
 
 import com.aidevos.orchestrator.commit.CommitRecord;
+import com.aidevos.orchestrator.commit.CommitRecoveryService;
 import com.aidevos.orchestrator.commit.CommitService;
 import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import org.springframework.http.ResponseEntity;
@@ -21,9 +22,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class CommitController {
 
 	private final CommitService commitService;
+	private final CommitRecoveryService commitRecoveryService;
 
-	public CommitController(CommitService commitService) {
+	public CommitController(CommitService commitService, CommitRecoveryService commitRecoveryService) {
 		this.commitService = commitService;
+		this.commitRecoveryService = commitRecoveryService;
 	}
 
 	@PostMapping("/changes/{id}/commit")
@@ -40,5 +43,11 @@ public class CommitController {
 	@GetMapping("/tasks/{taskId}/commits")
 	public List<CommitRecord> listByTask(@PathVariable String taskId) {
 		return commitService.getCommitsByTask(taskId);
+	}
+
+	@PostMapping("/tasks/{taskId}/commits/{commitId}/recover")
+	public ResponseEntity<CommitRecord> recover(@PathVariable String taskId,
+			@PathVariable String commitId) {
+		return ResponseEntity.ok(commitRecoveryService.recover(taskId, commitId));
 	}
 }

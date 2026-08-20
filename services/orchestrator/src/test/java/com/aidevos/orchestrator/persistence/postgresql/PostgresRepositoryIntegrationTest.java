@@ -460,4 +460,80 @@ class PostgresRepositoryIntegrationTest {
 		assertEquals(1, usage.list().size());
 		assertEquals(1500, usage.list().getFirst().totalTokens());
 	}
+	@Test
+	void commitHandoffPersistsSuccessAndApprovalAcrossPostgresReload() {
+		PostgresCommitRepository commits = new PostgresCommitRepository(jdbc);
+		PostgresChangeRepository changes = new PostgresChangeRepository(jdbc);
+		PostgresRemoteRepository remotes = new PostgresRemoteRepository(dataSource, mapper);
+		PostgresRemotePushApprovalRepository approvals =
+			new PostgresRemotePushApprovalRepository(dataSource, mapper);
+		WorkspaceService workspaces = org.mockito.Mockito.mock(WorkspaceService.class);
+		Workspace workspace = new Workspace("workspace-handoff", "project-1",
+			tempDir.resolve("handoff-repo").toString(), "ai-dev-os/task/task-handoff",
+			WorkspaceStatus.READY, NOW, NOW);
+		org.mockito.Mockito.when(workspaces.getWorkspace("workspace-handoff"))
+			.thenReturn(java.util.Optional.of(workspace));
+		org.mockito.Mockito.when(workspaces.checkGitStatus("workspace-handoff"))
+			.thenReturn(new com.aidevos.orchestrator.workspace.git.GitStatus(
+				"ai-dev-os/task/task-handoff", 1, 0, 0));
+		org.mockito.Mockito.when(workspaces.getGitDiff("workspace-handoff"))
+			.thenReturn(new com.aidevos.orchestrator.workspace.git.GitDiff(1, 1, 0,
+				"1 file changed"));
+		org.mockito.Mockito.when(workspaces.getGitDiffContent("workspace-handoff"))
+			.thenReturn("diff --git a/a.txt b/a.txt\n");
+		com.aidevos.orchestrator.change.ChangeService changeService =
+			new com.aidevos.orchestrator.change.ChangeService(changes, workspaces,
+				AuditService.noop());
+		com.aidevos.orchestrator.workspace.git.GitCommandExecutor git =
+			org.mockito.Mockito.mock(com.aidevos.orchestrator.workspace.git.GitCommandExecutor.class);
+		org.mockito.Mockito.when(git.commit(org.mockito.ArgumentMatchers.any(),
+			org.mockito.ArgumentMatchers.any())).thenReturn("c0ffee");
+		org.mockito.Mockito.when(git.listRemotes(org.mockito.ArgumentMatchers.any()))
+			.thenReturn("origin\tfile:///tmp/bare.git (fetch)\n"
+				+ "origin\tfile:///tmp/bare.git (push)\n");
+		com.aidevos.orchestrator.commit.CommitService commitService =
+			new com.aidevos.orchestrator.commit.CommitService(commits, changeService,
+				workspaces, git, AuditService.noop());
+		com.aidevos.orchestrator.remote.RemotePushApprovalService approvalService =
+			new com.aidevos.orchestrator.remote.RemotePushApprovalService(approvals,
+				AuditService.noop());
+		com.aidevos.orchestrator.remote.RemoteGitService remoteGit =
+			new com.aidevos.orchestrator.remote.RemoteGitService(remotes, commitService,
+				workspaces, git, AuditService.noop(), approvalService);
+		commitService.setRemoteGitService(remoteGit);
+
+		ChangeSet change = changeService.createChange("task-handoff", "workspace-handoff",
+			"project-1", "exec-handoff", "ai-dev-os/task/task-handoff");
+		changeService.startReview(change.getChangeId());
+		changeService.approve(change.getChangeId(), "user-1");
+
+		CommitRecord committed = commitService.commit(change.getChangeId());
+		CommitRecord reloaded = commits.get(committed.getCommitId());
+		assertEquals(CommitStatus.SUCCESS, reloaded.getStatus());
+		assertEquals("c0ffee", reloaded.getGitHash());
+
+		assertEquals(1, approvals.getAll().size());
+		com.aidevos.orchestrator.remote.RemotePushApproval approval =
+			approvals.getAll().get(0);
+		assertEquals(com.aidevos.orchestrator.remote.RemotePushApprovalStatus.PENDING,
+			approval.getStatus());
+		assertEquals(committed.getCommitId(), approval.getCommitId());
+		assertEquals("c0ffee", approval.getCommitHash());
+		assertEquals("origin", approval.getRemote());
+	}
+
+	@Test
+	void remotePushRecordRoundTripPersistsSuccess() {
+		PostgresRemoteRepository remotes = new PostgresRemoteRepository(dataSource, mapper);
+		com.aidevos.orchestrator.remote.RemoteBranchRecord record =
+			com.aidevos.orchestrator.remote.RemoteBranchRecord.restore("remote-1", "task-1",
+				"workspace-1", "commit-1", "main", "origin", "file:///tmp/bare.git", NOW,
+				com.aidevos.orchestrator.remote.RemoteStatus.SUCCESS, NOW);
+		remotes.save(record);
+		com.aidevos.orchestrator.remote.RemoteBranchRecord loaded = remotes.get("remote-1");
+		assertEquals(com.aidevos.orchestrator.remote.RemoteStatus.SUCCESS,
+			loaded.getStatus());
+		assertEquals("origin", loaded.getRemote());
+		assertEquals(1, remotes.list().size());
+	}
 }

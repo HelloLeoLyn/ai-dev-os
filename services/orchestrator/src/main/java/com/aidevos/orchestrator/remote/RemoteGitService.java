@@ -17,6 +17,7 @@ import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.qualitygate.QualityGateService;
 import com.aidevos.orchestrator.workspace.Workspace;
 import com.aidevos.orchestrator.workspace.WorkspaceService;
+import com.aidevos.orchestrator.workspace.WorkspaceStatus;
 import com.aidevos.orchestrator.workspace.git.GitCommandExecutor;
 import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspace;
 import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspaceService;
@@ -45,12 +46,12 @@ public class RemoteGitService {
 	private volatile PrFeedbackService feedbackService;
 	private volatile QualityGateService qualityGateService;
 
-	@Autowired
 	public RemoteGitService(RemoteRepository repository, CommitService commitService,
 			WorkspaceService workspaceService, GitCommandExecutor gitCommandExecutor,
 			AuditService auditService) {
 		this(repository, commitService, workspaceService, gitCommandExecutor, auditService, null);
 	}
+	@Autowired
 	public RemoteGitService(RemoteRepository repository, CommitService commitService,
 			WorkspaceService workspaceService, GitCommandExecutor gitCommandExecutor,
 			AuditService auditService, RemotePushApprovalService pushApprovals) {
@@ -82,11 +83,14 @@ public class RemoteGitService {
 			throw new IllegalStateException("Only a SUCCESS commit can be pushed "
 				+ "(current: " + commit.getStatus() + ")");
 		}
-		Workspace workspace = workspaceService.getWorkspace(commit.getWorkspaceId())
-			.orElseThrow(() -> new ResourceNotFoundException("Workspace",
-				commit.getWorkspaceId()));
+		Workspace workspace = resolveWorkspace(commit);
 		String remoteName = remote == null || remote.isBlank() ? DEFAULT_REMOTE : remote;
 		String expectedBranch = taskBranch(commit.getTaskId());
+		RemoteBranchRecord alreadyPushed = successfulPush(commit.getTaskId(), commitId,
+			remoteName, commit.getBranch());
+		if (alreadyPushed != null) {
+			return alreadyPushed;
+		}
 		if (pushApprovals != null && !expectedBranch.equals(commit.getBranch())) throw new IllegalStateException("Commit branch is not a task branch");
 		if (pushApprovals != null) {
 			if (approvalId == null || approvalId.isBlank()) throw new IllegalStateException("Remote push approval is required");
@@ -109,6 +113,7 @@ public class RemoteGitService {
 		repository.save(record);
 		String from = record.getStatus().name();
 		record.markPushing();
+		repository.save(record);
 		auditService.remoteEvent(EventType.REMOTE_PUSH_STARTED, record.getTaskId(),
 			record.getRemoteId(), record.getCommitId(), from, RemoteStatus.PUSHING.name(),
 			"Remote push started", Map.of("remote", remoteName, "branch", commit.getBranch(),
@@ -120,6 +125,7 @@ public class RemoteGitService {
 				throw new IllegalStateException("Git push failed to remote: " + remoteName);
 			}
 			record.markSuccess();
+			repository.save(record);
 			 auditService.remoteEvent(EventType.REMOTE_PUSH_SUCCESS, record.getTaskId(),
 				record.getRemoteId(), record.getCommitId(), RemoteStatus.PUSHING.name(),
 				RemoteStatus.SUCCESS.name(), "Remote push succeeded: " + remoteName
@@ -143,7 +149,7 @@ public class RemoteGitService {
 		CommitRecord commit=commitService.getCommit(commitId).orElseThrow(() -> new ResourceNotFoundException("Commit",commitId));
 		if (commit.getStatus()!=CommitStatus.SUCCESS) throw new IllegalStateException("Only a SUCCESS commit can request remote push");
 		String branch=taskBranch(commit.getTaskId()); String remoteName=remote==null||remote.isBlank()?DEFAULT_REMOTE:remote;
-		Workspace workspace=workspaceService.getWorkspace(commit.getWorkspaceId()).orElseThrow(() -> new ResourceNotFoundException("Workspace",commit.getWorkspaceId()));
+		Workspace workspace=resolveWorkspace(commit);
 		if (pushApprovals==null) throw new IllegalStateException("Remote push approval service unavailable");
 		if (!branch.equals(commit.getBranch()) || !isRegisteredRemote(remoteName,gitCommandExecutor.listRemotes(workspace.getPath()))) throw new IllegalStateException("Remote push binding is invalid");
 		return pushApprovals.request(commit.getTaskId(),commit.getWorkspaceId(),branch,commit.getCommitId(),commit.getGitHash(),remoteName);
@@ -182,6 +188,32 @@ public class RemoteGitService {
 		return exception.getMessage() == null || exception.getMessage().isBlank()
 			? exception.getClass().getSimpleName() : exception.getMessage();
 	}
-	private boolean isRegisteredRemote(String remote,String output){if(output==null)return false;for(String line:output.split("\\R")){String[] p=line.trim().split("\\s+");if(p.length>=2&&remote.equals(p[0]))return true;}return false;}
+	private RemoteBranchRecord successfulPush(String taskId, String commitId, String remote,
+			String branch) {
+		for (RemoteBranchRecord record : repository.getByTaskId(taskId)) {
+			if (record.getStatus() == RemoteStatus.SUCCESS && commitId.equals(record.getCommitId())
+					&& remote.equals(record.getRemote()) && branch.equals(record.getBranch())) {
+				return record;
+			}
+		}
+		return null;
+	}
+	private Workspace resolveWorkspace(CommitRecord commit) {
+		Workspace workspace = workspaceService.getWorkspace(commit.getWorkspaceId()).orElse(null);
+		if (workspace != null) {
+			return workspace;
+		}
+		if (executionWorkspaces != null) {
+			ExecutionWorkspace execution = executionWorkspaces.findByTaskId(commit.getTaskId());
+			if (execution != null && commit.getWorkspaceId().equals(execution.getId())) {
+				return new Workspace(execution.getId(), execution.getProjectId(),
+					execution.getExecutionWorkspace(), execution.getExecutionBranch(),
+					WorkspaceStatus.READY, execution.getCreatedAt(), execution.getUpdatedAt());
+			}
+		}
+		throw new ResourceNotFoundException("Workspace", commit.getWorkspaceId());
+	}
+
+	public static boolean isRegisteredRemote(String remote,String output){if(output==null)return false;for(String line:output.split("\\R")){String[] p=line.trim().split("\\s+");if(p.length>=2&&remote.equals(p[0]))return true;}return false;}
 	private String taskBranch(String taskId){String safe=taskId==null?"":taskId.replaceAll("[^A-Za-z0-9._-]","_");if(safe.isBlank()||safe.equals(".")||safe.equals(".."))throw new IllegalStateException("Invalid task id");return "ai-dev-os/task/"+safe;}
 }

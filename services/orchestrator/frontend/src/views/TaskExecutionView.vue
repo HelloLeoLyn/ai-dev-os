@@ -23,7 +23,7 @@ import { getRemotePushApprovals, approveRemotePush, rejectRemotePush, pushRemote
 import type { RemotePushApproval } from '../api/remotePush'
 import { getTaskChanges, reviewChange, approveChange, rejectChange, commitChange, retryChangeProjection as retryChangeProjectionApi } from '../api/changes'
 import type { ChangeSet } from '../api/changes'
-import { getTaskCommits } from '../api/commits'
+import { getTaskCommits, recoverCommit } from '../api/commits'
 import type { CommitRecord } from '../api/commits'
 import { getTaskValidations, startDeliveryValidation, getQualityGates, evaluateQualityGate, approveQualityGate, rejectQualityGate } from '../api/validations'
 import type { ValidationRun, QualityGateResult } from '../types/validation'
@@ -42,6 +42,7 @@ const workspaceReview = ref<ExecutionWorkspaceReview | null>(null)
 const promotionBusy = ref(false)
 const diffVisible = ref(false)
 const approvalBusy = ref(false)
+const commitRecoverBusy = ref(false)
 const taskNotifications = useTaskNotifications()
 const remotePushApprovals = ref<RemotePushApproval[]>([])
 const changes = ref<ChangeSet[]>([])
@@ -56,6 +57,9 @@ const pendingApproval = computed(() => pendingRecord.value?.approvalId ? codingA
 const approvalHistory = computed(() => Object.values(codingApprovals.value).filter(approval => approval.taskId === taskId && (!latestJob.value?.id || approval.jobId === latestJob.value.id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt)))
 const requiresCodingApproval = computed(() => pendingApproval.value?.status === 'PENDING' || pendingApproval.value?.status === 'APPROVED')
 const pendingRemotePush = computed(() => remotePushApprovals.value.find(item => item.status === 'PENDING') ?? null)
+function hasUsableApproval(commitId: string): boolean {
+  return remotePushApprovals.value.some(item => item.commitId === commitId && (item.status === 'PENDING' || item.status === 'APPROVED'))
+}
 const latestRecord = computed(() => executions.records.value.at(-1) ?? null)
 const latestJob = computed(() => latestRecord.value?.jobId ? jobs.value[latestRecord.value.jobId] ?? null : null)
 const lastFlowEvent = computed(() => taskTimeline.timeline.value?.events.at(-1) ?? null)
@@ -98,7 +102,19 @@ async function changeAction(id: string, action: 'review'|'approve'|'reject'|'com
     else if (action === 'reject') await rejectChange(id)
     else await commitChange(id)
     await loadExecutionState()
+    await taskTimeline.load(taskId)
   } catch (error) { ElMessage.error(error instanceof Error ? error.message : 'Change action failed.') }
+}
+async function recoverCommitState(commit: CommitRecord): Promise<void> {
+  if (commitRecoverBusy.value) return
+  commitRecoverBusy.value = true
+  try {
+    await recoverCommit(taskId, commit.commitId)
+    await loadExecutionState()
+    await taskTimeline.load(taskId)
+    ElMessage.success('Commit state recovered from persisted evidence.')
+  } catch (error) { ElMessage.error(error instanceof Error ? error.message : 'Commit recovery failed.') }
+  finally { commitRecoverBusy.value = false }
 }
 async function retryChangeProjection(): Promise<void> {
   if (changeRetrying.value) return
@@ -139,6 +155,7 @@ async function decideRemotePush(action: 'approve' | 'reject'): Promise<void> {
     }
     else await rejectRemotePush(approval.approvalId)
     await loadExecutionState()
+    await taskTimeline.load(taskId)
     ElMessage.success(action === 'approve' ? 'Remote push approved. Push execution may proceed.' : 'Remote push rejected.')
   } catch (error) { ElMessage.error(error instanceof Error ? error.message : 'Remote push approval failed.') }
   finally { approvalBusy.value = false }
@@ -196,7 +213,7 @@ function reload(): void { void Promise.all([context.load(taskId), loadExecutionS
       <div class="approval-actions"><el-button type="primary" :loading="approvalBusy" :disabled="pendingApproval.status !== 'PENDING'" @click="decideCodingApproval('approve')">Approve Workspace Write</el-button><el-button :loading="approvalBusy" :disabled="pendingApproval.status !== 'PENDING'" @click="decideCodingApproval('reject')">Reject</el-button></div>
     </section>
     <section v-if="approvalHistory.length" class="approval-history" aria-label="Approval History"><h2>Approval History</h2><ol><li v-for="approval in approvalHistory" :key="approval.id"><strong>{{ approval.operation }}</strong><span>{{ approval.authority }}</span><StatusBadge :status="approval.status" /><TechnicalId :value="approval.id" label="Approval" /></li></ol></section>
-    <section v-if="remotePushApprovals.length" class="approval-action remote-push-approval" aria-label="Remote Push Approval"><p class="page-eyebrow">Remote Push</p><h2>{{ pendingRemotePush ? 'Action Required: Approve Remote Push' : 'Remote Push Approval' }}</h2><dl class="approval-grid"><div><dt>Authority</dt><dd>REMOTE</dd></div><div><dt>Operation</dt><dd>PUSH_TASK_BRANCH</dd></div><div><dt>Remote</dt><dd>{{ (pendingRemotePush || remotePushApprovals[0]).remote }}</dd></div><div><dt>Branch</dt><dd><code>{{ (pendingRemotePush || remotePushApprovals[0]).executionBranch }}</code></dd></div><div><dt>Commit</dt><dd><TechnicalId :value="(pendingRemotePush || remotePushApprovals[0]).commitId" label="Commit" /></dd></div><div><dt>Approval Status</dt><dd><StatusBadge :status="(pendingRemotePush || remotePushApprovals[0]).status" /></dd></div></dl><div v-if="pendingRemotePush" class="approval-actions"><el-button type="primary" :loading="approvalBusy" @click="decideRemotePush('approve')">Approve Remote Push</el-button><el-button :loading="approvalBusy" @click="decideRemotePush('reject')">Reject Remote Push</el-button></div></section>
+    <section v-if="remotePushApprovals.length" class="approval-action remote-push-approval" aria-label="Remote Push Approval"><p class="page-eyebrow">Remote Push</p><h2>{{ pendingRemotePush ? 'Action Required: Approve Remote Push' : 'Remote Push Approval' }}</h2><dl class="approval-grid"><div><dt>Authority</dt><dd>REMOTE</dd></div><div><dt>Operation</dt><dd>PUSH_TASK_BRANCH</dd></div><div><dt>Remote</dt><dd>{{ (pendingRemotePush || remotePushApprovals[remotePushApprovals.length - 1]).remote }}</dd></div><div><dt>Branch</dt><dd><code>{{ (pendingRemotePush || remotePushApprovals[remotePushApprovals.length - 1]).executionBranch }}</code></dd></div><div><dt>Commit</dt><dd><TechnicalId :value="(pendingRemotePush || remotePushApprovals[remotePushApprovals.length - 1]).commitId" label="Commit" /></dd></div><div><dt>Approval Status</dt><dd><StatusBadge :status="(pendingRemotePush || remotePushApprovals[remotePushApprovals.length - 1]).status" /></dd></div></dl><div v-if="pendingRemotePush" class="approval-actions"><el-button type="primary" :loading="approvalBusy" @click="decideRemotePush('approve')">Approve Remote Push</el-button><el-button :loading="approvalBusy" @click="decideRemotePush('reject')">Reject Remote Push</el-button></div></section>
     <div class="execution-overview"><article><span>PlanRun</span><TechnicalId :value="context.task.value.planRunId" label="PlanRun" /></article><article><span>Current StepRun</span><TechnicalId :value="executions.records.value.at(-1)?.stepRunId" label="StepRun" /></article><article><span>Execution history</span><strong>{{ executions.records.value.length }}</strong></article><article><span>Result</span><StatusBadge :status="context.task.value.status" /></article></div>
     <section v-if="executionWorkspace" class="workspace-isolation" aria-label="Workspace Isolation"><h2>Workspace Isolation</h2><p>Execution is isolated from the source workspace.</p><dl><div><dt>Source Workspace</dt><dd>{{ executionWorkspace.sourceWorkspace }}</dd></div><div><dt>Execution Workspace</dt><dd>{{ executionWorkspace.executionWorkspace }}</dd></div><div><dt>Strategy</dt><dd>{{ executionWorkspace.strategy }}</dd></div><div><dt>Base Revision</dt><dd>{{ executionWorkspace.baseRevision }}</dd></div><div><dt>Status</dt><dd><StatusBadge :status="executionWorkspace.status" /></dd></div></dl></section>
     <section v-if="workspaceReview && ['COMPLETED','PROMOTING','PROMOTED','REJECTED','PROMOTION_FAILED'].includes(executionWorkspace?.status || '')" class="review-changes" aria-label="Review Changes">
@@ -227,7 +244,7 @@ function reload(): void { void Promise.all([context.load(taskId), loadExecutionS
           <template v-if="deliveryGate?.decision === 'REQUIRE_APPROVAL'"><el-button type="warning" :loading="validationBusy" @click="decideDeliveryGate(true)">Approve Quality Gate</el-button><el-button :loading="validationBusy" @click="decideDeliveryGate(false)">Reject Quality Gate</el-button></template>
         </div>
       </div>
-      <div v-for="commit in commits" :key="commit.commitId" class="delivery-card"><strong>Commit</strong> <TechnicalId :value="commit.commitId" label="Commit" /> <StatusBadge :status="commit.status" /><span> {{ commit.branch }} {{ commit.gitHash || '' }}</span></div>
+      <div v-for="commit in commits" :key="commit.commitId" class="delivery-card"><strong>Commit</strong> <TechnicalId :value="commit.commitId" label="Commit" /> <StatusBadge :status="commit.status" /><span> {{ commit.branch }} {{ commit.gitHash || '' }}</span><el-button v-if="commit.status === 'PENDING' || (commit.status === 'SUCCESS' && !hasUsableApproval(commit.commitId))" size="small" type="warning" :loading="commitRecoverBusy" @click="recoverCommitState(commit)">Recover Commit State</el-button></div>
     </section>
     <section v-else-if="executionWorkspace?.status === 'COMPLETED' && context.task.value.executionMode === 'READ_WRITE'" class="delivery-flow" aria-label="Delivery Flow">
       <p class="page-eyebrow">Delivery</p><h2>ChangeSet not generated</h2><p class="error">Execution succeeded, but the ChangeSet projection is not available.</p>

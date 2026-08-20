@@ -36,6 +36,15 @@ class GlobalExceptionHandlerTest {
 	}
 
 	@Test
+	void shouldMapIllegalStateTo409ConflictWithMessage() throws Exception {
+		mockMvc.perform(get("/api/test/state"))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("CONFLICT"))
+			.andExpect(jsonPath("$.message").value("state conflict"))
+			.andExpect(jsonPath("$.timestamp").isNotEmpty());
+	}
+
+	@Test
 	void shouldMapUnexpectedRuntimeExceptionTo500() throws Exception {
 		mockMvc.perform(get("/api/test/runtime"))
 			.andExpect(status().isInternalServerError())
@@ -65,7 +74,12 @@ class GlobalExceptionHandlerTest {
 
 		@GetMapping("/api/test/runtime")
 		public ResponseEntity<String> runtime() {
-			throw new IllegalStateException("boom");
+			throw new RuntimeException("boom");
+		}
+
+		@GetMapping("/api/test/state")
+		public ResponseEntity<String> state() {
+			throw new IllegalStateException("state conflict");
 		}
 	}
 }

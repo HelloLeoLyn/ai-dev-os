@@ -43,6 +43,12 @@ public class GlobalExceptionHandler {
 			.body(ApiError.of("NOT_FOUND", "Resource not found"));
 	}
 
+	@ExceptionHandler(IllegalStateException.class)
+	public ResponseEntity<ApiError> handleIllegalState(IllegalStateException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+			.body(ApiError.of("CONFLICT", message(exception)));
+	}
+
 	@ExceptionHandler(Exception.class)
 	public ResponseEntity<ApiError> handleUnexpected(Exception exception) throws Exception {
 		if (exception instanceof ErrorResponse) {

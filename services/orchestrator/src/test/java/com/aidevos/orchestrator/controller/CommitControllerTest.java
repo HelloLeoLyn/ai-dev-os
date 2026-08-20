@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 
 import com.aidevos.orchestrator.commit.CommitRecord;
+import com.aidevos.orchestrator.commit.CommitRecoveryService;
 import com.aidevos.orchestrator.commit.CommitService;
 import com.aidevos.orchestrator.commit.CommitStatus;
 import com.aidevos.orchestrator.common.exception.GlobalExceptionHandler;
@@ -24,7 +25,7 @@ class CommitControllerTest {
 	private static final Instant NOW = Instant.parse("2026-08-01T00:00:00Z");
 
 	private MockMvc mockMvc(CommitService service) {
-		return standaloneSetup(new CommitController(service))
+		return standaloneSetup(new CommitController(service, mock(CommitRecoveryService.class)))
 			.setControllerAdvice(new GlobalExceptionHandler())
 			.build();
 	}
@@ -66,6 +67,22 @@ class CommitControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$[0].commitId").value("commit-1"))
 			.andExpect(jsonPath("$[0].status").value("SUCCESS"));
+	}
+
+	@Test
+	void shouldRecoverHistoricalCommit() throws Exception {
+		CommitService service = mock(CommitService.class);
+		CommitRecoveryService recovery = mock(CommitRecoveryService.class);
+		when(recovery.recover("task-1", "commit-1")).thenReturn(successfulCommit());
+		MockMvc mockMvc = standaloneSetup(new CommitController(service, recovery))
+			.setControllerAdvice(new GlobalExceptionHandler())
+			.build();
+
+		mockMvc.perform(post("/api/tasks/task-1/commits/commit-1/recover"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.commitId").value("commit-1"))
+			.andExpect(jsonPath("$.status").value("SUCCESS"))
+			.andExpect(jsonPath("$.gitHash").value("abc123def"));
 	}
 
 	@Test
