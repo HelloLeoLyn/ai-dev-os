@@ -31,6 +31,9 @@ import com.aidevos.orchestrator.execution.tool.DeterministicTool;
 import com.aidevos.orchestrator.execution.tool.ToolExecutionRequest;
 import com.aidevos.orchestrator.execution.tool.ToolExecutionResult;
 import com.aidevos.orchestrator.execution.tool.ToolExecutionService;
+import com.aidevos.orchestrator.execution.system.SystemActionContext;
+import com.aidevos.orchestrator.execution.system.SystemActionResult;
+import com.aidevos.orchestrator.execution.system.SystemStepService;
 import com.aidevos.orchestrator.human.HumanApproval;
 import com.aidevos.orchestrator.human.HumanApprovalRepository;
 import com.aidevos.orchestrator.human.HumanApprovalStatus;
@@ -80,6 +83,7 @@ public class PlanScheduler {
 	private final AuditService auditService;
 	private final String coordinatorId = "scheduler-" + UUID.randomUUID();
 	private volatile ToolExecutionService toolExecutionService;
+	private volatile SystemStepService systemStepService;
 	private volatile ExecutionRecordRepository executionRecordRepository;
 	private volatile HumanApprovalRepository humanApprovalRepository;
 	private volatile ExecutionStateRepository executionStateRepository =
@@ -90,6 +94,11 @@ public class PlanScheduler {
 	@Autowired(required = false)
 	public void setToolExecutionService(ToolExecutionService service) {
 		this.toolExecutionService = service;
+	}
+
+	@Autowired(required = false)
+	public void setSystemStepService(SystemStepService service) {
+		this.systemStepService = service;
 	}
 
 	@Autowired(required = false)
@@ -295,7 +304,13 @@ public class PlanScheduler {
 			interventionMetadata(state, "RETRY", failureClass, previousSeverity, comment));
 		run.markRunning(now);
 		try {
-			if (toolOrSystem) {
+			if (executionType == StepExecutionType.SYSTEM_STEP) {
+				executeSystemStep(run, definition, step, attempt);
+				if (step.getStatus() == StepRunStatus.SUCCESS) {
+					advance(run);
+				}
+			}
+			else if (executionType == StepExecutionType.TOOL_STEP) {
 				executeDeterministicStep(run, definition, step, attempt);
 				if (step.getStatus() == StepRunStatus.SUCCESS) {
 					advance(run);
@@ -455,8 +470,13 @@ public class PlanScheduler {
 				if (active.getStatus() == StepRunStatus.RUNNING) {
 					// A deterministic step left RUNNING by a crash window is
 					// re-run without an LLM; HUMAN_GATE stays paused.
-					executeDeterministicStep(current,
-								step(current.getPlan(), active.getStepId()), active, attempt);
+					PlanStep definition = step(current.getPlan(), active.getStepId());
+					if (definition.executionType() == StepExecutionType.SYSTEM_STEP) {
+						executeSystemStep(current, definition, active, attempt);
+					}
+					else {
+						executeDeterministicStep(current, definition, active, attempt);
+					}
 						}
 						return;
 					}
@@ -567,8 +587,10 @@ public class PlanScheduler {
 			executionStateRepository.save(state);
 		}
 		try {
-			if (definition.executionType() == StepExecutionType.TOOL_STEP
-					|| definition.executionType() == StepExecutionType.SYSTEM_STEP) {
+			if (definition.executionType() == StepExecutionType.SYSTEM_STEP) {
+				executeSystemStep(run, definition, next, attempt);
+			}
+			else if (definition.executionType() == StepExecutionType.TOOL_STEP) {
 				executeDeterministicStep(run, definition, next, attempt);
 			}
 			else if (definition.executionType() == StepExecutionType.HUMAN_GATE) {
@@ -589,9 +611,9 @@ public class PlanScheduler {
 	}
 
 	/**
-	 * Runs a TOOL_STEP / SYSTEM_STEP without an LLM through the deterministic
-	 * executor. The tool is retried up to the budget maxToolRetries and the
-	 * outcome is persisted as an ExecutionRecord with a FailureClass.
+	 * Runs a TOOL_STEP without an LLM through the deterministic executor.
+	 * The tool is retried up to the budget maxToolRetries and the outcome is
+	 * persisted as an ExecutionRecord with a FailureClass.
 	 */
 	private void executeDeterministicStep(PlanRun run, PlanStep definition, StepRun step,
 			StepAttempt attempt) {
@@ -635,6 +657,87 @@ public class PlanScheduler {
 		else {
 			fail(run, step, attempt, toolFailureMessage(result), recordId, null, false);
 		}
+	}
+
+	/**
+	 * Runs a SYSTEM_STEP without an LLM, an external tool or an AI job through
+	 * the system action allowlist. Unknown or unregistered actions fail
+	 * closed; the outcome is audited and the step/run lifecycle is persisted.
+	 */
+	private void executeSystemStep(PlanRun run, PlanStep definition, StepRun step,
+			StepAttempt attempt) {
+		if (systemStepService == null) {
+			throw new IllegalStateException("System step service unavailable");
+		}
+		String actionName = systemActionName(definition);
+		SystemActionContext context = new SystemActionContext(run.getOriginalTaskId(),
+			metadataString(run, "projectId"), workspacePath(run), run.getId(),
+			step.getId(), attempt.getId(), Map.copyOf(definition.parameters()));
+		SystemActionResult result = systemStepService.execute(actionName, context);
+		String recordedId = result.metadata().get("recordId") instanceof String id
+			&& !id.isBlank() ? id : null;
+		ExecutionRecord record = recordedId == null
+			? persistSystemRecord(run, definition, step, attempt, result) : null;
+		String recordId = recordedId != null ? recordedId
+			: record == null ? null : record.getId();
+		Instant now = Instant.now(clock);
+		if (result.success()) {
+			RunExecutionState state = executionState(run);
+			state.resetConsecutiveFailures();
+			executionStateRepository.save(state);
+			attempt.markSuccess(recordId, now);
+			step.markSuccess(now);
+			auditService.stepEvent(EventType.STEP_SUCCEEDED, run, step, attempt, "RUNNING",
+				step.getStatus().name());
+		}
+		else {
+			fail(run, step, attempt, result.message(), recordId, null, false);
+		}
+	}
+
+	private String systemActionName(PlanStep definition) {
+		Object action = definition.parameters() == null ? null
+			: definition.parameters().get("action");
+		if (action instanceof String text && !text.isBlank()) {
+			return text;
+		}
+		return definition.toolName();
+	}
+
+	private String metadataString(PlanRun run, String key) {
+		Object value = plannerMetadata(run).get(key);
+		return value == null ? "" : String.valueOf(value);
+	}
+
+	private ExecutionRecord persistSystemRecord(PlanRun run, PlanStep definition, StepRun step,
+			StepAttempt attempt, SystemActionResult result) {
+		if (executionRecordRepository == null) {
+			return null;
+		}
+		ExecutionRecord record = new ExecutionRecord();
+		record.setId("system-" + UUID.randomUUID());
+		record.setExecutionId(record.getId());
+		record.setTaskId(run.getOriginalTaskId());
+		record.setAgentName(definition.assignment() == null ? null
+			: definition.assignment().agentName());
+		record.setExecutorName("system");
+		record.setOperation(systemActionName(definition));
+		record.setStatus(result.success() ? "SUCCESS" : "FAILED");
+		record.setMessage(result.success() ? "System step succeeded" : "System step failed");
+		record.setOutput(result.message());
+		record.setErrorCode(result.success() ? null : "SYSTEM_STEP_FAILED");
+		record.setPlanRunId(run.getId());
+		record.setStepRunId(step.getId());
+		record.setAttemptId(attempt.getId());
+		record.setWorkspace(workspacePath(run));
+		record.setExecutionType(StepExecutionType.SYSTEM_STEP.name());
+		record.setValidationProfile(ExecutionBudget.resolve(plannerMetadata(run))
+			.validationProfile().name());
+		Instant now = Instant.now(clock);
+		record.setStartedAt(now);
+		record.setCompletedAt(now);
+		executionRecordRepository.save(record);
+		return record;
 	}
 
 	/**

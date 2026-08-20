@@ -24,7 +24,7 @@ class NaturalGoalClassificationTest {
 		Plan plan = planFor("修改 UserService bug，然后编译并运行对应测试");
 
 		assertEquals(List.of(StepExecutionType.AI_STEP, StepExecutionType.TOOL_STEP,
-			StepExecutionType.TOOL_STEP),
+			StepExecutionType.TOOL_STEP, StepExecutionType.SYSTEM_STEP),
 			plan.steps().stream().map(step -> step.executionType()).toList());
 		assertEquals("maven", plan.steps().get(1).toolName());
 		assertEquals("compile", plan.steps().get(1).toolArguments().get("command"));
@@ -38,7 +38,7 @@ class NaturalGoalClassificationTest {
 	void gitStatusGoalGeneratesGitToolStepOnly() {
 		Plan plan = planFor("运行 git status");
 
-		assertEquals(List.of(StepExecutionType.TOOL_STEP),
+		assertEquals(List.of(StepExecutionType.TOOL_STEP, StepExecutionType.SYSTEM_STEP),
 			plan.steps().stream().map(step -> step.executionType()).toList());
 		assertEquals("git", plan.steps().getFirst().toolName());
 		assertEquals("status", plan.steps().getFirst().toolArguments().get("command"));
@@ -48,7 +48,7 @@ class NaturalGoalClassificationTest {
 	void frontendBuildGoalGeneratesNpmToolStep() {
 		Plan plan = planFor("运行前端 build");
 
-		assertEquals(List.of(StepExecutionType.TOOL_STEP),
+		assertEquals(List.of(StepExecutionType.TOOL_STEP, StepExecutionType.SYSTEM_STEP),
 			plan.steps().stream().map(step -> step.executionType()).toList());
 		assertEquals("npm", plan.steps().getFirst().toolName());
 		assertEquals("build", plan.steps().getFirst().toolArguments().get("command"));
@@ -58,7 +58,8 @@ class NaturalGoalClassificationTest {
 	void modifyThenWaitForHumanConfirmationGeneratesAiPlusHumanGate() {
 		Plan plan = planFor("修改代码后等待人工确认");
 
-		assertEquals(List.of(StepExecutionType.AI_STEP, StepExecutionType.HUMAN_GATE),
+		assertEquals(List.of(StepExecutionType.AI_STEP, StepExecutionType.HUMAN_GATE,
+			StepExecutionType.SYSTEM_STEP),
 			plan.steps().stream().map(step -> step.executionType()).toList());
 		assertEquals(StepExecutionType.HUMAN_GATE, plan.steps().get(1).executionType());
 	}

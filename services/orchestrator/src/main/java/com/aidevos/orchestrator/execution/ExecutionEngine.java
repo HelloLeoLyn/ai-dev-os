@@ -8,6 +8,7 @@ import com.aidevos.orchestrator.agent.ResolvedAgent;
 import com.aidevos.orchestrator.executor.AgentExecutor;
 import com.aidevos.orchestrator.modelregistry.ModelResolutionException;
 import com.aidevos.orchestrator.operation.DeterministicOperationExecutor;
+import com.aidevos.orchestrator.plan.StepExecutionType;
 import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspace;
 import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspaceService;
 import com.aidevos.orchestrator.job.JobLease;
@@ -97,6 +98,11 @@ public class ExecutionEngine {
 		}
 		ExecutionResult result;
 		try {
+			String executionType = taskMetadataString(taskDefinition, "executionType");
+			if (StepExecutionType.TOOL_STEP.name().equals(executionType)
+					|| StepExecutionType.SYSTEM_STEP.name().equals(executionType)) {
+				throw new DeterministicStepRoutingException(executionType);
+			}
 			ResolvedAgent resolvedAgent = agentResolver.resolve(taskDefinition);
 			agentName = resolvedAgent.definition().getName();
 			auditService.agentEvent(EventType.AGENT_SELECTED, taskDefinition, executionId, jobId,
@@ -144,6 +150,11 @@ public class ExecutionEngine {
 			result = failedResult(exception.getMessage());
 			failAttempt(attempt, AGENT_RESOLUTION_FAILURE);
 		}
+		catch (DeterministicStepRoutingException exception) {
+			result = failedResult(exception.getMessage());
+			result.getMetadata().put("errorCode", "DETERMINISTIC_STEP_ROUTING_VIOLATION");
+			failAttempt(attempt, EXECUTOR_FAILURE);
+		}
 
 		ExecutionReport report = createReport(taskDefinition, agentName, result);
 		ExecutionRecord record = createRecord(taskDefinition, agentName, executorName, result, report,
@@ -155,6 +166,19 @@ public class ExecutionEngine {
 		auditService.executionEvent(completedType, taskDefinition, record.getExecutionId(), jobId,
 			record.getId(), record.getStatus(), agentName);
 		return result;
+	}
+
+	/**
+	 * Raised when work classified as a deterministic step (TOOL_STEP /
+	 * SYSTEM_STEP) reaches the legacy agent executor. Such work must never be
+	 * re-routed to an LLM; the engine fails it closed instead.
+	 */
+	private static final class DeterministicStepRoutingException extends RuntimeException {
+
+		private DeterministicStepRoutingException(String executionType) {
+			super("Deterministic step type " + executionType
+				+ " must not run through the agent executor");
+		}
 	}
 
 	private ExecutionResult executeDeterministic(TaskDefinition taskDefinition, String jobId,

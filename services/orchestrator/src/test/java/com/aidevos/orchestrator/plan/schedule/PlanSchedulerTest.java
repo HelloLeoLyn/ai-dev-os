@@ -12,10 +12,13 @@ import java.util.Map;
 import java.util.Set;
 
 import com.aidevos.orchestrator.execution.ExecutionRecordRepository;
+import com.aidevos.orchestrator.execution.InMemoryExecutionRecordRepository;
 import com.aidevos.orchestrator.execution.FailureClass;
 import com.aidevos.orchestrator.execution.RunExecutionState;
 import com.aidevos.orchestrator.execution.ExecutionArtifact;
 import com.aidevos.orchestrator.execution.ExecutionResult;
+import com.aidevos.orchestrator.execution.system.RunBookkeepingExecutor;
+import com.aidevos.orchestrator.execution.system.SystemStepService;
 import com.aidevos.orchestrator.execution.tool.DeterministicTool;
 import com.aidevos.orchestrator.execution.tool.ToolExecutionResult;
 import com.aidevos.orchestrator.execution.tool.ToolExecutionService;
@@ -448,12 +451,18 @@ class PlanSchedulerTest {
 	}
 
 	@Test
-	void systemStepRunsDeterministicallyWithoutJob() {
+	void systemStepExecutesViaSystemServiceWithoutAiOrToolCalls() {
 		ToolExecutionService toolService = mock(ToolExecutionService.class);
+		InMemoryExecutionRecordRepository records = new InMemoryExecutionRecordRepository();
 		scheduler.setToolExecutionService(toolService);
-		when(toolService.execute(any())).thenReturn(new ToolExecutionResult(
-			DeterministicTool.VALIDATION, true, 0, "clean", null, 2, null));
-		PlanStep systemStep = step("system", false).withExecutionType(StepExecutionType.SYSTEM_STEP);
+		scheduler.setSystemStepService(
+			new SystemStepService(List.of(new RunBookkeepingExecutor(records))));
+		PlanStep systemStep = new PlanStep("system", "Record run bookkeeping",
+			"Persist a deterministic bookkeeping record", StepStatus.PLANNED,
+			new AgentAssignment("coder", List.of("coding", "git"), List.of()),
+			Map.of("action", "run-bookkeeping"), List.of(), null, null, Map.of(), List.of(),
+			RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN, false, null, false,
+			StepExecutionType.SYSTEM_STEP);
 		approve(plan(List.of(systemStep), List.of()));
 
 		PlanRun run = scheduler.start("approval-1");
@@ -462,6 +471,36 @@ class PlanSchedulerTest {
 		assertEquals(PlanRunStatus.SUCCESS, run.getStatus());
 		assertEquals(StepRunStatus.SUCCESS, run.getSteps().getFirst().getStatus());
 		assertEquals(0, submissions.size());
+		verify(jobService, never()).submit(any(), any());
+		verify(toolService, never()).execute(any());
+		ExecutionRecord record = records.getAll().getFirst();
+		assertEquals("system", record.getExecutorName());
+		assertEquals("SYSTEM_STEP", record.getExecutionType());
+		assertEquals("bookkeeping", record.getOperation());
+		assertEquals("SUCCESS", record.getStatus());
+	}
+
+	@Test
+	void illegalSystemStepFailsClosed() {
+		InMemoryExecutionRecordRepository records = new InMemoryExecutionRecordRepository();
+		scheduler.setSystemStepService(
+			new SystemStepService(List.of(new RunBookkeepingExecutor(records))));
+		PlanStep systemStep = new PlanStep("system", "Record run bookkeeping",
+			"Persist a deterministic bookkeeping record", StepStatus.PLANNED,
+			new AgentAssignment("coder", List.of("coding", "git"), List.of()),
+			Map.of("action", "unknown-action"), List.of(), null, null, Map.of(), List.of(),
+			RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN, false, null, false,
+			StepExecutionType.SYSTEM_STEP);
+		approve(plan(List.of(systemStep), List.of()));
+
+		PlanRun run = scheduler.start("approval-1");
+
+		assertEquals(PlanRunStatus.FAILED, run.getStatus());
+		assertEquals(StepRunStatus.FAILED, run.getSteps().getFirst().getStatus());
+		assertTrue(run.getError().contains("Unsupported system action: unknown-action"));
+		assertEquals(0, submissions.size());
+		verify(jobService, never()).submit(any(), any());
+		assertTrue(records.getAll().isEmpty());
 	}
 
 	@Test

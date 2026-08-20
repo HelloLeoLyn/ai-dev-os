@@ -114,6 +114,18 @@ public class HermesPlanner implements Planner {
 			steps.add(step);
 			index++;
 		}
+		// Real system bookkeeping: every natural plan ends with a SYSTEM_STEP
+		// that records the run deterministically (never an AI job).
+		String bookkeepingId = "step-bookkeeping";
+		PlanStep bookkeeping = new PlanStep(bookkeepingId, "Record run bookkeeping",
+			"Persist a deterministic bookkeeping record for this run",
+			StepStatus.PLANNED, coder, Map.of("action", "run-bookkeeping"), List.of(),
+			null, null, Map.of(), List.of(), RetryPolicy.noRetry(),
+			FailurePolicy.STOP_PLAN, false, null, false, StepExecutionType.SYSTEM_STEP);
+		if (previousId != null) {
+			dependencies.add(new Dependency(previousId, bookkeepingId, false));
+		}
+		steps.add(bookkeeping);
 		Map<String, Object> metadata = new LinkedHashMap<>(request.metadata());
 		metadata.put("validationProfile",
 			StepClassifier.validationProfile(request.goal(), input).name());

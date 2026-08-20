@@ -11,6 +11,7 @@ import com.aidevos.orchestrator.manager.AgentManager;
 import com.aidevos.orchestrator.model.AgentDefinition;
 import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.model.TaskDefinition;
+import com.aidevos.orchestrator.plan.StepExecutionType;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -22,7 +23,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 
 class ExecutionEngineTest {
 
@@ -159,6 +163,26 @@ class ExecutionEngineTest {
 	@Test
 	void shouldPersistApprovalIdForFailedExecution() {
 		assertApprovalIdPersisted(true, "FAILED");
+	}
+
+	@Test
+	void deterministicStepTypeIsNeverRoutedToLegacyAgentExecutor() {
+		AgentResolver agentResolver = mock(AgentResolver.class);
+		ExecutionRecordManager records = new ExecutionRecordManager();
+		TaskDefinition task = createTask("coder");
+		task.setMetadata(Map.of("executionType", StepExecutionType.TOOL_STEP.name()));
+		ExecutionEngine engine = new ExecutionEngine(agentResolver, records);
+
+		ExecutionResult result = engine.execute(task);
+
+		assertFalse(result.isSuccess());
+		assertTrue(result.getMessage().contains("TOOL_STEP"));
+		assertEquals("DETERMINISTIC_STEP_ROUTING_VIOLATION",
+			result.getMetadata().get("errorCode"));
+		verify(agentResolver, never()).resolve(any());
+		ExecutionRecord record = records.getAll().get(0);
+		assertEquals("FAILED", record.getStatus());
+		assertEquals("DETERMINISTIC_STEP_ROUTING_VIOLATION", record.getErrorCode());
 	}
 
 	private void assertApprovalIdPersisted(boolean fail, String expectedStatus) {
