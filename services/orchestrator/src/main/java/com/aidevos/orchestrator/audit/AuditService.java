@@ -416,6 +416,21 @@ public class AuditService {
 	 * CI_FAILED / CI_CANCELLED) carrying the taskId so it appears on the task
 	 * timeline alongside pull request and commit events.
 	 */
+	/**
+	 * Records a delivery pipeline lifecycle event (DELIVERY_PIPELINE_STARTED /
+	 * STAGE_STARTED / STAGE_SUCCEEDED / STAGE_FAILED / WAITING_APPROVAL /
+	 * COMPLETED) carrying the taskId so it appears on the task timeline.
+	 */
+	public void deliveryEvent(EventType type, String taskId, String stage,
+			String fromStatus, String toStatus, String summary, Map<String, Object> metadata) {
+		record(event(type, "delivery-pipeline", taskId, fromStatus, toStatus, taskId, null,
+			null, null, null, null, null, null, null, null, null, "SYSTEM",
+			"delivery-pipeline", summary,
+			metadata == null ? Map.of() : Map.copyOf(metadata),
+			type + ":delivery:" + taskId + ":" + value(stage) + ":" + value(fromStatus)
+				+ ":" + value(toStatus)));
+	}
+
 	public void ciEvent(EventType type, String taskId, String ciRunId, String pullRequestId,
 			String fromStatus, String toStatus, String summary, Map<String, Object> metadata) {
 		record(event(type, "ci-run", ciRunId, fromStatus, toStatus, taskId, null, null,

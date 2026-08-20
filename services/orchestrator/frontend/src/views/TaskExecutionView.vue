@@ -25,6 +25,7 @@ import { getExecutionState, intervene } from '../api/planRuns'
 import type { ExecutionState, InterventionAction } from '../api/planRuns'
 import { ApiError } from '../api/client'
 import { deliveryStages, primaryAction, workflowSummary, recommendedActionLabel, interventionAction, requiresConfirmation, type ExecutionViewInput } from '../services/executionDelivery'
+import { getDeliveryPipeline, advanceDelivery, type DeliveryPipeline } from '../api/delivery'
 import { getTaskChanges, reviewChange, approveChange, rejectChange, commitChange, retryChangeProjection as retryChangeProjectionApi } from '../api/changes'
 import type { ChangeSet } from '../api/changes'
 import { getTaskCommits, recoverCommit } from '../api/commits'
@@ -54,6 +55,7 @@ const commits = ref<CommitRecord[]>([])
 const changeRetrying = ref(false)
 const deliveryValidation = ref<ValidationRun | null>(null)
 const deliveryGate = ref<QualityGateResult | null>(null)
+const deliveryPipeline = ref<DeliveryPipeline | null>(null)
 const validationBusy = ref(false)
 const interventionBusy = ref(false)
 const executionState = ref<ExecutionState | null>(null)
@@ -147,6 +149,7 @@ const deliveryInput = computed<ExecutionViewInput>(() => ({
   workspaceStatus: executionWorkspace.value?.status || 'UNKNOWN',
   workspaceReviewComplete: workspaceReview.value?.completeness === 'COMPLETE',
   taskStatus: context.task.value?.status || 'UNKNOWN',
+  delivery: deliveryPipeline.value,
 }))
 const delivery = computed(() => deliveryStages(deliveryInput.value))
 const primary = computed(() => primaryAction(deliveryInput.value))
@@ -168,10 +171,18 @@ function runPrimaryAction(): void {
     case 'START_REVIEW': { const change = changes.value[0]; if (change) void changeAction(change.changeId, 'review'); break }
     case 'APPROVE_CHANGE': { const change = changes.value[0]; if (change) void changeAction(change.changeId, 'approve'); break }
     case 'RUN_VALIDATION':
-    case 'RERUN_VALIDATION': { const change = changes.value[0]; if (change) void runDeliveryValidation(change); break }
-    case 'EVALUATE_GATE': void evaluateDeliveryGate(); break
+    case 'RERUN_VALIDATION':
+    case 'EVALUATE_GATE':
+    case 'COMMIT_CHANGE':
+      if (deliveryPipeline.value) { void kickDelivery(); break }
+      if (action.key === 'RUN_VALIDATION' || action.key === 'RERUN_VALIDATION') {
+        const change = changes.value[0]; if (change) void runDeliveryValidation(change)
+      }
+      else if (action.key === 'EVALUATE_GATE') void evaluateDeliveryGate()
+      else { const change = changes.value[0]; if (change) void changeAction(change.changeId, 'commit') }
+      break
     case 'APPROVE_GATE': void decideDeliveryGate(true); break
-    case 'COMMIT_CHANGE': { const change = changes.value[0]; if (change) void changeAction(change.changeId, 'commit'); break }
+    case 'RETRY_DELIVERY': void kickDelivery(); break
     case 'RECOVER_COMMIT': { const record = commits.value[0]; if (record) void recoverCommitState(record); break }
     case 'APPROVE_REMOTE_PUSH': void decideRemotePush('approve'); break
     case 'PROMOTE_WORKSPACE': void promoteWorkspace(); break
@@ -242,6 +253,7 @@ async function loadExecutionState(): Promise<void> {
   deliveryValidation.value = validationRuns.filter(run => run.delivery).sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0] ?? null
   deliveryGate.value = deliveryValidation.value ? (await getQualityGates(deliveryValidation.value.validationRunId).catch(() => []))
     .slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null : null
+  deliveryPipeline.value = await getDeliveryPipeline(taskId).catch(() => null)
 }
 async function changeAction(id: string, action: 'review'|'approve'|'reject'|'commit'): Promise<void> {
   try {
@@ -299,7 +311,12 @@ async function decideRemotePush(action: 'approve' | 'reject'): Promise<void> {
   try {
     if (action === 'approve') {
       const approved = await approveRemotePush(approval.approvalId)
-      await pushRemote(approved.commitId, approved.remote, approved.approvalId)
+      await loadExecutionState()
+      const autoAdvanced = deliveryPipeline.value
+        && (deliveryPipeline.value.remoteBranchId || deliveryPipeline.value.pullRequestId)
+      if (!autoAdvanced) {
+        await pushRemote(approved.commitId, approved.remote, approved.approvalId)
+      }
     }
     else await rejectRemotePush(approval.approvalId)
     await loadExecutionState()
@@ -341,9 +358,23 @@ async function decideCodingApproval(action: 'approve' | 'reject'): Promise<void>
     ElMessage.error(error instanceof Error ? error.message : 'Coding Approval operation failed.')
   } finally { approvalBusy.value = false }
 }
+let deliveryKicked = false
+async function kickDelivery(): Promise<void> {
+  const change = changes.value[0]
+  if (!change || !['APPROVED', 'COMMITTED'].includes(change.status)) return
+  try {
+    deliveryPipeline.value = await advanceDelivery(taskId)
+    await loadExecutionState()
+    await taskTimeline.load(taskId)
+  }
+  catch { /* pipeline advance is idempotent; UI falls back to derived state */ }
+}
 onMounted(async () => {
   await Promise.all([context.load(taskId), loadExecutionState(), taskTimeline.load(taskId)])
   if (context.task.value) taskNotifications.track(context.task.value)
+  if (deliveryPipeline.value || ['APPROVED', 'COMMITTED'].includes(changes.value[0]?.status ?? '')) {
+    void kickDelivery()
+  }
 })
 watch(monitoredTask, () => { void Promise.all([context.load(taskId), loadExecutionState(), taskTimeline.load(taskId)]) })
 function reload(): void { void Promise.all([context.load(taskId), loadExecutionState(), taskTimeline.load(taskId)]) }

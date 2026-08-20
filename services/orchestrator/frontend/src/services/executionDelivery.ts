@@ -1,10 +1,11 @@
 import type { ChangeSet } from '../api/changes'
 import type { CommitRecord } from '../api/commits'
+import type { DeliveryPipeline } from '../api/delivery'
 import type { ExecutionState, InterventionAction } from '../api/planRuns'
 import type { RemotePushApproval } from '../api/remotePush'
 import type { QualityGateResult, ValidationRun } from '../types/validation'
 
-export type DeliveryStageKey = 'CHANGE' | 'VALIDATION' | 'QUALITY_GATE' | 'COMMIT' | 'REMOTE_PUSH'
+export type DeliveryStageKey = 'CHANGE' | 'VALIDATION' | 'QUALITY_GATE' | 'COMMIT' | 'REMOTE_PUSH' | 'PR' | 'CI'
 export type DeliveryStageStatus = 'NOT_STARTED' | 'ACTIVE' | 'SUCCESS' | 'FAILED' | 'WAITING_APPROVAL'
 
 export interface DeliveryStage {
@@ -29,6 +30,7 @@ export interface ExecutionViewInput {
   workspaceStatus: string
   workspaceReviewComplete: boolean
   taskStatus: string
+  delivery?: DeliveryPipeline | null
 }
 
 export interface PrimaryAction {
@@ -53,7 +55,31 @@ const STAGE_LABELS: Record<string, string> = {
   QUALITY_GATE: 'Quality Gate',
   COMMIT: 'Commit',
   REMOTE_PUSH: 'Remote Push',
+  PR: 'Pull Request',
+  CI: 'CI',
   EXECUTION: 'Execution',
+}
+
+const PIPELINE_STAGE_ORDER: DeliveryStageKey[] = [
+  'CHANGE',
+  'VALIDATION',
+  'QUALITY_GATE',
+  'COMMIT',
+  'REMOTE_PUSH',
+  'PR',
+  'CI',
+]
+
+const PIPELINE_STAGE_MAP: Record<string, DeliveryStageKey> = {
+  CHANGE_READY: 'CHANGE',
+  VALIDATING: 'VALIDATION',
+  QUALITY_GATE: 'QUALITY_GATE',
+  COMMITTING: 'COMMIT',
+  WAITING_REMOTE_PUSH_APPROVAL: 'REMOTE_PUSH',
+  PUSHING: 'REMOTE_PUSH',
+  CREATING_PR: 'PR',
+  CI_CHECKING: 'CI',
+  DELIVERY_COMPLETE: 'CI',
 }
 
 const INTERVENTION_STATUSES = new Set([
@@ -120,6 +146,10 @@ export function requiresConfirmation(action: InterventionAction | null): boolean
 }
 
 export function deliveryStages(input: ExecutionViewInput): DeliveryProjection {
+  const pipeline = input.delivery
+  if (pipeline) {
+    return pipelineStages(pipeline)
+  }
   const change = firstChange(input.changes)
   const commit = firstCommit(input.commits)
   const stages: DeliveryStage[] = [
@@ -131,6 +161,47 @@ export function deliveryStages(input: ExecutionViewInput): DeliveryProjection {
   ]
   const current = currentStage(stages, Boolean(change || commit || input.remotePushApprovals.length))
   return { stages, current }
+}
+
+/**
+ * Projects the persisted delivery pipeline onto the UI stage chain. Stages
+ * before the current one are SUCCESS, the current stage is ACTIVE /
+ * WAITING_APPROVAL / FAILED, the rest are NOT_STARTED.
+ */
+function pipelineStages(pipeline: DeliveryPipeline): DeliveryProjection {
+  let currentIdx: number
+  let currentStatus: DeliveryStageStatus = 'ACTIVE'
+  if (pipeline.status === 'COMPLETE') {
+    currentIdx = PIPELINE_STAGE_ORDER.length - 1
+    currentStatus = 'SUCCESS'
+  }
+  else if (pipeline.status === 'FAILED') {
+    currentIdx = PIPELINE_STAGE_ORDER.indexOf(failedStage(pipeline))
+    currentStatus = 'FAILED'
+  }
+  else if (pipeline.status === 'WAITING_APPROVAL') {
+    currentIdx = PIPELINE_STAGE_ORDER.indexOf(PIPELINE_STAGE_MAP[pipeline.currentStage] ?? 'CHANGE')
+    currentStatus = 'WAITING_APPROVAL'
+  }
+  else {
+    currentIdx = PIPELINE_STAGE_ORDER.indexOf(PIPELINE_STAGE_MAP[pipeline.currentStage] ?? 'CHANGE')
+  }
+  const stages: DeliveryStage[] = PIPELINE_STAGE_ORDER.map((key, index) => ({
+    key,
+    label: STAGE_LABELS[key],
+    status: index < currentIdx ? 'SUCCESS' : index > currentIdx ? 'NOT_STARTED' : currentStatus,
+  }))
+  return { stages, current: stages[currentIdx]?.key ?? 'EXECUTION' }
+}
+
+function failedStage(pipeline: DeliveryPipeline): DeliveryStageKey {
+  if (pipeline.ciRunId) return 'CI'
+  if (pipeline.pullRequestId) return 'PR'
+  if (pipeline.remoteBranchId) return 'REMOTE_PUSH'
+  if (pipeline.commitId) return 'COMMIT'
+  if (pipeline.qualityGateId) return 'QUALITY_GATE'
+  if (pipeline.validationRunId) return 'VALIDATION'
+  return 'CHANGE'
 }
 
 function changeStage(change: ChangeSet | null): DeliveryStageStatus {
@@ -156,16 +227,14 @@ function validationStage(change: ChangeSet | null, validation: ValidationRun | n
 function gateStage(validation: ValidationRun | null, gate: QualityGateResult | null): DeliveryStageStatus {
   if (!validation || validation.status !== 'SUCCESS') return 'NOT_STARTED'
   if (!gate) return 'ACTIVE'
-  switch (gate.decision) {
-    case 'PASS': return 'SUCCESS'
-    case 'BLOCK': return 'FAILED'
-    case 'REQUIRE_APPROVAL': return 'WAITING_APPROVAL'
-    default: return 'ACTIVE'
-  }
+  if (gate.decision === 'PASS') return 'SUCCESS'
+  if (gate.decision === 'REQUIRE_APPROVAL') return 'WAITING_APPROVAL'
+  return 'FAILED'
 }
 
 function commitStage(change: ChangeSet | null, gate: QualityGateResult | null, commit: CommitRecord | null): DeliveryStageStatus {
-  if (!change || change.status !== 'APPROVED' || gate?.decision !== 'PASS') return 'NOT_STARTED'
+  if (!change || change.status !== 'APPROVED') return 'NOT_STARTED'
+  if (gate?.decision !== 'PASS') return 'NOT_STARTED'
   if (!commit) return 'ACTIVE'
   if (commit.status === 'SUCCESS') return 'SUCCESS'
   if (commit.status === 'FAILED') return 'FAILED'
@@ -193,6 +262,22 @@ function currentStage(stages: DeliveryStage[], hasDelivery: boolean): string {
 export function primaryAction(input: ExecutionViewInput): PrimaryAction | null {
   if (interventionRequired(input.executionState)) return null
   if (input.codingApprovalPending) return { key: 'APPROVE_WORKSPACE_WRITE', label: 'Approve Workspace Write' }
+
+  const pipeline = input.delivery
+  if (pipeline) {
+    if (pipeline.status === 'WAITING_APPROVAL') {
+      if (pipeline.currentStage === 'QUALITY_GATE') {
+        return { key: 'APPROVE_GATE', label: 'Approve Quality Gate' }
+      }
+      if (pipeline.currentStage === 'WAITING_REMOTE_PUSH_APPROVAL') {
+        return { key: 'APPROVE_REMOTE_PUSH', label: 'Approve Remote Push' }
+      }
+    }
+    if (pipeline.status === 'FAILED') {
+      return { key: 'RETRY_DELIVERY', label: 'Retry Delivery' }
+    }
+    return null
+  }
 
   const change = firstChange(input.changes)
   if (change) {
@@ -222,6 +307,10 @@ export function primaryAction(input: ExecutionViewInput): PrimaryAction | null {
 }
 
 export function workflowSummary(input: ExecutionViewInput): WorkflowSummary {
+  const pipeline = input.delivery
+  if (pipeline) {
+    return pipelineSummary(input, pipeline)
+  }
   const projection = deliveryStages(input)
   const state = input.executionState
   const stage = STAGE_LABELS[projection.current] ?? projection.current
@@ -288,6 +377,61 @@ export function workflowSummary(input: ExecutionViewInput): WorkflowSummary {
     status,
     blockedReason,
     nextAction: primary?.label ?? 'Monitor execution',
+    failureClass: null,
+    errorMessage: null,
+    recommendedAction: null,
+    severity: null,
+  }
+}
+
+function pipelineSummary(input: ExecutionViewInput, pipeline: DeliveryPipeline): WorkflowSummary {
+  const stage = STAGE_LABELS[PIPELINE_STAGE_MAP[pipeline.currentStage] ?? pipeline.currentStage]
+    ?? pipeline.currentStage
+  if (pipeline.status === 'FAILED') {
+    return {
+      stage,
+      status: 'FAILED',
+      blockedReason: pipeline.failureReason || 'Delivery stage failed.',
+      nextAction: 'Retry Delivery',
+      failureClass: pipeline.failureClass,
+      errorMessage: pipeline.failureReason || null,
+      recommendedAction: null,
+      severity: null,
+    }
+  }
+  if (pipeline.status === 'WAITING_APPROVAL') {
+    const blockedReason = pipeline.currentStage === 'QUALITY_GATE'
+      ? 'Quality gate approval required.'
+      : 'Remote push approval required.'
+    const primary = primaryAction(input)
+    return {
+      stage,
+      status: 'WAITING_APPROVAL',
+      blockedReason,
+      nextAction: primary?.label ?? 'Approval required',
+      failureClass: null,
+      errorMessage: null,
+      recommendedAction: null,
+      severity: null,
+    }
+  }
+  if (pipeline.status === 'COMPLETE') {
+    return {
+      stage: 'Delivery',
+      status: 'COMPLETE',
+      blockedReason: 'None',
+      nextAction: 'Monitor execution',
+      failureClass: null,
+      errorMessage: null,
+      recommendedAction: null,
+      severity: null,
+    }
+  }
+  return {
+    stage,
+    status: 'DELIVERING',
+    blockedReason: 'None',
+    nextAction: 'Auto-advancing',
     failureClass: null,
     errorMessage: null,
     recommendedAction: null,

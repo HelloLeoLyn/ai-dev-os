@@ -91,4 +91,26 @@ final class PersistenceSnapshots {
 		}
 	}
 
+	record DeliveryPipeline(String taskId, String changeSetId, String executionWorkspaceId,
+		com.aidevos.orchestrator.delivery.DeliveryStage currentStage,
+		com.aidevos.orchestrator.delivery.DeliveryStatus status, String validationRunId,
+		String qualityGateId, String commitId, String remotePushApprovalId,
+		String remoteBranchId, String pullRequestId, String ciRunId,
+		com.aidevos.orchestrator.delivery.DeliveryFailureClass failureClass,
+		String failureReason, Instant createdAt, Instant updatedAt, Instant completedAt) {
+		static DeliveryPipeline of(com.aidevos.orchestrator.delivery.DeliveryPipeline v) {
+			return new DeliveryPipeline(v.getTaskId(), v.getChangeSetId(), v.getExecutionWorkspaceId(),
+				v.getCurrentStage(), v.getStatus(), v.getValidationRunId(), v.getQualityGateId(),
+				v.getCommitId(), v.getRemotePushApprovalId(), v.getRemoteBranchId(),
+				v.getPullRequestId(), v.getCiRunId(), v.getFailureClass(), v.getFailureReason(),
+				v.getCreatedAt(), v.getUpdatedAt(), v.getCompletedAt());
+		}
+		com.aidevos.orchestrator.delivery.DeliveryPipeline value() {
+			return com.aidevos.orchestrator.delivery.DeliveryPipeline.restore(taskId, changeSetId,
+				executionWorkspaceId, currentStage, status, validationRunId, qualityGateId,
+				commitId, remotePushApprovalId, remoteBranchId, pullRequestId, ciRunId,
+				failureClass, failureReason, createdAt, updatedAt, completedAt);
+		}
+	}
+
 }

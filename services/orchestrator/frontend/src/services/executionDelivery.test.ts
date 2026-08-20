@@ -115,3 +115,76 @@ describe('execution delivery timeline', () => {
     expect(deliveryStages(base()).current).toBe('EXECUTION')
   })
 })
+
+describe('delivery pipeline projection', () => {
+  function pipeline(overrides: Partial<import('../api/delivery').DeliveryPipeline> = {}): import('../api/delivery').DeliveryPipeline {
+    return {
+      taskId: 't1',
+      changeSetId: 'c1',
+      executionWorkspaceId: 'w1',
+      currentStage: 'VALIDATING',
+      status: 'RUNNING',
+      validationRunId: '',
+      qualityGateId: '',
+      commitId: '',
+      remotePushApprovalId: '',
+      remoteBranchId: '',
+      pullRequestId: '',
+      ciRunId: '',
+      failureClass: null,
+      failureReason: '',
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+      completedAt: null,
+      ...overrides,
+    }
+  }
+
+  it('WAITING_APPROVAL at Quality Gate derives Approve Quality Gate', () => {
+    const input = { ...base(), delivery: pipeline({ currentStage: 'QUALITY_GATE', status: 'WAITING_APPROVAL' }) }
+    expect(primaryAction(input)).toEqual({ key: 'APPROVE_GATE', label: 'Approve Quality Gate' })
+    const projection = deliveryStages(input)
+    expect(projection.current).toBe('QUALITY_GATE')
+    const gateStage = projection.stages.find(stage => stage.key === 'QUALITY_GATE')
+    expect(gateStage?.status).toBe('WAITING_APPROVAL')
+    const summary = workflowSummary(input)
+    expect(summary.status).toBe('WAITING_APPROVAL')
+  })
+
+  it('WAITING_APPROVAL at Remote Push derives Approve Remote Push', () => {
+    const input = { ...base(), delivery: pipeline({ currentStage: 'WAITING_REMOTE_PUSH_APPROVAL', status: 'WAITING_APPROVAL' }) }
+    expect(primaryAction(input)).toEqual({ key: 'APPROVE_REMOTE_PUSH', label: 'Approve Remote Push' })
+  })
+
+  it('RUNNING at VALIDATING shows automatic advancement with no primary action', () => {
+    const input = { ...base(), delivery: pipeline({ currentStage: 'VALIDATING', status: 'RUNNING' }) }
+    expect(primaryAction(input)).toBeNull()
+    const projection = deliveryStages(input)
+    expect(projection.current).toBe('VALIDATION')
+    const stages = Object.fromEntries(projection.stages.map(stage => [stage.key, stage.status]))
+    expect(stages.CHANGE).toBe('SUCCESS')
+    expect(stages.VALIDATION).toBe('ACTIVE')
+    expect(stages.QUALITY_GATE).toBe('NOT_STARTED')
+    expect(workflowSummary(input).nextAction).toBe('Auto-advancing')
+  })
+
+  it('COMPLETE marks the whole chain SUCCESS', () => {
+    const input = { ...base(), delivery: pipeline({ currentStage: 'DELIVERY_COMPLETE', status: 'COMPLETE', ciRunId: 'ci-1' }) }
+    expect(deliveryStages(input).stages.every(stage => stage.status === 'SUCCESS')).toBe(true)
+    expect(workflowSummary(input).status).toBe('COMPLETE')
+  })
+
+  it('FAILED surfaces failure class, reason and Retry Delivery action', () => {
+    const input = {
+      ...base(),
+      delivery: pipeline({ currentStage: 'FAILED', status: 'FAILED', ciRunId: 'ci-1', failureClass: 'HUMAN_REQUIRED', failureReason: 'CI FAILED: delivery cannot complete without CI success' }),
+    }
+    expect(primaryAction(input)).toEqual({ key: 'RETRY_DELIVERY', label: 'Retry Delivery' })
+    const summary = workflowSummary(input)
+    expect(summary.status).toBe('FAILED')
+    expect(summary.failureClass).toBe('HUMAN_REQUIRED')
+    expect(summary.blockedReason).toContain('CI FAILED')
+    const projection = deliveryStages(input)
+    expect(projection.stages.find(stage => stage.key === 'CI')?.status).toBe('FAILED')
+  })
+})
