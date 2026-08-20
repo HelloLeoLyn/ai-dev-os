@@ -137,3 +137,57 @@ Must define before generation:
 - directory structure
 
 Standard package:
+
+---
+
+# 8. Execution Efficiency V1 Rules
+
+## Step Execution Type
+
+Every Plan step has an execution type: `AI_STEP`, `TOOL_STEP`, `SYSTEM_STEP`,
+`HUMAN_GATE`. Old steps default to `AI_STEP`. The scheduler routes:
+
+- `AI_STEP` -> agent/LLM executor
+- `TOOL_STEP` / `SYSTEM_STEP` -> Deterministic Executor (git/maven/npm/shell/http
+  health/workspace/validation), never calls an LLM
+- `HUMAN_GATE` -> pause for external approval, no LLM, no job; approve resumes
+  the run, reject terminates the step and the run. Decisions are idempotent
+  and delivered through the plan-run step approve/reject endpoints.
+
+## Validation Profile
+
+Every work package carries `validationProfile`: `FAST` (default), `TARGETED`,
+`FULL`.
+
+- FAST: compile + affected tests + git diff --check
+- TARGETED: module-related tests + minimal smoke + affected frontend tests/build
+- FULL: full regression + security + heavy E2E + release gate
+
+Only architecture changes, migrations, releases, or an explicit user request
+may use FULL. Agents must NOT escalate FAST to FULL on their own.
+
+## Execution Budget / Stop Conditions
+
+- Already-passing tests are never re-run.
+- Health checks are not long-polled.
+- TOOL_STEP failure is retried at most `maxToolRetries`.
+- Permanent failures (credentials, missing model, disabled provider, required
+  approval, git conflict) are never retried; only transient failures such as
+  network or health-check errors retry within `maxToolRetries`.
+- Execution stops as soon as acceptance/stop conditions are satisfied.
+- No "convenience refactors" after the acceptance criteria are met.
+
+## Failure Classification
+
+Deterministic errors are classified by the system, not by an LLM:
+`USAGE_LIMIT`, `CREDENTIAL_MISSING`, `BUILD_FAILED`, `TEST_FAILED`,
+`NETWORK_ERROR`, `HEALTH_CHECK_FAILED`, `GIT_CONFLICT`, `APPROVAL_REQUIRED`,
+`MODEL_NOT_FOUND`, `PROVIDER_DISABLED`, `EXECUTOR_FAILED`.
+Only `UNKNOWN` and `CODE_LOGIC_ERROR` reach AI diagnosis.
+
+## Fault-domain WP Principle
+
+"Small scope" does not mean "small steps". One work package covers one complete
+fault domain in a single pass: forward fix, recovery, retry/idempotency,
+persistence, wiring, audit, and UI projection. It must not cross into
+unrelated domains.

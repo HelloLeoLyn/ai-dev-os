@@ -15,6 +15,16 @@ import java.util.concurrent.TimeUnit;
 import com.aidevos.orchestrator.approval.ApprovalStatus;
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
+import com.aidevos.orchestrator.execution.ExecutionBudget;
+import com.aidevos.orchestrator.execution.ExecutionRecordRepository;
+import com.aidevos.orchestrator.execution.FailureClassifier;
+import com.aidevos.orchestrator.execution.tool.DeterministicTool;
+import com.aidevos.orchestrator.execution.tool.ToolExecutionRequest;
+import com.aidevos.orchestrator.execution.tool.ToolExecutionResult;
+import com.aidevos.orchestrator.execution.tool.ToolExecutionService;
+import com.aidevos.orchestrator.human.HumanApproval;
+import com.aidevos.orchestrator.human.HumanApprovalRepository;
+import com.aidevos.orchestrator.human.HumanApprovalStatus;
 import com.aidevos.orchestrator.execution.ExecutionArtifact;
 import com.aidevos.orchestrator.execution.ExecutionResult;
 import com.aidevos.orchestrator.job.ExecutionJob;
@@ -22,12 +32,14 @@ import com.aidevos.orchestrator.job.JobService;
 import com.aidevos.orchestrator.job.JobStatus;
 import com.aidevos.orchestrator.job.JobSubmissionResponse;
 import com.aidevos.orchestrator.model.TaskDefinition;
+import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.plan.Dependency;
 import com.aidevos.orchestrator.plan.ArtifactReference;
 import com.aidevos.orchestrator.plan.ExpectedArtifact;
 import com.aidevos.orchestrator.plan.ExecutablePlanGuard;
 import com.aidevos.orchestrator.plan.Plan;
 import com.aidevos.orchestrator.plan.PlanStep;
+import com.aidevos.orchestrator.plan.StepExecutionType;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalRequest;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalService;
 import com.aidevos.orchestrator.plan.FailurePolicy;
@@ -58,8 +70,26 @@ public class PlanScheduler {
 	private final PlanRunRepository runRepository;
 	private final AuditService auditService;
 	private final String coordinatorId = "scheduler-" + UUID.randomUUID();
+	private volatile ToolExecutionService toolExecutionService;
+	private volatile ExecutionRecordRepository executionRecordRepository;
+	private volatile HumanApprovalRepository humanApprovalRepository;
 	private final ScheduledExecutorService monitor = Executors.newSingleThreadScheduledExecutor(
 		Thread.ofPlatform().daemon().name("plan-run-monitor").factory());
+
+	@Autowired(required = false)
+	public void setToolExecutionService(ToolExecutionService service) {
+		this.toolExecutionService = service;
+	}
+
+	@Autowired(required = false)
+	public void setExecutionRecordRepository(ExecutionRecordRepository repository) {
+		this.executionRecordRepository = repository;
+	}
+
+	@Autowired(required = false)
+	public void setHumanApprovalRepository(HumanApprovalRepository repository) {
+		this.humanApprovalRepository = repository;
+	}
 
 	public PlanScheduler(JobService jobService, StepTaskFactory taskFactory,
 			PlanApprovalService approvalService, ReplanRequestService replanRequestService) {
@@ -223,7 +253,22 @@ public class PlanScheduler {
 					? null : jobService.get(attempt.getJobId());
 				if (job == null) {
 					if (attempt != null) {
-						repairMissingJob(current, active, attempt);
+				StepExecutionType executionType = step(current.getPlan(),
+					active.getStepId()).executionType();
+				if (executionType == null || executionType == StepExecutionType.AI_STEP) {
+					repairMissingJob(current, active, attempt);
+					return;
+				}
+				if (executionType == StepExecutionType.HUMAN_GATE) {
+					completeHumanGateIfDecided(current, active, attempt);
+					return;
+				}
+				if (active.getStatus() == StepRunStatus.RUNNING) {
+					// A deterministic step left RUNNING by a crash window is
+					// re-run without an LLM; HUMAN_GATE stays paused.
+					executeDeterministicStep(current,
+								step(current.getPlan(), active.getStepId()), active, attempt);
+						}
 						return;
 					}
 					fail(current, active, attempt, "Submitted job not found", null, null, false);
@@ -310,16 +355,273 @@ public class PlanScheduler {
 		auditService.stepEvent(EventType.STEP_ATTEMPT_STARTED, run, next, attempt, "PENDING",
 			next.getStatus().name());
 		try {
-			TaskDefinition task = taskFactory.create(run, definition, next, attempt,
-				resolveInputs(run, definition));
-			JobSubmissionResponse submission = jobService.submit(task, jobId(attempt.getId()));
-			attempt.bindJob(submission.jobId());
-			auditService.stepEvent(EventType.STEP_JOB_BOUND, run, next, attempt,
-				attempt.getStatus().name(), attempt.getStatus().name());
+			if (definition.executionType() == StepExecutionType.TOOL_STEP
+					|| definition.executionType() == StepExecutionType.SYSTEM_STEP) {
+				executeDeterministicStep(run, definition, next, attempt);
+			}
+			else if (definition.executionType() == StepExecutionType.HUMAN_GATE) {
+				pauseForHumanGate(run, next, attempt);
+			}
+			else {
+				TaskDefinition task = taskFactory.create(run, definition, next, attempt,
+					resolveInputs(run, definition));
+				JobSubmissionResponse submission = jobService.submit(task, jobId(attempt.getId()));
+				attempt.bindJob(submission.jobId());
+				auditService.stepEvent(EventType.STEP_JOB_BOUND, run, next, attempt,
+					attempt.getStatus().name(), attempt.getStatus().name());
+			}
 		}
 		catch (RuntimeException exception) {
 			fail(run, next, attempt, errorMessage(exception), null, null, false);
 		}
+	}
+
+	/**
+	 * Runs a TOOL_STEP / SYSTEM_STEP without an LLM through the deterministic
+	 * executor. The tool is retried up to the budget maxToolRetries and the
+	 * outcome is persisted as an ExecutionRecord with a FailureClass.
+	 */
+	private void executeDeterministicStep(PlanRun run, PlanStep definition, StepRun step,
+			StepAttempt attempt) {
+		if (toolExecutionService == null) {
+			throw new IllegalStateException("Deterministic tool execution service unavailable");
+		}
+		ExecutionBudget budget = ExecutionBudget.resolve(plannerMetadata(run));
+		ToolExecutionRequest request = ToolExecutionRequest.of(deterministicTool(definition),
+			arguments(definition), workspacePath(run));
+		ToolExecutionResult result = null;
+		int maxRetries = Math.max(0, budget.maxToolRetries());
+		for (int attemptNumber = 0; attemptNumber <= maxRetries; attemptNumber++) {
+			result = toolExecutionService.execute(request);
+			if (result.success() || !FailureClassifier.isRetryable(result.failureClass())) {
+				break;
+			}
+		}
+		ExecutionRecord record = persistToolRecord(run, definition, step, attempt, result, budget);
+		String recordId = record == null ? null : record.getId();
+		Instant now = Instant.now(clock);
+		if (result.success()) {
+			attempt.markSuccess(recordId, now);
+			step.markSuccess(now);
+			auditService.stepEvent(EventType.STEP_SUCCEEDED, run, step, attempt, "RUNNING",
+				step.getStatus().name());
+		}
+		else {
+			fail(run, step, attempt, toolFailureMessage(result), recordId, null, false);
+		}
+	}
+
+	/**
+	 * A HUMAN_GATE step pauses the run for external approval without calling
+	 * an LLM or submitting a job.
+	 */
+	private void pauseForHumanGate(PlanRun run, StepRun step, StepAttempt attempt) {
+		String from = step.getStatus().name();
+		attempt.markWaitingApproval();
+		step.markWaitingApproval();
+		run.markWaitingApproval();
+		ensureHumanGateApproval(run, step);
+		if (!from.equals(step.getStatus().name())) {
+			auditService.stepEvent(EventType.STEP_WAITING_APPROVAL, run, step, attempt, from,
+				step.getStatus().name());
+		}
+	}
+
+	/**
+	 * Creates the PENDING human gate approval for a paused HUMAN_GATE step.
+	 * The approval id is deterministic (runId + stepId) so retries and
+	 * reconcile ticks never create a duplicate.
+	 */
+	private void ensureHumanGateApproval(PlanRun run, StepRun step) {
+		if (humanApprovalRepository == null) {
+			return;
+		}
+		String approvalId = humanGateApprovalId(run, step);
+		if (humanApprovalRepository.get(approvalId) != null) {
+			return;
+		}
+		humanApprovalRepository.save(new HumanApproval(approvalId, run.getOriginalTaskId(),
+			null, null, step.getStepId(), HumanApprovalStatus.PENDING, "plan-scheduler",
+			null, null, Instant.now(clock), null));
+	}
+
+	/**
+	 * Applies a human decision to a paused HUMAN_GATE step: APPROVED resumes
+	 * the step (and the run) and advances to the next step; REJECTED
+	 * terminates the step and the run. Idempotent for repeated calls.
+	 */
+	private void completeHumanGateIfDecided(PlanRun run, StepRun step, StepAttempt attempt) {
+		if (humanApprovalRepository == null || step.getStatus() != StepRunStatus.WAITING_APPROVAL) {
+			return;
+		}
+		HumanApproval approval = humanApprovalRepository.get(humanGateApprovalId(run, step));
+		if (approval == null) {
+			return;
+		}
+		Instant now = Instant.now(clock);
+		if (approval.getStatus() == HumanApprovalStatus.APPROVED) {
+			String from = step.getStatus().name();
+			attempt.markSuccess(null, now);
+			step.markSuccess(now);
+			run.markRunning(now);
+			auditService.stepEvent(EventType.STEP_RESUMED, run, step, attempt, from,
+				step.getStatus().name());
+			auditService.stepEvent(EventType.STEP_SUCCEEDED, run, step, attempt, from,
+				step.getStatus().name());
+			advance(run);
+		}
+		else if (approval.getStatus() == HumanApprovalStatus.REJECTED) {
+			String message = "Human gate rejected"
+				+ (approval.getReviewer() == null || approval.getReviewer().isBlank()
+					? "" : " by " + approval.getReviewer());
+			fail(run, step, attempt, message, null, null, false);
+		}
+	}
+
+	/**
+	 * Approves a paused HUMAN_GATE step. Repeated approval is idempotent;
+	 * approving after a rejection conflicts and fails closed.
+	 */
+	public HumanApproval approveHumanGate(String runId, String stepId, String reviewer,
+			String comment) {
+		return decideHumanGate(runId, stepId, reviewer, comment, true);
+	}
+
+	/**
+	 * Rejects a paused HUMAN_GATE step, terminating the step and the run.
+	 * Repeated rejection is idempotent; rejecting after an approval conflicts.
+	 */
+	public HumanApproval rejectHumanGate(String runId, String stepId, String reviewer,
+			String comment) {
+		return decideHumanGate(runId, stepId, reviewer, comment, false);
+	}
+
+	private HumanApproval decideHumanGate(String runId, String stepId, String reviewer,
+			String comment, boolean approve) {
+		if (humanApprovalRepository == null) {
+			throw new IllegalStateException("Human gate approval service unavailable");
+		}
+		PlanRun run = runRepository.get(runId);
+		if (run == null) {
+			throw new IllegalArgumentException("Plan run not found: " + runId);
+		}
+		StepRun step = run.getSteps().stream().filter(candidate -> candidate.getStepId()
+			.equals(stepId)).findFirst().orElseThrow(
+				() -> new IllegalArgumentException("Step not found: " + stepId));
+		PlanStep definition = step(run.getPlan(), stepId);
+		if (definition.executionType() != StepExecutionType.HUMAN_GATE) {
+			throw new IllegalStateException("Step is not a HUMAN_GATE: " + stepId);
+		}
+		HumanApproval approval = humanApprovalRepository.get(humanGateApprovalId(run, step));
+		if (approval == null) {
+			throw new IllegalStateException("Human gate is not waiting for approval");
+		}
+		HumanApprovalStatus desired = approve ? HumanApprovalStatus.APPROVED
+			: HumanApprovalStatus.REJECTED;
+		if (approval.getStatus() == desired) {
+			return approval;
+		}
+		if (approval.getStatus() != HumanApprovalStatus.PENDING) {
+			throw new IllegalStateException("Human gate already decided: "
+				+ approval.getStatus());
+		}
+		if (approve) {
+			approval.approve(reviewer == null ? "" : reviewer, comment);
+		}
+		else {
+			approval.reject(reviewer == null ? "" : reviewer, comment);
+		}
+		humanApprovalRepository.save(approval);
+		return approval;
+	}
+
+	private String humanGateApprovalId(PlanRun run, StepRun step) {
+		return "gate-" + run.getId() + ":" + step.getStepId();
+	}
+
+	private ExecutionRecord persistToolRecord(PlanRun run, PlanStep definition, StepRun step,
+			StepAttempt attempt, ToolExecutionResult result, ExecutionBudget budget) {
+		if (executionRecordRepository == null) {
+			return null;
+		}
+		ExecutionRecord record = new ExecutionRecord();
+		record.setId("tool-" + UUID.randomUUID());
+		record.setExecutionId(record.getId());
+		record.setTaskId(run.getOriginalTaskId());
+		record.setAgentName(definition.assignment() == null ? null
+			: definition.assignment().agentName());
+		record.setExecutorName("deterministic");
+		record.setOperation(definition.toolName() == null || definition.toolName().isBlank()
+			? result.tool().name() : definition.toolName());
+		record.setStatus(result.success() ? "SUCCESS" : "FAILED");
+		record.setMessage(result.success() ? "Tool step succeeded" : "Tool step failed");
+		record.setOutput(result.output());
+		record.setExitCode(result.exitCode());
+		record.setErrorCode(result.failureClass() == null ? null : result.failureClass().name());
+		record.setErrorMessage(result.error());
+		record.setPlanRunId(run.getId());
+		record.setStepRunId(step.getId());
+		record.setAttemptId(attempt.getId());
+		record.setWorkspace(workspacePath(run));
+		record.setExecutionType(definition.executionType().name());
+		record.setValidationProfile(budget.validationProfile().name());
+		Instant now = Instant.now(clock);
+		record.setStartedAt(now.minusMillis(result.durationMs()));
+		record.setCompletedAt(now);
+		executionRecordRepository.save(record);
+		return record;
+	}
+
+	private DeterministicTool deterministicTool(PlanStep definition) {
+		String toolName = definition.toolName() == null || definition.toolName().isBlank()
+			? "shell" : definition.toolName();
+		return switch (toolName.toLowerCase()) {
+			case "git" -> DeterministicTool.GIT;
+			case "maven", "mvn" -> DeterministicTool.MAVEN;
+			case "npm" -> DeterministicTool.NPM;
+			case "shell", "sh" -> DeterministicTool.SHELL;
+			case "http", "health", "http_health" -> DeterministicTool.HTTP_HEALTH;
+			case "workspace" -> DeterministicTool.WORKSPACE;
+			case "validation" -> DeterministicTool.VALIDATION;
+			default -> throw new IllegalStateException("Unsupported deterministic tool: " + toolName);
+		};
+	}
+
+	private List<String> arguments(PlanStep definition) {
+		Object url = definition.toolArguments().get("url");
+		if (url != null) {
+			return List.of(String.valueOf(url));
+		}
+		Object args = definition.toolArguments().get("args");
+		if (args instanceof List<?> list) {
+			return list.stream().map(String::valueOf).toList();
+		}
+		Object command = definition.toolArguments().get("command");
+		if (command instanceof String text && !text.isBlank()) {
+			return List.of(text);
+		}
+		return List.of();
+	}
+
+	private Map<String, Object> plannerMetadata(PlanRun run) {
+		if (run.getPlan() == null || run.getPlan().snapshot() == null) {
+			return Map.of();
+		}
+		return run.getPlan().snapshot().plannerMetadata();
+	}
+
+	private String workspacePath(PlanRun run) {
+		Object path = plannerMetadata(run).get("workspacePath");
+		return path == null ? null : String.valueOf(path);
+	}
+
+	private String toolFailureMessage(ToolExecutionResult result) {
+		String error = result.error();
+		if (error == null || error.isBlank()) {
+			return "Tool step failed: " + result.tool() + " (exit " + result.exitCode() + ")";
+		}
+		return "Tool step failed: " + result.tool() + " (exit " + result.exitCode()
+			+ "): " + error;
 	}
 
 	/**

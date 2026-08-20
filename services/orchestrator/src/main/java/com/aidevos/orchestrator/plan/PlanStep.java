@@ -12,7 +12,8 @@ public record PlanStep(String id, String name, String description, StepStatus st
 		List<ArtifactReference> inputArtifacts, String toolProviderId, String toolName,
 		Map<String, Object> toolArguments, List<ExpectedArtifact> expectedArtifacts,
 		RetryPolicy retryPolicy, FailurePolicy failurePolicy, boolean skipApproval,
-		OperationSpec operation, boolean requiresWorkspaceChange) {
+		OperationSpec operation, boolean requiresWorkspaceChange,
+		StepExecutionType executionType) {
 
 	public PlanStep {
 		status = status == null ? StepStatus.PLANNED : status;
@@ -24,6 +25,7 @@ public record PlanStep(String id, String name, String description, StepStatus st
 			: List.copyOf(new ArrayList<>(expectedArtifacts));
 		retryPolicy = retryPolicy == null ? RetryPolicy.noRetry() : retryPolicy;
 		failurePolicy = failurePolicy == null ? FailurePolicy.STOP_PLAN : failurePolicy;
+		executionType = executionType == null ? StepExecutionType.AI_STEP : executionType;
 	}
 
 	@JsonCreator
@@ -38,10 +40,34 @@ public record PlanStep(String id, String name, String description, StepStatus st
 		@JsonProperty("expectedArtifacts") List<ExpectedArtifact> expectedArtifacts,
 		@JsonProperty("retryPolicy") RetryPolicy retryPolicy, @JsonProperty("failurePolicy") FailurePolicy failurePolicy,
 		@JsonProperty("skipApproval") boolean skipApproval, @JsonProperty("operation") OperationSpec operation,
-		@JsonProperty("requiresWorkspaceChange") Boolean requiresWorkspaceChange) {
+		@JsonProperty("requiresWorkspaceChange") Boolean requiresWorkspaceChange,
+		@JsonProperty("executionType") StepExecutionType executionType) {
 		this(id, name, description, status, assignment, parameters, inputArtifacts, toolProviderId, toolName,
 			toolArguments, expectedArtifacts, retryPolicy, failurePolicy, skipApproval, operation,
-			Boolean.TRUE.equals(requiresWorkspaceChange));
+			Boolean.TRUE.equals(requiresWorkspaceChange),
+			executionType == null ? StepExecutionType.AI_STEP : executionType);
+	}
+
+	public PlanStep(String id, String name, String description, StepStatus status,
+		AgentAssignment assignment, Map<String, Object> parameters,
+		List<ArtifactReference> inputArtifacts, String toolProviderId, String toolName,
+		Map<String, Object> toolArguments, List<ExpectedArtifact> expectedArtifacts,
+		RetryPolicy retryPolicy, FailurePolicy failurePolicy, boolean skipApproval,
+		OperationSpec operation, StepExecutionType executionType) {
+		this(id, name, description, status, assignment, parameters, inputArtifacts, toolProviderId,
+			toolName, toolArguments, expectedArtifacts, retryPolicy, failurePolicy, skipApproval,
+			operation, false, executionType);
+	}
+
+	public PlanStep(String id, String name, String description, StepStatus status,
+		AgentAssignment assignment, Map<String, Object> parameters,
+		List<ArtifactReference> inputArtifacts, String toolProviderId, String toolName,
+		Map<String, Object> toolArguments, List<ExpectedArtifact> expectedArtifacts,
+		RetryPolicy retryPolicy, FailurePolicy failurePolicy, boolean skipApproval,
+		OperationSpec operation, boolean requiresWorkspaceChange) {
+		this(id, name, description, status, assignment, parameters, inputArtifacts, toolProviderId,
+			toolName, toolArguments, expectedArtifacts, retryPolicy, failurePolicy, skipApproval,
+			operation, requiresWorkspaceChange, StepExecutionType.AI_STEP);
 	}
 
 	public PlanStep(String id, String name, String description, StepStatus status,
@@ -52,7 +78,7 @@ public record PlanStep(String id, String name, String description, StepStatus st
 		OperationSpec operation) {
 		this(id, name, description, status, assignment, parameters, inputArtifacts, toolProviderId,
 			toolName, toolArguments, expectedArtifacts, retryPolicy, failurePolicy, skipApproval,
-			operation, false);
+			operation, StepExecutionType.AI_STEP);
 	}
 
 	public PlanStep(String id, String name, String description, StepStatus status,
@@ -61,7 +87,8 @@ public record PlanStep(String id, String name, String description, StepStatus st
 		Map<String, Object> toolArguments, List<ExpectedArtifact> expectedArtifacts,
 		RetryPolicy retryPolicy, FailurePolicy failurePolicy, boolean skipApproval) {
 		this(id, name, description, status, assignment, parameters, inputArtifacts, toolProviderId,
-			toolName, toolArguments, expectedArtifacts, retryPolicy, failurePolicy, skipApproval, null);
+			toolName, toolArguments, expectedArtifacts, retryPolicy, failurePolicy, skipApproval,
+			null, StepExecutionType.AI_STEP);
 	}
 
 	public PlanStep(String id, String name, String description, StepStatus status,
@@ -72,7 +99,7 @@ public record PlanStep(String id, String name, String description, StepStatus st
 		boolean requiresWorkspaceChange) {
 		this(id, name, description, status, assignment, parameters, inputArtifacts, toolProviderId,
 			toolName, toolArguments, expectedArtifacts, retryPolicy, failurePolicy, skipApproval,
-			null, requiresWorkspaceChange);
+			null, requiresWorkspaceChange, StepExecutionType.AI_STEP);
 	}
 
 	public PlanStep(String id, String name, String description, StepStatus status,
@@ -80,7 +107,8 @@ public record PlanStep(String id, String name, String description, StepStatus st
 			Map<String, Object> toolArguments, List<ExpectedArtifact> expectedArtifacts,
 			RetryPolicy retryPolicy, FailurePolicy failurePolicy, boolean skipApproval) {
 		this(id, name, description, status, assignment, Map.of(), List.of(), toolProviderId,
-			toolName, toolArguments, expectedArtifacts, retryPolicy, failurePolicy, skipApproval);
+			toolName, toolArguments, expectedArtifacts, retryPolicy, failurePolicy, skipApproval,
+			null, StepExecutionType.AI_STEP);
 	}
 
 	public PlanStep(String id, String name, String description, StepStatus status,
@@ -90,6 +118,15 @@ public record PlanStep(String id, String name, String description, StepStatus st
 			boolean requiresWorkspaceChange) {
 		this(id, name, description, status, assignment, Map.of(), List.of(), toolProviderId,
 			toolName, toolArguments, expectedArtifacts, retryPolicy, failurePolicy, skipApproval,
-			requiresWorkspaceChange);
+			null, requiresWorkspaceChange, StepExecutionType.AI_STEP);
+	}
+
+	/**
+	 * Copies this step with a different execution type.
+	 */
+	public PlanStep withExecutionType(StepExecutionType type) {
+		return new PlanStep(id, name, description, status, assignment, parameters,
+			inputArtifacts, toolProviderId, toolName, toolArguments, expectedArtifacts,
+			retryPolicy, failurePolicy, skipApproval, operation, requiresWorkspaceChange, type);
 	}
 }

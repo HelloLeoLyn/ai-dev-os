@@ -61,6 +61,8 @@ export interface ExecutionRecordDetail extends ExecutionRecordSummary {
   modelExecutor: string | null
   errorCode: string | null
   errorMessage: string | null
+  executionType: string | null
+  validationProfile: string | null
   startedAt: string | null
   completedAt: string | null
 }

@@ -13,5 +13,5 @@ public record ExecutionRecordDetail(String id, String taskId, String agentName, 
 		String beforeHead, String afterHead, Integer exitCode, String codexThreadId,
 		String requestedModelId, String resolvedModelId, String modelProvider,
 		String modelExecutor, String errorCode, String errorMessage,
-		Instant startedAt, Instant completedAt) {
+		String executionType, String validationProfile, Instant startedAt, Instant completedAt) {
 }

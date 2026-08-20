@@ -53,6 +53,12 @@ final class PersistenceSnapshots {
 		static PlanApproval of(PlanApprovalRequest v){return new PlanApproval(v.getId(),v.getRequestId(),v.getPlan(),v.getPlanSnapshotHash(),v.getCreatedAt(),v.getStatus(),v.getDecision(),v.getDecidedAt(),v.getApprover(),v.getRejectionReason());}
 		PlanApprovalRequest value(){return PlanApprovalRequest.restore(id,requestId,plan,hash,createdAt,status,decision,decidedAt,approver,rejectionReason);}
 	}
+	record HumanApproval(String id,String taskId,String sessionId,String teamId,String nodeId,
+		com.aidevos.orchestrator.human.HumanApprovalStatus status,String requester,String reviewer,
+		String comment,Instant createdAt,Instant reviewedAt){
+		static HumanApproval of(com.aidevos.orchestrator.human.HumanApproval v){return new HumanApproval(v.getApprovalId(),v.getTaskId(),v.getSessionId(),v.getTeamId(),v.getNodeId(),v.getStatus(),v.getRequester(),v.getReviewer(),v.getComment(),v.getCreatedAt(),v.getReviewedAt());}
+		com.aidevos.orchestrator.human.HumanApproval value(){return new com.aidevos.orchestrator.human.HumanApproval(id,taskId,sessionId,teamId,nodeId,status,requester,reviewer,comment,createdAt,reviewedAt);}
+	}
 	record Attempt(String id,int number,Instant createdAt,StepRunStatus status,String jobId,
 		String executionRecordId,String error,Instant completedAt){
 		static Attempt of(StepAttempt v){return new Attempt(v.getId(),v.getNumber(),v.getCreatedAt(),v.getStatus(),v.getJobId(),v.getExecutionRecordId(),v.getError(),v.getCompletedAt());}

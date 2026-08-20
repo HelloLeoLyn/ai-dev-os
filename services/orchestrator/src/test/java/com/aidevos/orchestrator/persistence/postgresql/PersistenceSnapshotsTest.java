@@ -4,6 +4,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import com.aidevos.orchestrator.approval.*;
+import com.aidevos.orchestrator.human.HumanApproval;
+import com.aidevos.orchestrator.human.HumanApprovalStatus;
 import com.aidevos.orchestrator.job.*;
 import com.aidevos.orchestrator.model.TaskDefinition;
 import com.aidevos.orchestrator.plan.*;
@@ -107,5 +109,29 @@ class PersistenceSnapshotsTest {
 		assertEquals("EXECUTOR_FAILURE",restored.getLastFailureCode());
 		assertEquals(ExecutionJob.RecoveryPolicy.REQUEUE,restored.getRecoveryPolicy());
 	}
+
+	@Test void humanApprovalStatusesSurviveReload() throws Exception {
+		for (HumanApprovalStatus status : new HumanApprovalStatus[] { HumanApprovalStatus.PENDING,
+				HumanApprovalStatus.APPROVED, HumanApprovalStatus.REJECTED }) {
+			Instant reviewedAt = status == HumanApprovalStatus.PENDING
+				? null : Instant.parse("2026-08-20T00:01:00Z");
+			HumanApproval approval = new HumanApproval("gate-1", "task-1", null, null, "step-1",
+				status, "plan-scheduler", "reviewer", "comment",
+				Instant.parse("2026-08-20T00:00:00Z"), reviewedAt);
+
+			HumanApproval restored = roundTrip(PersistenceSnapshots.HumanApproval.of(approval),
+				PersistenceSnapshots.HumanApproval.class).value();
+
+			assertEquals(status, restored.getStatus());
+			assertEquals("gate-1", restored.getApprovalId());
+			assertEquals("task-1", restored.getTaskId());
+			assertEquals("step-1", restored.getNodeId());
+			assertEquals("reviewer", restored.getReviewer());
+			assertEquals("comment", restored.getComment());
+			assertEquals(approval.getCreatedAt(), restored.getCreatedAt());
+			assertEquals(reviewedAt, restored.getReviewedAt());
+		}
+	}
+
 	private <T>T roundTrip(T value,Class<T> type)throws Exception{return mapper.readValue(mapper.writeValueAsString(value),type);}
 }

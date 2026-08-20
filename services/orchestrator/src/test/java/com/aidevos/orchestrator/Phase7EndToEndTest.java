@@ -70,7 +70,8 @@ class Phase7EndToEndTest {
 		try {
 			JobService jobService = new JobService(jobs, worker, audit);
 			ReplanRequestService replans = new ReplanRequestService(new ReplanRequestStore(),
-				new FailureClassifier(), java.time.Clock.systemUTC(), audit);
+				new com.aidevos.orchestrator.planner.replan.FailureClassifier(),
+				java.time.Clock.systemUTC(), audit);
 			scheduler = new PlanScheduler(jobService, new StepTaskFactory(), approvals, replans,
 				new InMemoryPlanRunRepository(), audit);
 			PlanRun run = scheduler.start(approval.getId());

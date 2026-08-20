@@ -3,7 +3,9 @@ package com.aidevos.orchestrator.plan.schedule;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import com.aidevos.orchestrator.execution.ExecutionBudget;
 import com.aidevos.orchestrator.model.TaskDefinition;
+import com.aidevos.orchestrator.plan.StepExecutionType;
 import com.aidevos.orchestrator.plan.PlanStep;
 import com.aidevos.orchestrator.plan.run.PlanRun;
 import com.aidevos.orchestrator.plan.run.StepAttempt;
@@ -57,6 +59,15 @@ public class StepTaskFactory {
 			"planId", planRun.getPlanId(),
 			"planVersion", planRun.getPlanVersion(),
 			"stepId", step.id()));
+		ExecutionBudget budget = ExecutionBudget.resolve(
+			planRun.getPlan().snapshot() == null ? Map.of()
+				: planRun.getPlan().snapshot().plannerMetadata());
+		metadata.put("executionType", step.executionType() == null
+			? StepExecutionType.AI_STEP.name() : step.executionType().name());
+		metadata.put("validationProfile", budget.validationProfile().name());
+		metadata.put("maxAiCalls", budget.maxAiCalls());
+		metadata.put("maxToolRetries", budget.maxToolRetries());
+		metadata.put("stopConditions", budget.stopConditions());
 		task.setMetadata(Map.copyOf(metadata));
 		parameters.put("originalTaskId", metadata.get("originalTaskId"));
 		parameters.put("projectId", metadata.get("projectId"));

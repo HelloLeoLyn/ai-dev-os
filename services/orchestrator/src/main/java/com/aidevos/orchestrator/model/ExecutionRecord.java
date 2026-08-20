@@ -39,6 +39,8 @@ public class ExecutionRecord {
 	private String modelExecutor;
 	private String errorCode;
 	private String errorMessage;
+	private String executionType;
+	private String validationProfile;
 	private Instant startedAt;
 	private Instant completedAt;
 
@@ -147,6 +149,10 @@ public class ExecutionRecord {
 	public void setErrorCode(String errorCode) { this.errorCode = errorCode; }
 	public String getErrorMessage() { return errorMessage; }
 	public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
+	public String getExecutionType() { return executionType; }
+	public void setExecutionType(String executionType) { this.executionType = executionType; }
+	public String getValidationProfile() { return validationProfile; }
+	public void setValidationProfile(String validationProfile) { this.validationProfile = validationProfile; }
 	public Integer getExitCode() { return exitCode; }
 	public void setExitCode(Integer exitCode) { this.exitCode = exitCode; }
 	public String getCodexThreadId() { return codexThreadId; }

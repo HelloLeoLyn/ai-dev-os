@@ -4,6 +4,7 @@ import java.net.URI;
 import java.util.List;
 
 import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
+import com.aidevos.orchestrator.human.HumanApproval;
 import com.aidevos.orchestrator.plan.run.PlanRun;
 import com.aidevos.orchestrator.plan.schedule.PlanScheduler;
 import org.springframework.http.ResponseEntity;
@@ -53,5 +54,37 @@ public class PlanRunController {
 		return scheduler.getAll();
 	}
 
+	@PostMapping("/{runId}/steps/{stepId}/approve")
+	public ResponseEntity<HumanApproval> approveGate(@PathVariable String runId,
+			@PathVariable String stepId, @RequestBody GateDecisionRequest request) {
+		try {
+			return ResponseEntity.ok(scheduler.approveHumanGate(runId, stepId,
+				request.reviewer(), request.comment()));
+		}
+		catch (IllegalArgumentException exception) {
+			throw new ResourceNotFoundException("Plan run step", runId + "/" + stepId);
+		}
+		catch (IllegalStateException exception) {
+			return ResponseEntity.status(409).build();
+		}
+	}
+
+	@PostMapping("/{runId}/steps/{stepId}/reject")
+	public ResponseEntity<HumanApproval> rejectGate(@PathVariable String runId,
+			@PathVariable String stepId, @RequestBody GateDecisionRequest request) {
+		try {
+			return ResponseEntity.ok(scheduler.rejectHumanGate(runId, stepId,
+				request.reviewer(), request.comment()));
+		}
+		catch (IllegalArgumentException exception) {
+			throw new ResourceNotFoundException("Plan run step", runId + "/" + stepId);
+		}
+		catch (IllegalStateException exception) {
+			return ResponseEntity.status(409).build();
+		}
+	}
+
 	public record StartRequest(String approvalId) { }
+
+	public record GateDecisionRequest(String reviewer, String comment) { }
 }

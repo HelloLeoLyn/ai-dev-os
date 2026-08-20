@@ -4,19 +4,33 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.net.http.HttpClient;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.aidevos.orchestrator.execution.ExecutionRecordRepository;
+import com.aidevos.orchestrator.execution.FailureClass;
 import com.aidevos.orchestrator.execution.ExecutionArtifact;
 import com.aidevos.orchestrator.execution.ExecutionResult;
+import com.aidevos.orchestrator.execution.tool.DeterministicTool;
+import com.aidevos.orchestrator.execution.tool.ToolExecutionResult;
+import com.aidevos.orchestrator.execution.tool.ToolExecutionService;
+import com.aidevos.orchestrator.executor.command.CommandExecutor;
+import com.aidevos.orchestrator.executor.command.CommandOptions;
+import com.aidevos.orchestrator.executor.command.CommandResult;
 import com.aidevos.orchestrator.approval.ApprovalStatus;
+import com.aidevos.orchestrator.human.HumanApproval;
+import com.aidevos.orchestrator.human.HumanApprovalRepository;
+import com.aidevos.orchestrator.human.HumanApprovalStatus;
+import com.aidevos.orchestrator.human.InMemoryHumanApprovalRepository;
 import com.aidevos.orchestrator.job.ExecutionJob;
 import com.aidevos.orchestrator.job.JobService;
 import com.aidevos.orchestrator.job.JobStatus;
 import com.aidevos.orchestrator.job.JobSubmissionResponse;
+import com.aidevos.orchestrator.model.ExecutionRecord;
 import com.aidevos.orchestrator.model.TaskDefinition;
 import com.aidevos.orchestrator.plan.AgentAssignment;
 import com.aidevos.orchestrator.plan.ArtifactReference;
@@ -28,11 +42,13 @@ import com.aidevos.orchestrator.plan.PlanSnapshot;
 import com.aidevos.orchestrator.plan.PlanStatus;
 import com.aidevos.orchestrator.plan.PlanStep;
 import com.aidevos.orchestrator.plan.RetryPolicy;
+import com.aidevos.orchestrator.plan.StepExecutionType;
 import com.aidevos.orchestrator.plan.StepStatus;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalRequest;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalService;
 import com.aidevos.orchestrator.plan.run.PlanRun;
 import com.aidevos.orchestrator.plan.run.PlanRunStatus;
+import com.aidevos.orchestrator.plan.run.InMemoryPlanRunRepository;
 import com.aidevos.orchestrator.plan.run.StepRunStatus;
 import com.aidevos.orchestrator.planner.replan.ReplanRequestService;
 import com.aidevos.orchestrator.planner.replan.ReplanRequest;
@@ -43,10 +59,12 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -397,6 +415,321 @@ class PlanSchedulerTest {
 		assertEquals(1, request.artifactReferences().size());
 		assertEquals("TOOL_ERROR", request.failureClassification().name());
 		assertEquals(2, submissions.size());
+	}
+
+	@Test
+	void toolStepRunsDeterministicallyWithoutJob() {
+		ToolExecutionService toolService = mock(ToolExecutionService.class);
+		ExecutionRecordRepository recordRepository = mock(ExecutionRecordRepository.class);
+		scheduler.setToolExecutionService(toolService);
+		scheduler.setExecutionRecordRepository(recordRepository);
+		when(toolService.execute(any())).thenReturn(new ToolExecutionResult(
+			DeterministicTool.GIT, true, 0, "On branch main", null, 5, null));
+		PlanStep toolStep = step("tool", false).withExecutionType(StepExecutionType.TOOL_STEP);
+		approve(plan(List.of(toolStep), List.of()));
+
+		PlanRun run = scheduler.start("approval-1");
+		scheduler.reconcile();
+
+		assertEquals(PlanRunStatus.SUCCESS, run.getStatus());
+		assertEquals(StepRunStatus.SUCCESS, run.getSteps().getFirst().getStatus());
+		assertEquals(0, submissions.size());
+		verify(toolService, times(1)).execute(any());
+		org.mockito.ArgumentCaptor<ExecutionRecord> captor =
+			org.mockito.ArgumentCaptor.forClass(ExecutionRecord.class);
+		verify(recordRepository).save(captor.capture());
+		assertEquals("deterministic", captor.getValue().getExecutorName());
+		assertEquals("TOOL_STEP", captor.getValue().getExecutionType());
+		assertEquals("FAST", captor.getValue().getValidationProfile());
+		assertEquals("SUCCESS", captor.getValue().getStatus());
+	}
+
+	@Test
+	void systemStepRunsDeterministicallyWithoutJob() {
+		ToolExecutionService toolService = mock(ToolExecutionService.class);
+		scheduler.setToolExecutionService(toolService);
+		when(toolService.execute(any())).thenReturn(new ToolExecutionResult(
+			DeterministicTool.VALIDATION, true, 0, "clean", null, 2, null));
+		PlanStep systemStep = step("system", false).withExecutionType(StepExecutionType.SYSTEM_STEP);
+		approve(plan(List.of(systemStep), List.of()));
+
+		PlanRun run = scheduler.start("approval-1");
+		scheduler.reconcile();
+
+		assertEquals(PlanRunStatus.SUCCESS, run.getStatus());
+		assertEquals(StepRunStatus.SUCCESS, run.getSteps().getFirst().getStatus());
+		assertEquals(0, submissions.size());
+	}
+
+	@Test
+	void toolStepRetriesUpToBudgetBeforeFailing() {
+		ToolExecutionService toolService = mock(ToolExecutionService.class);
+		scheduler.setToolExecutionService(toolService);
+		when(toolService.execute(any())).thenReturn(new ToolExecutionResult(
+			DeterministicTool.GIT, false, 1, null, "fatal: something failed", 3,
+			FailureClass.EXECUTOR_FAILED));
+		PlanStep toolStep = step("tool", false).withExecutionType(StepExecutionType.TOOL_STEP);
+		approve(plan(List.of(toolStep), List.of()));
+
+		PlanRun run = scheduler.start("approval-1");
+
+		assertEquals(PlanRunStatus.FAILED, run.getStatus());
+		assertEquals(StepRunStatus.FAILED, run.getSteps().getFirst().getStatus());
+		assertTrue(run.getError().contains("Tool step failed"));
+		verify(toolService, times(2)).execute(any());
+		assertEquals(0, submissions.size());
+	}
+
+	@Test
+	void toolStepPermanentFailureDoesNotRetry() {
+		ToolExecutionService toolService = mock(ToolExecutionService.class);
+		scheduler.setToolExecutionService(toolService);
+		when(toolService.execute(any())).thenReturn(new ToolExecutionResult(
+			DeterministicTool.GIT, false, 1, null, "authentication failed", 3,
+			FailureClass.CREDENTIAL_MISSING));
+		PlanStep toolStep = step("tool", false).withExecutionType(StepExecutionType.TOOL_STEP);
+		approve(plan(List.of(toolStep), List.of()));
+
+		PlanRun run = scheduler.start("approval-1");
+
+		assertEquals(PlanRunStatus.FAILED, run.getStatus());
+		verify(toolService, times(1)).execute(any());
+		assertEquals(0, submissions.size());
+	}
+
+	@Test
+	void toolStepTransientFailureRetriesUpToBudget() {
+		ToolExecutionService toolService = mock(ToolExecutionService.class);
+		scheduler.setToolExecutionService(toolService);
+		when(toolService.execute(any())).thenReturn(new ToolExecutionResult(
+			DeterministicTool.GIT, false, 1, null, "connection refused", 3,
+			FailureClass.NETWORK_ERROR));
+		PlanStep toolStep = step("tool", false).withExecutionType(StepExecutionType.TOOL_STEP);
+		approve(plan(List.of(toolStep), List.of()));
+
+		PlanRun run = scheduler.start("approval-1");
+
+		assertEquals(PlanRunStatus.FAILED, run.getStatus());
+		verify(toolService, times(2)).execute(any());
+		assertEquals(0, submissions.size());
+	}
+
+	@Test
+	void efficiencySmokeToolStepShellEchoSucceeds() {
+		CommandResult commandResult = new CommandResult();
+		commandResult.setSuccess(true);
+		commandResult.setExitCode(0);
+		commandResult.setOutput("EXECUTION_EFFICIENCY_OK");
+		CommandExecutor commandExecutor = mock(CommandExecutor.class);
+		when(commandExecutor.execute(any(CommandOptions.class))).thenReturn(commandResult);
+		ExecutionRecordRepository recordRepository = mock(ExecutionRecordRepository.class);
+		scheduler.setToolExecutionService(new ToolExecutionService(commandExecutor,
+			new com.aidevos.orchestrator.execution.FailureClassifier(), mock(HttpClient.class)));
+		scheduler.setExecutionRecordRepository(recordRepository);
+		PlanStep shellStep = new PlanStep("shell", "Smoke", "Echo marker", StepStatus.PLANNED,
+			new AgentAssignment("deterministic", List.of(), List.of()),
+			"shell", null, Map.of("command", "echo EXECUTION_EFFICIENCY_OK"), List.of(),
+			RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN, false)
+			.withExecutionType(StepExecutionType.TOOL_STEP);
+		approve(plan(List.of(shellStep), List.of()));
+
+		PlanRun run = scheduler.start("approval-1");
+		scheduler.reconcile();
+
+		assertEquals(StepRunStatus.SUCCESS, run.getSteps().getFirst().getStatus());
+		assertEquals(PlanRunStatus.SUCCESS, run.getStatus());
+		assertEquals(0, submissions.size());
+		verify(jobService, never()).submit(any(), any());
+		org.mockito.ArgumentCaptor<CommandOptions> commandCaptor =
+			org.mockito.ArgumentCaptor.forClass(CommandOptions.class);
+		verify(commandExecutor, times(1)).execute(commandCaptor.capture());
+		assertEquals(List.of("sh", "-c", "echo EXECUTION_EFFICIENCY_OK"),
+			commandCaptor.getValue().getCommand());
+		org.mockito.ArgumentCaptor<ExecutionRecord> recordCaptor =
+			org.mockito.ArgumentCaptor.forClass(ExecutionRecord.class);
+		verify(recordRepository).save(recordCaptor.capture());
+		ExecutionRecord record = recordCaptor.getValue();
+		assertEquals("deterministic", record.getExecutorName());
+		assertEquals("TOOL_STEP", record.getExecutionType());
+		assertEquals("FAST", record.getValidationProfile());
+		assertEquals("SUCCESS", record.getStatus());
+		assertTrue(record.getOutput().contains("EXECUTION_EFFICIENCY_OK"));
+	}
+
+	@Test
+	void toolStepWithoutExecutorFailsClosed() {
+		PlanStep toolStep = step("tool", false).withExecutionType(StepExecutionType.TOOL_STEP);
+		approve(plan(List.of(toolStep), List.of()));
+
+		PlanRun run = scheduler.start("approval-1");
+
+		assertEquals(PlanRunStatus.FAILED, run.getStatus());
+		assertEquals(StepRunStatus.FAILED, run.getSteps().getFirst().getStatus());
+		assertTrue(run.getError().contains("Deterministic tool execution service unavailable"));
+		assertEquals(0, submissions.size());
+	}
+
+	@Test
+	void humanGateStepPausesWithoutJobOrToolCall() {
+		PlanStep gate = step("gate", false).withExecutionType(StepExecutionType.HUMAN_GATE);
+		approve(plan(List.of(gate), List.of()));
+
+		PlanRun run = scheduler.start("approval-1");
+
+		assertEquals(PlanRunStatus.WAITING_APPROVAL, run.getStatus());
+		assertEquals(StepRunStatus.WAITING_APPROVAL, run.getSteps().getFirst().getStatus());
+		assertEquals(0, submissions.size());
+
+		scheduler.reconcile();
+
+		assertEquals(PlanRunStatus.WAITING_APPROVAL, run.getStatus());
+		assertEquals(0, submissions.size());
+	}
+
+	@Test
+	void humanGateApproveResumesAndContinuesNextStep() {
+		HumanApprovalRepository approvals = new InMemoryHumanApprovalRepository();
+		scheduler.setHumanApprovalRepository(approvals);
+		PlanStep gate = step("gate", false).withExecutionType(StepExecutionType.HUMAN_GATE);
+		Plan plan = plan(List.of(gate, step("after", false)),
+			List.of(new Dependency("gate", "after", true)));
+		approve(plan);
+
+		PlanRun run = scheduler.start("approval-1");
+
+		assertEquals(PlanRunStatus.WAITING_APPROVAL, run.getStatus());
+		assertEquals(StepRunStatus.WAITING_APPROVAL, run.getSteps().getFirst().getStatus());
+		assertEquals(0, submissions.size());
+		assertEquals(HumanApprovalStatus.PENDING, approvals.list().getFirst().getStatus());
+
+		scheduler.approveHumanGate(run.getId(), "gate", "reviewer", "approved");
+		scheduler.reconcile();
+
+		assertEquals(StepRunStatus.SUCCESS, run.getSteps().get(0).getStatus());
+		assertEquals(StepRunStatus.RUNNING, run.getSteps().get(1).getStatus());
+		assertEquals(1, submissions.size());
+		assertEquals(PlanRunStatus.RUNNING, run.getStatus());
+
+		succeed(job(0), false);
+		scheduler.reconcile();
+
+		assertEquals(PlanRunStatus.SUCCESS, run.getStatus());
+		assertEquals(StepRunStatus.SUCCESS, run.getSteps().get(1).getStatus());
+	}
+
+	@Test
+	void humanGateRejectTerminatesStepAndRun() {
+		HumanApprovalRepository approvals = new InMemoryHumanApprovalRepository();
+		scheduler.setHumanApprovalRepository(approvals);
+		PlanStep gate = step("gate", false).withExecutionType(StepExecutionType.HUMAN_GATE);
+		Plan plan = plan(List.of(gate, step("after", false)),
+			List.of(new Dependency("gate", "after", true)));
+		approve(plan);
+
+		PlanRun run = scheduler.start("approval-1");
+		scheduler.rejectHumanGate(run.getId(), "gate", "reviewer", "not now");
+		scheduler.reconcile();
+
+		assertEquals(StepRunStatus.FAILED, run.getSteps().get(0).getStatus());
+		assertEquals(PlanRunStatus.FAILED, run.getStatus());
+		assertTrue(run.getError().contains("Human gate rejected by reviewer"));
+		assertEquals(0, submissions.size());
+	}
+
+	@Test
+	void humanGateApproveIsIdempotentAndRejectAfterApproveConflicts() {
+		HumanApprovalRepository approvals = new InMemoryHumanApprovalRepository();
+		scheduler.setHumanApprovalRepository(approvals);
+		PlanStep gate = step("gate", false).withExecutionType(StepExecutionType.HUMAN_GATE);
+		approve(plan(List.of(gate), List.of()));
+
+		PlanRun run = scheduler.start("approval-1");
+		HumanApproval first = scheduler.approveHumanGate(run.getId(), "gate", "reviewer", "ok");
+		HumanApproval second = scheduler.approveHumanGate(run.getId(), "gate", "reviewer", "again");
+
+		assertEquals(HumanApprovalStatus.APPROVED, first.getStatus());
+		assertEquals(first, second);
+		assertEquals(1, approvals.list().size());
+		assertThrows(IllegalStateException.class,
+			() -> scheduler.rejectHumanGate(run.getId(), "gate", "reviewer", "no"));
+	}
+
+	@Test
+	void humanGateRejectIsIdempotentAndApproveAfterRejectConflicts() {
+		HumanApprovalRepository approvals = new InMemoryHumanApprovalRepository();
+		scheduler.setHumanApprovalRepository(approvals);
+		PlanStep gate = step("gate", false).withExecutionType(StepExecutionType.HUMAN_GATE);
+		approve(plan(List.of(gate), List.of()));
+
+		PlanRun run = scheduler.start("approval-1");
+		HumanApproval first = scheduler.rejectHumanGate(run.getId(), "gate", "reviewer", "no");
+		HumanApproval second = scheduler.rejectHumanGate(run.getId(), "gate", "reviewer", "no again");
+
+		assertEquals(HumanApprovalStatus.REJECTED, first.getStatus());
+		assertEquals(first, second);
+		assertEquals(1, approvals.list().size());
+		assertThrows(IllegalStateException.class,
+			() -> scheduler.approveHumanGate(run.getId(), "gate", "reviewer", "yes"));
+	}
+
+	@Test
+	void humanGateDecisionRequiresPausedGate() {
+		HumanApprovalRepository approvals = new InMemoryHumanApprovalRepository();
+		scheduler.setHumanApprovalRepository(approvals);
+		PlanStep aiStep = step("ai", false);
+		approve(plan(List.of(aiStep), List.of()));
+
+		PlanRun run = scheduler.start("approval-1");
+
+		assertThrows(IllegalStateException.class,
+			() -> scheduler.approveHumanGate(run.getId(), "ai", "reviewer", "yes"));
+		assertThrows(IllegalArgumentException.class,
+			() -> scheduler.approveHumanGate("missing-run", "gate", "reviewer", "yes"));
+	}
+
+	@Test
+	void humanGateApprovedDecisionSurvivesSchedulerRestart() {
+		InMemoryPlanRunRepository runRepository = new InMemoryPlanRunRepository();
+		InMemoryHumanApprovalRepository approvals = new InMemoryHumanApprovalRepository();
+		scheduler = new PlanScheduler(jobService, new StepTaskFactory(), approvalService,
+			replanRequestService, runRepository, Clock.fixed(NOW, ZoneOffset.UTC));
+		scheduler.setHumanApprovalRepository(approvals);
+		PlanStep gate = step("gate", false).withExecutionType(StepExecutionType.HUMAN_GATE);
+		Plan plan = plan(List.of(gate, step("after", false)),
+			List.of(new Dependency("gate", "after", true)));
+		approve(plan);
+
+		PlanRun run = scheduler.start("approval-1");
+		assertEquals(PlanRunStatus.WAITING_APPROVAL, run.getStatus());
+		assertEquals(0, submissions.size());
+		scheduler.approveHumanGate(run.getId(), "gate", "reviewer", "approved");
+
+		// Simulated restart: a fresh scheduler shares only the persisted
+		// repositories (plan runs + human approvals); all scheduler state is new.
+		PlanScheduler restarted = new PlanScheduler(jobService, new StepTaskFactory(),
+			approvalService, replanRequestService, runRepository,
+			Clock.fixed(NOW, ZoneOffset.UTC));
+		restarted.setHumanApprovalRepository(approvals);
+		restarted.reconcile();
+
+		assertEquals(StepRunStatus.SUCCESS, run.getSteps().get(0).getStatus());
+		assertEquals(StepRunStatus.RUNNING, run.getSteps().get(1).getStatus());
+		assertEquals(1, submissions.size());
+		assertEquals(PlanRunStatus.RUNNING, run.getStatus());
+	}
+
+	@Test
+	void taskMetadataCarriesExecutionTypeAndValidationProfile() {
+		PlanStep aiStep = step("ai", false);
+		approve(plan(List.of(aiStep), List.of()));
+
+		scheduler.start("approval-1");
+
+		TaskDefinition task = submissions.getFirst();
+		assertEquals("AI_STEP", task.getMetadata().get("executionType"));
+		assertEquals("FAST", task.getMetadata().get("validationProfile"));
+		assertEquals(20, task.getMetadata().get("maxAiCalls"));
+		assertEquals(1, task.getMetadata().get("maxToolRetries"));
 	}
 
 	private void approve(Plan plan) {

@@ -4,7 +4,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import { useTaskContext } from '../composables/useTaskContext'
 import { useTaskExecution } from '../composables/useTaskExecution'
 import { useTimeline } from '../composables/useTimeline'
-import type { ExecutionArtifact } from '../types/execution'
+import type { ExecutionArtifact, ExecutionRecordDetail } from '../types/execution'
 import AsyncState from '../components/AsyncState.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import TechnicalId from '../components/TechnicalId.vue'
@@ -59,6 +59,60 @@ const requiresCodingApproval = computed(() => pendingApproval.value?.status === 
 const pendingRemotePush = computed(() => remotePushApprovals.value.find(item => item.status === 'PENDING') ?? null)
 function hasUsableApproval(commitId: string): boolean {
   return remotePushApprovals.value.some(item => item.commitId === commitId && (item.status === 'PENDING' || item.status === 'APPROVED'))
+}
+const efficiency = computed(() => {
+  let aiCalls = 0
+  let toolCalls = 0
+  let aiMs = 0
+  let toolMs = 0
+  let firstStart: number | null = null
+  let lastEnd: number | null = null
+  const profilesSeen: string[] = []
+  for (const record of executions.records.value) {
+    const ai = isAiRecord(record)
+    const tool = isToolRecord(record)
+    if (ai) aiCalls++
+    if (tool) toolCalls++
+    if (record.validationProfile) profilesSeen.push(record.validationProfile)
+    const start = record.startedAt ? Date.parse(record.startedAt) : Number.NaN
+    const end = record.completedAt ? Date.parse(record.completedAt) : start
+    if (!Number.isNaN(start) && !Number.isNaN(end)) {
+      const ms = Math.max(0, end - start)
+      if (ai) aiMs += ms
+      if (tool) toolMs += ms
+      if (firstStart === null || start < firstStart) firstStart = start
+      if (lastEnd === null || end > lastEnd) lastEnd = end
+    }
+  }
+  const wallMs = firstStart !== null && lastEnd !== null ? Math.max(0, lastEnd - firstStart) : 0
+  return {
+    aiCalls,
+    toolCalls,
+    aiMs,
+    toolMs,
+    waitingMs: Math.max(0, wallMs - aiMs - toolMs),
+    profile: profilesSeen.length ? [...new Set(profilesSeen)].sort().join('/') : 'FAST',
+  }
+})
+function isAiRecord(record: ExecutionRecordDetail): boolean {
+  const name = (record.executorName || '').toLowerCase()
+  return name.includes('codex') || name.includes('hermes') || name.includes('openclaw') || name.includes('agent') || Boolean(record.resolvedModelId || record.modelExecutor)
+}
+function isToolRecord(record: ExecutionRecordDetail): boolean {
+  const name = (record.executorName || '').toLowerCase()
+  const operation = (record.operation || '').toLowerCase()
+  return name === 'deterministic' || record.executionType === 'TOOL_STEP' || record.executionType === 'SYSTEM_STEP' || ['git', 'maven', 'npm', 'shell', 'http_health', 'workspace', 'validation'].includes(operation)
+}
+const executionTypeLabel = computed(() => {
+  const ai = efficiency.value.aiCalls > 0
+  const tool = efficiency.value.toolCalls > 0
+  if (ai && tool) return 'AI_STEP + TOOL_STEP'
+  if (tool) return 'TOOL_STEP / SYSTEM_STEP'
+  return 'AI_STEP'
+})
+function formatMs(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  return `${(ms / 1000).toFixed(1)}s`
 }
 const latestRecord = computed(() => executions.records.value.at(-1) ?? null)
 const latestJob = computed(() => latestRecord.value?.jobId ? jobs.value[latestRecord.value.jobId] ?? null : null)
@@ -250,7 +304,7 @@ function reload(): void { void Promise.all([context.load(taskId), loadExecutionS
       <p class="page-eyebrow">Delivery</p><h2>ChangeSet not generated</h2><p class="error">Execution succeeded, but the ChangeSet projection is not available.</p>
       <el-button :loading="changeRetrying" @click="retryChangeProjection">Retry ChangeSet projection</el-button>
     </section>
-    <section class="flow-summary" aria-label="Execution diagnostics"><article><span>Current Task Status</span><strong>{{ context.task.value.status }}</strong></article><article><span>Current PlanRun Status</span><strong>{{ currentPlanRunStatus }}</strong></article><article><span>Current Job Status</span><strong>{{ latestJob?.status || 'Unknown' }}</strong></article><article><span>Current Approval Status</span><strong>{{ pendingApproval?.status || context.approval.value?.status || 'None' }}</strong></article><article><span>Latest Attempt</span><strong>{{ latestRecord?.status || 'Unknown' }}</strong></article><article><span>Resolved Executor</span><strong>{{ latestRecord?.executorName || 'Unknown' }}</strong></article><article><span>Last Flow Event</span><strong>{{ lastFlowEvent?.eventType || 'Unknown' }}</strong></article><article><span>Blocked Reason</span><strong>{{ latestRecord?.status === 'WAITING_APPROVAL' ? (latestRecord.message || 'Approval required') : 'None' }}</strong></article></section>
+    <section class="flow-summary" aria-label="Execution diagnostics"><article><span>Current Task Status</span><strong>{{ context.task.value.status }}</strong></article><article><span>Current PlanRun Status</span><strong>{{ currentPlanRunStatus }}</strong></article><article><span>Current Job Status</span><strong>{{ latestJob?.status || 'Unknown' }}</strong></article><article><span>Current Approval Status</span><strong>{{ pendingApproval?.status || context.approval.value?.status || 'None' }}</strong></article><article><span>Latest Attempt</span><strong>{{ latestRecord?.status || 'Unknown' }}</strong></article><article><span>Resolved Executor</span><strong>{{ latestRecord?.executorName || 'Unknown' }}</strong></article><article><span>Last Flow Event</span><strong>{{ lastFlowEvent?.eventType || 'Unknown' }}</strong></article><article><span>Blocked Reason</span><strong>{{ latestRecord?.status === 'WAITING_APPROVAL' ? (latestRecord.message || 'Approval required') : 'None' }}</strong></article><article><span>Execution Type</span><strong>{{ executionTypeLabel }}</strong></article><article><span>Validation Profile</span><strong>{{ efficiency.profile }}</strong></article><article><span>AI Calls</span><strong>{{ efficiency.aiCalls }}</strong></article><article><span>Tool Calls</span><strong>{{ efficiency.toolCalls }}</strong></article><article><span>AI Time</span><strong>{{ formatMs(efficiency.aiMs) }}</strong></article><article><span>Tool Time</span><strong>{{ formatMs(efficiency.toolMs) }}</strong></article><article><span>Waiting Time</span><strong>{{ formatMs(efficiency.waitingMs) }}</strong></article></section>
     <el-card v-for="(record, index) in executions.records.value" :key="record.id" shadow="never" :class="['record-card', { 'historical-attempt': record !== latestRecord }]">
       <template #header><div class="record-header"><div><p class="page-eyebrow">Attempt {{ index + 1 }} <span v-if="record !== latestRecord">· Historical Attempt</span><span v-else>· Latest Attempt</span></p><h2>{{ record.status }}</h2></div><StatusBadge :status="record.status" /></div></template>
       <dl class="record-grid"><div><dt>Agent</dt><dd>{{ record.agentName || 'Unknown' }}</dd></div><div><dt>Actual Executor</dt><dd>{{ record.executorName || 'Unknown' }}</dd></div><div v-if="record.operation"><dt>Operation</dt><dd>{{ record.operation }}</dd></div><div><dt>Workspace</dt><dd>{{ record.workspace || 'Unknown' }}</dd></div><div><dt>Exit Code</dt><dd>{{ record.exitCode ?? '—' }}</dd></div><div v-if="record.resolvedModelId"><dt>Model</dt><dd>{{ record.resolvedModelId }}</dd></div><div v-if="record.modelProvider"><dt>Provider</dt><dd>{{ record.modelProvider }}</dd></div><div v-if="record.modelExecutor"><dt>Model Executor</dt><dd>{{ record.modelExecutor }}</dd></div><div v-if="record.requestedModelId"><dt>Requested</dt><dd>{{ record.requestedModelId }}</dd></div></dl>

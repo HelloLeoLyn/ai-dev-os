@@ -51,6 +51,7 @@ public class ExecutionRecordQueryService {
 			record.getBranch(), record.getBeforeHead(), record.getAfterHead(), record.getExitCode(),
 			record.getCodexThreadId(), record.getRequestedModelId(), record.getResolvedModelId(),
 			record.getModelProvider(), record.getModelExecutor(), record.getErrorCode(),
-			record.getErrorMessage(), record.getStartedAt(), record.getCompletedAt());
+			record.getErrorMessage(), record.getExecutionType(), record.getValidationProfile(),
+			record.getStartedAt(), record.getCompletedAt());
 	}
 }
