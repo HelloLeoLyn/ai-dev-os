@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.plan.schedule;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -31,6 +33,7 @@ import com.aidevos.orchestrator.execution.tool.DeterministicTool;
 import com.aidevos.orchestrator.execution.tool.ToolExecutionRequest;
 import com.aidevos.orchestrator.execution.tool.ToolExecutionResult;
 import com.aidevos.orchestrator.execution.tool.ToolExecutionService;
+import com.aidevos.orchestrator.execution.tool.ToolWorkingDirectoryResolver;
 import com.aidevos.orchestrator.execution.system.SystemActionContext;
 import com.aidevos.orchestrator.execution.system.SystemActionResult;
 import com.aidevos.orchestrator.execution.system.SystemStepService;
@@ -912,15 +915,42 @@ public class PlanScheduler {
 	}
 
 	private String stepWorkingDirectory(PlanStep definition, String workspacePath) {
+		DeterministicTool tool = deterministicTool(definition);
 		Object dir = stepMetadata(definition, "workingDirectory");
 		if (dir instanceof String text && !text.isBlank()) {
 			if (workspacePath == null || workspacePath.isBlank()
-					|| text.startsWith(workspacePath)) {
+					|| withinWorkspace(text, workspacePath)) {
+				// V1 Final Gate：MAVEN/NPM 的声明目录必须实际包含构建标记文件
+				// （pom.xml / package.json）；否则解析到 workspace 内实际模块目录，
+				// 防止 planner 声明 workspace 根目录导致 "no POM in this directory"。
+				if (requiresBuildMarker(tool) && !hasBuildMarker(text, tool)) {
+					return ToolWorkingDirectoryResolver.resolve(tool, workspacePath);
+				}
 				return text;
 			}
 			return workspacePath;
 		}
-		return workspacePath;
+		return ToolWorkingDirectoryResolver.resolve(tool, workspacePath);
+	}
+
+	/** 需要构建标记文件（pom.xml / package.json）才能确定实际模块目录的工具 */
+	private static boolean requiresBuildMarker(DeterministicTool tool) {
+		return tool == DeterministicTool.MAVEN || tool == DeterministicTool.NPM;
+	}
+
+	/** 声明目录本身是否已包含对应构建标记文件 */
+	private static boolean hasBuildMarker(String directory, DeterministicTool tool) {
+		String marker = switch (tool) {
+			case MAVEN -> "pom.xml";
+			case NPM -> "package.json";
+			default -> null;
+		};
+		return marker != null && Files.isRegularFile(Path.of(directory).resolve(marker));
+	}
+
+	private static boolean withinWorkspace(String candidate, String workspacePath) {
+		Path root = Path.of(workspacePath).toAbsolutePath().normalize();
+		return Path.of(candidate).toAbsolutePath().normalize().startsWith(root);
 	}
 
 	private Duration stepTimeout(PlanStep definition) {
