@@ -12,6 +12,7 @@ import com.aidevos.orchestrator.plan.FailurePolicy;
 import com.aidevos.orchestrator.plan.PlanSnapshot;
 import com.aidevos.orchestrator.plan.PlanStep;
 import com.aidevos.orchestrator.plan.RetryPolicy;
+import com.aidevos.orchestrator.plan.StepExecutionType;
 import com.aidevos.orchestrator.plan.StepStatus;
 import com.aidevos.orchestrator.planner.replan.ReplanRequest;
 import org.springframework.stereotype.Component;
@@ -33,8 +34,16 @@ public class HermesPlanner implements Planner {
 		if ("project-analysis".equals(request.structuredInput().get("taskType"))) {
 			return projectAnalysisPlan(request);
 		}
+		if (Boolean.TRUE.equals(request.structuredInput().get("toolPlan"))) {
+			return toolchainPlan(request);
+		}
 		if (Boolean.TRUE.equals(request.structuredInput().get("multiAgent"))) {
 			return multiStepPlan(request);
+		}
+		List<NaturalGoalClassifier.StepIntent> intents = NaturalGoalClassifier.classify(
+			request.goal());
+		if (!intents.isEmpty()) {
+			return naturalPlan(request, intents);
 		}
 		boolean readWrite = "READ_WRITE".equals(request.metadata().get("executionMode"));
 		PlanSnapshot.AgentSnapshot agent = request.snapshot() == null ? null
@@ -56,6 +65,133 @@ public class HermesPlanner implements Planner {
 		return new PlanDraft("plan-" + request.requestId(), 1, request.goal(), List.of(step),
 			List.of(), request.snapshot(), name(), request.model(), request.promptVersion(),
 			request.metadata());
+	}
+
+	/**
+	 * Builds a classified plan from the natural language step intents: an AI
+	 * code step (when the goal implies code changes), deterministic tool steps
+	 * and human gates in occurrence order. Tool steps never submit an AI job.
+	 */
+	private PlanDraft naturalPlan(PlanningRequest request,
+			List<NaturalGoalClassifier.StepIntent> intents) {
+		Map<String, Object> input = request.structuredInput();
+		String workspace = text(input, "workspace", null);
+		AgentAssignment coder = new AgentAssignment("coder", List.of("coding", "git"), List.of());
+		Map<String, Object> toolParameters = new LinkedHashMap<>();
+		if (workspace != null && !workspace.isBlank()) {
+			toolParameters.put("workingDirectory", workspace);
+		}
+		toolParameters.put("timeoutSeconds", 300);
+
+		List<PlanStep> steps = new java.util.ArrayList<>();
+		List<Dependency> dependencies = new java.util.ArrayList<>();
+		String previousId = null;
+		int index = 1;
+		for (NaturalGoalClassifier.StepIntent intent : intents) {
+			String id = "step-" + index;
+			PlanStep step = switch (intent.kind()) {
+				case AI -> new PlanStep(id, "Modify code", request.goal(),
+					StepStatus.PLANNED, coder, Map.of("sandbox", "workspace-write"),
+					List.of(), null, null, Map.of(), coderExpectedArtifacts(),
+					RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN, false, null, true,
+					StepExecutionType.AI_STEP);
+				case TOOL -> new PlanStep(id, stepTitle(intent), stepTitle(intent),
+					StepStatus.PLANNED, coder, Map.copyOf(toolParameters), List.of(),
+					"deterministic", intent.toolName(),
+					Map.of("command", intent.command()), List.of(), RetryPolicy.noRetry(),
+					FailurePolicy.STOP_PLAN, false, null, false,
+					StepExecutionType.TOOL_STEP);
+				case HUMAN_GATE -> new PlanStep(id, "Human approval",
+					"Waiting for human approval", StepStatus.PLANNED, coder, Map.of(),
+					List.of(), null, null, Map.of(), List.of(), RetryPolicy.noRetry(),
+					FailurePolicy.STOP_PLAN, false, null, false,
+					StepExecutionType.HUMAN_GATE);
+			};
+			if (previousId != null) {
+				dependencies.add(new Dependency(previousId, id, false));
+			}
+			previousId = id;
+			steps.add(step);
+			index++;
+		}
+		Map<String, Object> metadata = new LinkedHashMap<>(request.metadata());
+		metadata.put("validationProfile",
+			StepClassifier.validationProfile(request.goal(), input).name());
+		if (workspace != null && !workspace.isBlank()) {
+			metadata.put("workspacePath", workspace);
+		}
+		PlanSnapshot snapshot = request.snapshot() == null ? null
+			: new PlanSnapshot(request.snapshot().agents(), request.snapshot().capabilities(),
+				request.snapshot().tools(), request.snapshot().executors(),
+				request.snapshot().policyVersion(), Map.copyOf(metadata));
+		return new PlanDraft("plan-" + request.requestId(), 1, request.goal(), steps,
+			dependencies, snapshot, name(), request.model(), request.promptVersion(),
+			Map.copyOf(metadata));
+	}
+
+	private String stepTitle(NaturalGoalClassifier.StepIntent intent) {
+		if ("maven".equals(intent.toolName())) {
+			return "compile".equals(intent.command()) ? "Compile" : "Run targeted tests";
+		}
+		if ("npm".equals(intent.toolName())) {
+			return "build".equals(intent.command()) ? "Frontend build" : "Frontend tests";
+		}
+		if ("git".equals(intent.toolName())) {
+			return "git " + intent.command();
+		}
+		return "Health check";
+	}
+
+	/**
+	 * A code-change toolchain plan: one AI step to change the code, then
+	 * deterministic compile and targeted-test steps. The tool steps carry
+	 * structured metadata the deterministic executor consumes directly and
+	 * never submit an AI job.
+	 */
+	private PlanDraft toolchainPlan(PlanningRequest request) {
+		Map<String, Object> input = request.structuredInput();
+		String workspace = text(input, "workspace", null);
+		AgentAssignment coder = new AgentAssignment("coder", List.of("coding", "git"), List.of());
+
+		Map<String, Object> compileParameters = new LinkedHashMap<>();
+		Map<String, Object> testParameters = new LinkedHashMap<>();
+		if (workspace != null && !workspace.isBlank()) {
+			compileParameters.put("workingDirectory", workspace);
+			testParameters.put("workingDirectory", workspace);
+		}
+		compileParameters.put("timeoutSeconds", 300);
+		testParameters.put("timeoutSeconds", 300);
+
+		PlanStep fixCode = new PlanStep("fix-code", "Modify code", request.goal(),
+			StepStatus.PLANNED, coder, Map.of("sandbox", "workspace-write"), List.of(),
+			null, null, Map.of(), coderExpectedArtifacts(), RetryPolicy.noRetry(),
+			FailurePolicy.STOP_PLAN, false, null, true, StepExecutionType.AI_STEP);
+		PlanStep compile = new PlanStep("compile", "Compile", "Compile the modified code",
+			StepStatus.PLANNED, coder, Map.copyOf(compileParameters), List.of(),
+			"deterministic", "maven", Map.of("command", "compile"), List.of(),
+			RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN, false, null, false,
+			StepExecutionType.TOOL_STEP);
+		PlanStep test = new PlanStep("test", "Run targeted tests",
+			"Run the targeted tests for the change", StepStatus.PLANNED, coder,
+			Map.copyOf(testParameters), List.of(), "deterministic", "maven",
+			Map.of("command", "test", "profile", "FAST"), List.of(), RetryPolicy.noRetry(),
+			FailurePolicy.STOP_PLAN, false, null, false, StepExecutionType.TOOL_STEP);
+
+		List<Dependency> dependencies = List.of(
+			new Dependency("fix-code", "compile", false),
+			new Dependency("compile", "test", false));
+		Map<String, Object> metadata = new LinkedHashMap<>(request.metadata());
+		metadata.put("validationProfile", StepClassifier.validationProfile(input).name());
+		if (workspace != null && !workspace.isBlank()) {
+			metadata.put("workspacePath", workspace);
+		}
+		PlanSnapshot snapshot = request.snapshot() == null ? null
+			: new PlanSnapshot(request.snapshot().agents(), request.snapshot().capabilities(),
+				request.snapshot().tools(), request.snapshot().executors(),
+				request.snapshot().policyVersion(), Map.copyOf(metadata));
+		return new PlanDraft("plan-" + request.requestId(), 1, request.goal(),
+			List.of(fixCode, compile, test), dependencies, snapshot, name(),
+			request.model(), request.promptVersion(), Map.copyOf(metadata));
 	}
 
 	private PlanDraft projectAnalysisPlan(PlanningRequest request) {

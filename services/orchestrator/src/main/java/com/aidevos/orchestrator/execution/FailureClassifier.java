@@ -85,14 +85,125 @@ public class FailureClassifier {
 	 * health-check failures are retried within the tool budget.
 	 */
 	public static boolean isRetryable(FailureClass failureClass) {
+		return severity(failureClass) == FailureSeverity.L0_RECOVERABLE;
+	}
+
+	/**
+	 * Maps a failure class onto the severity ladder. L0 is transient, L1 is
+	 * AI-repairable, L2 needs a human decision, L3 requires human action and
+	 * L4 is a system failure that stops immediately.
+	 */
+	public static FailureSeverity severity(FailureClass failureClass) {
 		if (failureClass == null) {
-			return true;
+			return FailureSeverity.L4_SYSTEM_FAILURE;
 		}
 		return switch (failureClass) {
-			case CREDENTIAL_MISSING, MODEL_NOT_FOUND, PROVIDER_DISABLED, APPROVAL_REQUIRED,
-				GIT_CONFLICT -> false;
-			default -> true;
+			case NETWORK_ERROR, HEALTH_CHECK_FAILED ->
+				FailureSeverity.L0_RECOVERABLE;
+			case BUILD_FAILED, TEST_FAILED, CODE_LOGIC_ERROR, EXECUTOR_FAILED, UNKNOWN ->
+				FailureSeverity.L1_AI_RECOVERABLE;
+			case GIT_CONFLICT, APPROVAL_REQUIRED, QUALITY_GATE_APPROVAL, AMBIGUOUS_STATE ->
+				FailureSeverity.L2_HUMAN_DECISION;
+			case CREDENTIAL_MISSING, MODEL_NOT_FOUND, PROVIDER_DISABLED, PERMISSION_DENIED,
+				REMOTE_AUTHORITY_REQUIRED, USAGE_LIMIT -> FailureSeverity.L3_HUMAN_REQUIRED;
+			case STATE_CORRUPTION, DATABASE_UNAVAILABLE, UNKNOWN_FATAL ->
+				FailureSeverity.L4_SYSTEM_FAILURE;
 		};
+	}
+
+	/**
+	 * The automatic response for a failure class: L0 retries the tool, L1
+	 * retries or replans through AI, L2/L3 request a human and L4 stops.
+	 */
+	public static FailureResponse response(FailureClass failureClass) {
+		if (failureClass == null) {
+			return FailureResponse.STOP;
+		}
+		return switch (failureClass) {
+			case NETWORK_ERROR, HEALTH_CHECK_FAILED -> FailureResponse.RETRY_TOOL;
+			case CODE_LOGIC_ERROR -> FailureResponse.REPLAN_AI;
+			case BUILD_FAILED, TEST_FAILED, EXECUTOR_FAILED, UNKNOWN -> FailureResponse.RETRY_AI;
+			case GIT_CONFLICT, APPROVAL_REQUIRED, QUALITY_GATE_APPROVAL, AMBIGUOUS_STATE,
+				CREDENTIAL_MISSING, MODEL_NOT_FOUND, PROVIDER_DISABLED, PERMISSION_DENIED,
+				REMOTE_AUTHORITY_REQUIRED, USAGE_LIMIT -> FailureResponse.REQUEST_HUMAN;
+			case STATE_CORRUPTION, DATABASE_UNAVAILABLE, UNKNOWN_FATAL -> FailureResponse.STOP;
+		};
+	}
+
+	/**
+	 * Human-recommended action for an intervention state. REQUEST_HUMAN /
+	 * STOP classes get an actionable recommendation; nothing here is ever
+	 * executed automatically.
+	 */
+	public static RecommendedAction recommendedAction(FailureClass failureClass,
+			FailureResponse response) {
+		if (response == FailureResponse.REPLAN_AI) {
+			return RecommendedAction.REPLAN;
+		}
+		if (failureClass == null) {
+			return RecommendedAction.ABORT;
+		}
+		return switch (failureClass) {
+			case NETWORK_ERROR, HEALTH_CHECK_FAILED -> RecommendedAction.CHECK_NETWORK;
+			case CREDENTIAL_MISSING -> RecommendedAction.FIX_CREDENTIAL;
+			case STATE_CORRUPTION, DATABASE_UNAVAILABLE, UNKNOWN_FATAL ->
+				RecommendedAction.ABORT;
+			case BUILD_FAILED, TEST_FAILED, CODE_LOGIC_ERROR, EXECUTOR_FAILED, UNKNOWN ->
+				RecommendedAction.REVIEW_CODE;
+			case USAGE_LIMIT, GIT_CONFLICT, APPROVAL_REQUIRED, QUALITY_GATE_APPROVAL,
+				AMBIGUOUS_STATE, PERMISSION_DENIED, REMOTE_AUTHORITY_REQUIRED,
+				MODEL_NOT_FOUND, PROVIDER_DISABLED -> RecommendedAction.RETRY_MANUALLY;
+		};
+	}
+
+	/**
+	 * Classifies a free-form failure message without an LLM. Used by the
+	 * scheduler guardrail for job failures that carry no explicit class.
+	 */
+	public static FailureClass classifyMessage(String message) {
+		String lower = message == null ? "" : message.toLowerCase();
+		if (containsAny(lower, "tests run:", "failures:", "test failed", "assertionerror")) {
+			return FailureClass.TEST_FAILED;
+		}
+		if (containsAny(lower, "build failure", "cannot find symbol", "compilation failed",
+				"error ts")) {
+			return FailureClass.BUILD_FAILED;
+		}
+		if (containsAny(lower, "conflict", "local changes would be overwritten")) {
+			return FailureClass.GIT_CONFLICT;
+		}
+		if (containsAny(lower, "permission denied")) {
+			return FailureClass.PERMISSION_DENIED;
+		}
+		if (containsAny(lower, "timeout", "timed out", "connection refused", "could not resolve host",
+				"network is unreachable", "unable to access")) {
+			return FailureClass.NETWORK_ERROR;
+		}
+		if (containsAny(lower, "quota", "rate limit", "usage limit", "max tokens")) {
+			return FailureClass.USAGE_LIMIT;
+		}
+		if (containsAny(lower, "credential", "authentication", "unauthorized", "invalid api key")) {
+			return FailureClass.CREDENTIAL_MISSING;
+		}
+		if (containsAny(lower, "model not found", "unknown model", "no such model")) {
+			return FailureClass.MODEL_NOT_FOUND;
+		}
+		if (containsAny(lower, "provider is disabled", "provider disabled")) {
+			return FailureClass.PROVIDER_DISABLED;
+		}
+		if (containsAny(lower, "approval required")) {
+			return FailureClass.APPROVAL_REQUIRED;
+		}
+		if (containsAny(lower, "state corruption", "corrupt state")) {
+			return FailureClass.STATE_CORRUPTION;
+		}
+		if (containsAny(lower, "database unavailable", "database connection")) {
+			return FailureClass.DATABASE_UNAVAILABLE;
+		}
+		if (containsAny(lower, "executor failed")) {
+			return FailureClass.EXECUTOR_FAILED;
+		}
+		return FailureClass.UNKNOWN;
 	}
 
 	private static String combined(CommandResult result) {

@@ -21,6 +21,8 @@ import type { ExecutionWorkspaceReview } from '../api/executions'
 import type { ExecutionWorkspace } from '../types/executionWorkspace'
 import { getRemotePushApprovals, approveRemotePush, rejectRemotePush, pushRemote } from '../api/remotePush'
 import type { RemotePushApproval } from '../api/remotePush'
+import { getExecutionState } from '../api/planRuns'
+import type { ExecutionState } from '../api/planRuns'
 import { getTaskChanges, reviewChange, approveChange, rejectChange, commitChange, retryChangeProjection as retryChangeProjectionApi } from '../api/changes'
 import type { ChangeSet } from '../api/changes'
 import { getTaskCommits, recoverCommit } from '../api/commits'
@@ -51,6 +53,7 @@ const changeRetrying = ref(false)
 const deliveryValidation = ref<ValidationRun | null>(null)
 const deliveryGate = ref<QualityGateResult | null>(null)
 const validationBusy = ref(false)
+const executionState = ref<ExecutionState | null>(null)
 const monitoredTask = taskNotifications.taskState(taskId)
 const pendingRecord = computed(() => executions.records.value.slice().reverse().find(record => record.status === 'WAITING_APPROVAL' && record.approvalId && record.jobId && jobs.value[record.jobId]?.status === 'WAITING_APPROVAL' && codingApprovals.value[record.approvalId]?.status === 'PENDING') ?? null)
 const pendingApproval = computed(() => pendingRecord.value?.approvalId ? codingApprovals.value[pendingRecord.value.approvalId] ?? null : null)
@@ -114,6 +117,22 @@ function formatMs(ms: number): string {
   if (ms < 1000) return `${ms}ms`
   return `${(ms / 1000).toFixed(1)}s`
 }
+const nextAction = computed(() => {
+  const state = executionState.value
+  if (!state) return '—'
+  if (state.interventionStatus === 'STOPPED_SYSTEM_FAILURE') return 'System Stopped'
+  if (state.interventionStatus === 'HUMAN_GATE') return 'Human Gate'
+  if (state.interventionStatus === 'HUMAN_REQUIRED') return 'Human Action Required'
+  if (state.interventionStatus === 'LIMIT_REACHED' || state.interventionStatus === 'HUMAN_INTERVENTION_REQUIRED') return 'Human Intervention Required'
+  const response = state.lastResponse
+  if (response === 'RETRY_TOOL') return `Tool Retry ${state.lastAttempt}/${state.lastMaxAttempts}`
+  if (response === 'RETRY_AI') return `AI Repair ${state.lastAttempt}/${state.lastMaxAttempts}`
+  if (response === 'REPLAN_AI') return `AI Replan ${state.lastAttempt}/${state.lastMaxAttempts}`
+  if (response === 'REQUEST_HUMAN') return 'Human Action Required'
+  return 'Continue'
+})
+const currentFailure = computed(() => executionState.value?.lastFailureClass || 'None')
+const currentSeverity = computed(() => executionState.value?.lastSeverity || '—')
 const latestRecord = computed(() => executions.records.value.at(-1) ?? null)
 const latestJob = computed(() => latestRecord.value?.jobId ? jobs.value[latestRecord.value.jobId] ?? null : null)
 const lastFlowEvent = computed(() => taskTimeline.timeline.value?.events.at(-1) ?? null)
@@ -134,6 +153,9 @@ function reviewValidationStatus(review: ExecutionWorkspaceReview): string {
 }
 async function loadExecutionState(): Promise<void> {
   await executions.load(taskId)
+  const latestRecord = executions.records.value.at(-1)
+  const runId = latestRecord?.planRunId || context.task.value?.planRunId
+  executionState.value = runId ? await getExecutionState(runId).catch(() => null) : null
   const jobIds = [...new Set(executions.records.value.map(record => record.jobId).filter((id): id is string => Boolean(id)))]
   const loadedJobs = await Promise.all(jobIds.map(id => getJob(id)))
   jobs.value = Object.fromEntries(loadedJobs.map(job => [job.id, job]))
@@ -304,7 +326,7 @@ function reload(): void { void Promise.all([context.load(taskId), loadExecutionS
       <p class="page-eyebrow">Delivery</p><h2>ChangeSet not generated</h2><p class="error">Execution succeeded, but the ChangeSet projection is not available.</p>
       <el-button :loading="changeRetrying" @click="retryChangeProjection">Retry ChangeSet projection</el-button>
     </section>
-    <section class="flow-summary" aria-label="Execution diagnostics"><article><span>Current Task Status</span><strong>{{ context.task.value.status }}</strong></article><article><span>Current PlanRun Status</span><strong>{{ currentPlanRunStatus }}</strong></article><article><span>Current Job Status</span><strong>{{ latestJob?.status || 'Unknown' }}</strong></article><article><span>Current Approval Status</span><strong>{{ pendingApproval?.status || context.approval.value?.status || 'None' }}</strong></article><article><span>Latest Attempt</span><strong>{{ latestRecord?.status || 'Unknown' }}</strong></article><article><span>Resolved Executor</span><strong>{{ latestRecord?.executorName || 'Unknown' }}</strong></article><article><span>Last Flow Event</span><strong>{{ lastFlowEvent?.eventType || 'Unknown' }}</strong></article><article><span>Blocked Reason</span><strong>{{ latestRecord?.status === 'WAITING_APPROVAL' ? (latestRecord.message || 'Approval required') : 'None' }}</strong></article><article><span>Execution Type</span><strong>{{ executionTypeLabel }}</strong></article><article><span>Validation Profile</span><strong>{{ efficiency.profile }}</strong></article><article><span>AI Calls</span><strong>{{ efficiency.aiCalls }}</strong></article><article><span>Tool Calls</span><strong>{{ efficiency.toolCalls }}</strong></article><article><span>AI Time</span><strong>{{ formatMs(efficiency.aiMs) }}</strong></article><article><span>Tool Time</span><strong>{{ formatMs(efficiency.toolMs) }}</strong></article><article><span>Waiting Time</span><strong>{{ formatMs(efficiency.waitingMs) }}</strong></article></section>
+    <section class="flow-summary" aria-label="Execution diagnostics"><article><span>Current Task Status</span><strong>{{ context.task.value.status }}</strong></article><article><span>Current PlanRun Status</span><strong>{{ currentPlanRunStatus }}</strong></article><article><span>Current Job Status</span><strong>{{ latestJob?.status || 'Unknown' }}</strong></article><article><span>Current Approval Status</span><strong>{{ pendingApproval?.status || context.approval.value?.status || 'None' }}</strong></article><article><span>Latest Attempt</span><strong>{{ latestRecord?.status || 'Unknown' }}</strong></article><article><span>Resolved Executor</span><strong>{{ latestRecord?.executorName || 'Unknown' }}</strong></article><article><span>Last Flow Event</span><strong>{{ lastFlowEvent?.eventType || 'Unknown' }}</strong></article><article><span>Blocked Reason</span><strong>{{ latestRecord?.status === 'WAITING_APPROVAL' ? (latestRecord.message || 'Approval required') : 'None' }}</strong></article><article><span>Execution Type</span><strong>{{ executionTypeLabel }}</strong></article><article><span>Validation Profile</span><strong>{{ efficiency.profile }}</strong></article><article><span>AI Calls</span><strong>{{ efficiency.aiCalls }}</strong></article><article><span>Tool Calls</span><strong>{{ efficiency.toolCalls }}</strong></article><article><span>Attempts</span><strong>{{ executionState?.totalAttempts ?? 0 }}</strong></article><article><span>AI Attempts</span><strong>{{ executionState?.aiAttempts ?? 0 }}</strong></article><article><span>Tool Attempts</span><strong>{{ executionState?.toolAttempts ?? 0 }}</strong></article><article><span>Repair Attempts</span><strong>{{ executionState?.repairAttempts ?? 0 }}</strong></article><article><span>Current Failure</span><strong>{{ currentFailure }}</strong></article><article><span>Severity</span><strong>{{ currentSeverity }}</strong></article><article><span>Next Action</span><strong>{{ nextAction }}</strong></article><article><span>AI Time</span><strong>{{ formatMs(efficiency.aiMs) }}</strong></article><article><span>Tool Time</span><strong>{{ formatMs(efficiency.toolMs) }}</strong></article><article><span>Waiting Time</span><strong>{{ formatMs(efficiency.waitingMs) }}</strong></article></section>
     <el-card v-for="(record, index) in executions.records.value" :key="record.id" shadow="never" :class="['record-card', { 'historical-attempt': record !== latestRecord }]">
       <template #header><div class="record-header"><div><p class="page-eyebrow">Attempt {{ index + 1 }} <span v-if="record !== latestRecord">· Historical Attempt</span><span v-else>· Latest Attempt</span></p><h2>{{ record.status }}</h2></div><StatusBadge :status="record.status" /></div></template>
       <dl class="record-grid"><div><dt>Agent</dt><dd>{{ record.agentName || 'Unknown' }}</dd></div><div><dt>Actual Executor</dt><dd>{{ record.executorName || 'Unknown' }}</dd></div><div v-if="record.operation"><dt>Operation</dt><dd>{{ record.operation }}</dd></div><div><dt>Workspace</dt><dd>{{ record.workspace || 'Unknown' }}</dd></div><div><dt>Exit Code</dt><dd>{{ record.exitCode ?? '—' }}</dd></div><div v-if="record.resolvedModelId"><dt>Model</dt><dd>{{ record.resolvedModelId }}</dd></div><div v-if="record.modelProvider"><dt>Provider</dt><dd>{{ record.modelProvider }}</dd></div><div v-if="record.modelExecutor"><dt>Model Executor</dt><dd>{{ record.modelExecutor }}</dd></div><div v-if="record.requestedModelId"><dt>Requested</dt><dd>{{ record.requestedModelId }}</dd></div></dl>

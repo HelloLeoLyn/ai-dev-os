@@ -38,6 +38,18 @@ public class StepRun {
 		return attempt;
 	}
 
+	public synchronized StepAttempt restartForRetry(String attemptId, Instant time) {
+		if (status != StepRunStatus.FAILED) {
+			throw new IllegalStateException("Step is not failed: " + stepId);
+		}
+		status = StepRunStatus.RUNNING;
+		if (startedAt == null) {
+			startedAt = time;
+		}
+		StepAttempt attempt = new StepAttempt(attemptId, attempts.size() + 1, time);
+		attempts.add(attempt);
+		return attempt;
+	}
 	public synchronized void markWaitingApproval() { status = StepRunStatus.WAITING_APPROVAL; }
 	public synchronized void markRunning() { status = StepRunStatus.RUNNING; }
 	public synchronized void markSuccess(Instant time) {

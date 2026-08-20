@@ -16,8 +16,17 @@ import com.aidevos.orchestrator.approval.ApprovalStatus;
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.EventType;
 import com.aidevos.orchestrator.execution.ExecutionBudget;
+import com.aidevos.orchestrator.execution.ExecutionLimits;
 import com.aidevos.orchestrator.execution.ExecutionRecordRepository;
+import com.aidevos.orchestrator.execution.ExecutionStateRepository;
+import com.aidevos.orchestrator.execution.FailureClass;
 import com.aidevos.orchestrator.execution.FailureClassifier;
+import com.aidevos.orchestrator.execution.FailureResponse;
+import com.aidevos.orchestrator.execution.FailureSeverity;
+import com.aidevos.orchestrator.execution.InMemoryExecutionStateRepository;
+import com.aidevos.orchestrator.execution.InterventionStatus;
+import com.aidevos.orchestrator.execution.RecommendedAction;
+import com.aidevos.orchestrator.execution.RunExecutionState;
 import com.aidevos.orchestrator.execution.tool.DeterministicTool;
 import com.aidevos.orchestrator.execution.tool.ToolExecutionRequest;
 import com.aidevos.orchestrator.execution.tool.ToolExecutionResult;
@@ -73,6 +82,8 @@ public class PlanScheduler {
 	private volatile ToolExecutionService toolExecutionService;
 	private volatile ExecutionRecordRepository executionRecordRepository;
 	private volatile HumanApprovalRepository humanApprovalRepository;
+	private volatile ExecutionStateRepository executionStateRepository =
+		new InMemoryExecutionStateRepository();
 	private final ScheduledExecutorService monitor = Executors.newSingleThreadScheduledExecutor(
 		Thread.ofPlatform().daemon().name("plan-run-monitor").factory());
 
@@ -89,6 +100,13 @@ public class PlanScheduler {
 	@Autowired(required = false)
 	public void setHumanApprovalRepository(HumanApprovalRepository repository) {
 		this.humanApprovalRepository = repository;
+	}
+
+	@Autowired(required = false)
+	public void setExecutionStateRepository(ExecutionStateRepository repository) {
+		if (repository != null) {
+			this.executionStateRepository = repository;
+		}
 	}
 
 	public PlanScheduler(JobService jobService, StepTaskFactory taskFactory,
@@ -211,6 +229,171 @@ public class PlanScheduler {
 		return runRepository.getAll();
 	}
 
+	public RunExecutionState executionState(String runId) {
+		if (executionStateRepository == null) {
+			return null;
+		}
+		return executionStateRepository.get(runId);
+	}
+
+	/**
+	 * Single human intervention entry point for a NEEDS_INTERVENTION run.
+	 * RETRY resumes the failed step without clearing historical attempt
+	 * budgets, REPLAN follows the bounded replan path and ABORT terminates
+	 * the run permanently. The recommended action is never executed
+	 * automatically.
+	 */
+	public PlanRun decideIntervention(String runId, String action, String comment) {
+		PlanRun run = runRepository.get(runId);
+		if (run == null) {
+			throw new IllegalArgumentException("Plan run not found: " + runId);
+		}
+		String normalized = action == null ? "" : action.trim().toUpperCase();
+		return switch (normalized) {
+			case "RETRY" -> retryIntervention(run, comment);
+			case "REPLAN" -> replanIntervention(run, comment);
+			case "ABORT" -> abortIntervention(run, comment);
+			default -> throw new IllegalArgumentException(
+				"Unsupported intervention action: " + action);
+		};
+	}
+
+	private PlanRun retryIntervention(PlanRun run, String comment) {
+		requireIntervention(run);
+		RunExecutionState state = executionState(run);
+		ExecutionLimits limits = ExecutionLimits.resolve(plannerMetadata(run));
+		String exceeded = limits.exceeded(state);
+		if (exceeded != null) {
+			throw new IllegalStateException("Execution budget exhausted: " + exceeded);
+		}
+		StepRun step = run.getSteps().stream()
+			.filter(candidate -> candidate.getStatus() == StepRunStatus.FAILED)
+			.reduce((first, second) -> second)
+			.orElseThrow(() -> new IllegalStateException("No failed step to retry"));
+		PlanStep definition = step(run.getPlan(), step.getStepId());
+		Instant now = Instant.now(clock);
+		String failureClass = state.getLastFailureClass();
+		String previousSeverity = state.getLastSeverity();
+		StepAttempt attempt = step.restartForRetry(
+			attemptId(run.getId(), step.getStepId(), step.getAttempts().size() + 1), now);
+		state.resetConsecutiveFailures();
+		state.setInterventionStatus(InterventionStatus.NONE.name());
+		state.incrementTotalAttempts();
+		StepExecutionType executionType = definition.executionType();
+		boolean toolOrSystem = executionType == StepExecutionType.TOOL_STEP
+			|| executionType == StepExecutionType.SYSTEM_STEP;
+		if (toolOrSystem) {
+			state.incrementToolAttempts();
+		}
+		else {
+			state.incrementAiAttempts();
+		}
+		executionStateRepository.save(state);
+		auditService.guardrailEvent(EventType.HUMAN_INTERVENTION_RETRY, run, step, attempt,
+			run.getStatus().name(), "RUNNING",
+			comment == null || comment.isBlank() ? "Human retry" : comment,
+			interventionMetadata(state, "RETRY", failureClass, previousSeverity, comment));
+		run.markRunning(now);
+		try {
+			if (toolOrSystem) {
+				executeDeterministicStep(run, definition, step, attempt);
+				if (step.getStatus() == StepRunStatus.SUCCESS) {
+					advance(run);
+				}
+			}
+			else if (executionType == StepExecutionType.HUMAN_GATE) {
+				throw new IllegalStateException("Human gate step cannot be retried automatically");
+			}
+			else {
+				TaskDefinition task = taskFactory.create(run, definition, step, attempt,
+					resolveInputs(run, definition));
+				JobSubmissionResponse submission = jobService.submit(task,
+					jobId(attempt.getId()));
+				attempt.bindJob(submission.jobId());
+				auditService.stepEvent(EventType.STEP_JOB_BOUND, run, step, attempt,
+					attempt.getStatus().name(), attempt.getStatus().name());
+			}
+		}
+		catch (RuntimeException exception) {
+			fail(run, step, attempt, errorMessage(exception), null, null, false);
+		}
+		runRepository.save(run);
+		return run;
+	}
+
+	private PlanRun replanIntervention(PlanRun run, String comment) {
+		requireIntervention(run);
+		RunExecutionState state = executionState(run);
+		ExecutionLimits limits = ExecutionLimits.resolve(plannerMetadata(run));
+		if (limits.exceeded(state) != null
+				|| state.getReplanAttempts() >= limits.maxReplanAttempts()) {
+			throw new IllegalStateException("Replan budget exhausted");
+		}
+		StepRun step = run.getSteps().stream()
+			.filter(candidate -> candidate.getStatus() == StepRunStatus.FAILED)
+			.reduce((first, second) -> second)
+			.orElseThrow(() -> new IllegalStateException("No failed step to replan"));
+		Instant now = Instant.now(clock);
+		String failureClass = state.getLastFailureClass();
+		String previousSeverity = state.getLastSeverity();
+		state.incrementReplanAttempts();
+		state.setInterventionStatus(InterventionStatus.NONE.name());
+		state.setRecommendedAction(RecommendedAction.REPLAN.name());
+		executionStateRepository.save(state);
+		String reason = comment == null || comment.isBlank()
+			? "Human requested replan" : "Human requested replan: " + comment;
+		replanRequestService.create(run, step, null, reason, false);
+		auditService.guardrailEvent(EventType.HUMAN_INTERVENTION_REPLAN, run, step, null,
+			run.getStatus().name(), PlanRunStatus.REPLAN_REQUIRED.name(), reason,
+			interventionMetadata(state, "REPLAN", failureClass, previousSeverity, comment));
+		run.markReplanRequired(reason, now);
+		runRepository.save(run);
+		return run;
+	}
+
+	private PlanRun abortIntervention(PlanRun run, String comment) {
+		if (run.getStatus() == PlanRunStatus.ABORTED) {
+			return run;
+		}
+		requireIntervention(run);
+		RunExecutionState state = executionState(run);
+		Instant now = Instant.now(clock);
+		String failureClass = state.getLastFailureClass();
+		String previousSeverity = state.getLastSeverity();
+		String reason = comment == null || comment.isBlank()
+			? "Aborted by human" : "Aborted by human: " + comment;
+		auditService.guardrailEvent(EventType.HUMAN_INTERVENTION_ABORT, run, null, null,
+			run.getStatus().name(), PlanRunStatus.ABORTED.name(), reason,
+			interventionMetadata(state, "ABORT", failureClass, previousSeverity, comment));
+		run.markAborted(reason, now);
+		runRepository.save(run);
+		return run;
+	}
+
+	private void requireIntervention(PlanRun run) {
+		if (run.getStatus() != PlanRunStatus.NEEDS_INTERVENTION) {
+			throw new IllegalStateException(
+				"Plan run is not waiting for intervention: " + run.getId());
+		}
+	}
+
+	private Map<String, Object> interventionMetadata(RunExecutionState state, String action,
+			String failureClass, String previousSeverity, String comment) {
+		Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+		metadata.put("runId", state.getRunId());
+		metadata.put("failureClass", failureClass == null ? "" : failureClass);
+		metadata.put("previousSeverity", previousSeverity == null ? "" : previousSeverity);
+		metadata.put("action", action);
+		metadata.put("comment", comment == null ? "" : comment);
+		metadata.put("totalAttempts", state.getTotalAttempts());
+		metadata.put("aiAttempts", state.getAiAttempts());
+		metadata.put("toolAttempts", state.getToolAttempts());
+		metadata.put("repairAttempts", state.getRepairAttempts());
+		metadata.put("replanAttempts", state.getReplanAttempts());
+		metadata.put("consecutiveFailures", state.getConsecutiveFailures());
+		return metadata;
+	}
+
 	public void reconcile() {
 		for (PlanRun run : new ArrayList<>(runRepository.getAll())) {
 			reconcile(run);
@@ -243,6 +426,12 @@ public class PlanScheduler {
 			consumeApprovalIfPending(current);
 			PlanRunStatus beforeStatus = current.getStatus();
 			try {
+				String exceeded = exceededLimit(current);
+				if (exceeded != null) {
+					RunExecutionState state = executionState(current);
+					stopForLimit(current, null, null, exceeded, null, state);
+					return;
+				}
 				StepRun active = activeStep(current);
 				if (active == null) {
 					advance(current);
@@ -317,6 +506,9 @@ public class PlanScheduler {
 					active.getId(), job.getId(), job.getApprovalId(), attempt.getId(),
 					job.getExecutionRecordId(), null, null, job.getStatus().name(), "SUCCESS",
 					"expected artifacts satisfied", null);
+				RunExecutionState successState = executionState(current);
+				successState.resetConsecutiveFailures();
+				executionStateRepository.save(successState);
 				attempt.markSuccess(job.getExecutionRecordId(), now);
 				active.markSuccess(now);
 				auditService.stepEvent(EventType.STEP_SUCCEEDED, current, active, attempt, "RUNNING",
@@ -340,6 +532,12 @@ public class PlanScheduler {
 			run.markSuccess(Instant.now(clock));
 			return;
 		}
+		String exceeded = exceededLimit(run);
+		if (exceeded != null) {
+			RunExecutionState state = executionState(run);
+			stopForLimit(run, null, null, exceeded, null, state);
+			return;
+		}
 		StepRun next = run.getSteps().stream()
 			.filter(step -> step.getStatus() == StepRunStatus.PENDING)
 			.filter(step -> dependenciesSucceeded(run, step.getStepId()))
@@ -354,6 +552,20 @@ public class PlanScheduler {
 			attemptId(run.getId(), next.getStepId(), attemptNumber), Instant.now(clock));
 		auditService.stepEvent(EventType.STEP_ATTEMPT_STARTED, run, next, attempt, "PENDING",
 			next.getStatus().name());
+		StepExecutionType executionType = definition.executionType();
+		boolean toolOrSystem = executionType == StepExecutionType.TOOL_STEP
+			|| executionType == StepExecutionType.SYSTEM_STEP;
+		if (toolOrSystem || executionType != StepExecutionType.HUMAN_GATE) {
+			RunExecutionState state = executionState(run);
+			state.incrementTotalAttempts();
+			if (toolOrSystem) {
+				state.incrementToolAttempts();
+			}
+			else {
+				state.incrementAiAttempts();
+			}
+			executionStateRepository.save(state);
+		}
 		try {
 			if (definition.executionType() == StepExecutionType.TOOL_STEP
 					|| definition.executionType() == StepExecutionType.SYSTEM_STEP) {
@@ -388,7 +600,8 @@ public class PlanScheduler {
 		}
 		ExecutionBudget budget = ExecutionBudget.resolve(plannerMetadata(run));
 		ToolExecutionRequest request = ToolExecutionRequest.of(deterministicTool(definition),
-			arguments(definition), workspacePath(run));
+			arguments(definition), stepWorkingDirectory(definition, workspacePath(run)),
+			stepTimeout(definition));
 		ToolExecutionResult result = null;
 		int maxRetries = Math.max(0, budget.maxToolRetries());
 		for (int attemptNumber = 0; attemptNumber <= maxRetries; attemptNumber++) {
@@ -396,11 +609,24 @@ public class PlanScheduler {
 			if (result.success() || !FailureClassifier.isRetryable(result.failureClass())) {
 				break;
 			}
+			RunExecutionState state = executionState(run);
+			FailureClass failureClass = result.failureClass();
+			state.recordFailure(failureClass, FailureClassifier.severity(failureClass),
+				FailureResponse.RETRY_TOOL, attemptNumber + 1, maxRetries + 1,
+				toolFailureMessage(result));
+			executionStateRepository.save(state);
+			auditService.guardrailEvent(EventType.EXECUTION_RETRY, run, step, attempt,
+				"RUNNING", "RETRY",
+				"Tool retry " + (attemptNumber + 1) + "/" + (maxRetries + 1),
+				failureMetadata(state));
 		}
 		ExecutionRecord record = persistToolRecord(run, definition, step, attempt, result, budget);
 		String recordId = record == null ? null : record.getId();
 		Instant now = Instant.now(clock);
 		if (result.success()) {
+			RunExecutionState state = executionState(run);
+			state.resetConsecutiveFailures();
+			executionStateRepository.save(state);
 			attempt.markSuccess(recordId, now);
 			step.markSuccess(now);
 			auditService.stepEvent(EventType.STEP_SUCCEEDED, run, step, attempt, "RUNNING",
@@ -461,6 +687,9 @@ public class PlanScheduler {
 		Instant now = Instant.now(clock);
 		if (approval.getStatus() == HumanApprovalStatus.APPROVED) {
 			String from = step.getStatus().name();
+			RunExecutionState gateState = executionState(run);
+			gateState.resetConsecutiveFailures();
+			executionStateRepository.save(gateState);
 			attempt.markSuccess(null, now);
 			step.markSuccess(now);
 			run.markRunning(now);
@@ -575,16 +804,36 @@ public class PlanScheduler {
 	private DeterministicTool deterministicTool(PlanStep definition) {
 		String toolName = definition.toolName() == null || definition.toolName().isBlank()
 			? "shell" : definition.toolName();
-		return switch (toolName.toLowerCase()) {
-			case "git" -> DeterministicTool.GIT;
-			case "maven", "mvn" -> DeterministicTool.MAVEN;
-			case "npm" -> DeterministicTool.NPM;
-			case "shell", "sh" -> DeterministicTool.SHELL;
-			case "http", "health", "http_health" -> DeterministicTool.HTTP_HEALTH;
-			case "workspace" -> DeterministicTool.WORKSPACE;
-			case "validation" -> DeterministicTool.VALIDATION;
-			default -> throw new IllegalStateException("Unsupported deterministic tool: " + toolName);
-		};
+		return DeterministicTool.fromName(toolName).orElseThrow(() ->
+			new IllegalStateException("Unsupported deterministic tool: " + toolName));
+	}
+
+	private String stepWorkingDirectory(PlanStep definition, String workspacePath) {
+		Object dir = stepMetadata(definition, "workingDirectory");
+		if (dir instanceof String text && !text.isBlank()) {
+			if (workspacePath == null || workspacePath.isBlank()
+					|| text.startsWith(workspacePath)) {
+				return text;
+			}
+			return workspacePath;
+		}
+		return workspacePath;
+	}
+
+	private Duration stepTimeout(PlanStep definition) {
+		Object seconds = stepMetadata(definition, "timeoutSeconds");
+		if (seconds instanceof Number number && number.longValue() > 0) {
+			return Duration.ofSeconds(number.longValue());
+		}
+		return null;
+	}
+
+	private Object stepMetadata(PlanStep definition, String key) {
+		Object value = definition.parameters().get(key);
+		if (value == null) {
+			value = definition.toolArguments().get(key);
+		}
+		return value;
 	}
 
 	private List<String> arguments(PlanStep definition) {
@@ -632,10 +881,30 @@ public class PlanScheduler {
 	 */
 	private void repairMissingJob(PlanRun run, StepRun step, StepAttempt attempt) {
 		PlanStep definition = step(run.getPlan(), step.getStepId());
+		RunExecutionState state = executionState(run);
+		ExecutionLimits limits = ExecutionLimits.resolve(plannerMetadata(run));
+		state.incrementRepairAttempts();
+		state.recordFailure(FailureClass.EXECUTOR_FAILED, FailureSeverity.L1_AI_RECOVERABLE,
+			FailureResponse.RETRY_AI, attempt == null ? 0 : attempt.getNumber(),
+			limits.maxRepairAttempts(), "Submitted job missing; repairing job binding");
+		executionStateRepository.save(state);
+		if (limits.exceeded(state) != null
+				|| state.getRepairAttempts() >= limits.maxRepairAttempts()) {
+			stopForLimit(run, step, attempt, "maxRepairAttempts",
+				FailureClass.EXECUTOR_FAILED, state);
+			return;
+		}
+		auditService.guardrailEvent(EventType.AI_REPAIR_REQUESTED, run, step, attempt,
+			step.getStatus().name(), step.getStatus().name(),
+			"AI repair requested " + state.getRepairAttempts() + "/"
+				+ limits.maxRepairAttempts(),
+			failureMetadata(state));
 		try {
 			TaskDefinition task = taskFactory.create(run, definition, step, attempt,
 				resolveInputs(run, definition));
-			JobSubmissionResponse submission = jobService.submit(task, jobId(attempt.getId()));
+			String submitJobId = attempt.getJobId() == null
+				? jobId(attempt.getId()) : attempt.getJobId();
+			JobSubmissionResponse submission = jobService.submit(task, submitJobId);
 			attempt.bindJob(submission.jobId());
 			auditService.stepEvent(EventType.STEP_JOB_BOUND, run, step, attempt,
 				attempt.getStatus().name(), attempt.getStatus().name());
@@ -776,20 +1045,237 @@ public class PlanScheduler {
 			String recordId, ExecutionJob job, boolean artifactMissing) {
 		String message = error == null || error.isBlank() ? "Step execution failed" : error;
 		Instant now = Instant.now(clock);
+		PlanStep definition = step(run.getPlan(), step.getStepId());
+		RunExecutionState state = executionState(run);
+		FailureClass failureClass = FailureClassifier.classifyMessage(message);
+		FailureSeverity severity = FailureClassifier.severity(failureClass);
+		FailureResponse response = FailureClassifier.response(failureClass);
+		ExecutionLimits limits = ExecutionLimits.resolve(plannerMetadata(run));
+		// An L1 failure of an AI job may be repaired by a bounded AI repair
+		// job unless the step explicitly requests a replan or the failure is a
+		// contract/artifact mismatch. Tool failures and human decisions never
+		// auto-repair.
+		boolean aiRepairable = job != null && !artifactMissing
+			&& severity == FailureSeverity.L1_AI_RECOVERABLE
+			&& (response == FailureResponse.RETRY_AI || response == FailureResponse.REPLAN_AI)
+			&& definition.failurePolicy() != FailurePolicy.REQUEST_REPLAN;
+		state.incrementConsecutiveFailures();
+		if (aiRepairable) {
+			state.incrementRepairAttempts();
+		}
+		state.recordFailure(failureClass, severity, response,
+			attempt == null ? 0 : attempt.getNumber(), maxAttempts(limits, response), message);
+		state.setRecommendedAction(
+			FailureClassifier.recommendedAction(failureClass, response).name());
+		executionStateRepository.save(state);
+		if (aiRepairable) {
+			if (state.getRepairAttempts() >= limits.maxRepairAttempts()) {
+				repairExhausted(run, step, attempt, state,
+					"AI repair attempts exhausted (" + state.getRepairAttempts() + "/"
+						+ limits.maxRepairAttempts() + "): " + message);
+				return;
+			}
+			if (submitAiRepair(run, definition, step, attempt, message, state, limits)) {
+				attempt.markRunning();
+				step.markRunning();
+				return;
+			}
+		}
 		if (attempt != null) {
 			attempt.markFailed(recordId, message, now);
 		}
 		step.markFailed(message, now);
 		auditService.stepEvent(EventType.STEP_FAILED, run, step, attempt, "RUNNING",
 			step.getStatus().name());
-		PlanStep definition = step(run.getPlan(), step.getStepId());
+		if (severity == FailureSeverity.L4_SYSTEM_FAILURE) {
+			escalate(run, step, attempt, failureClass, severity, response, state,
+				"System execution stopped: " + message);
+			return;
+		}
+		if (severity == FailureSeverity.L2_HUMAN_DECISION
+				|| severity == FailureSeverity.L3_HUMAN_REQUIRED) {
+			escalate(run, step, attempt, failureClass, severity, response, state, message);
+			return;
+		}
+		String exceeded = limits.exceeded(state);
+		if (exceeded != null) {
+			stopForLimit(run, step, attempt, exceeded, failureClass, state);
+			return;
+		}
+		if (severity == FailureSeverity.L0_RECOVERABLE) {
+			// Deterministic retry is exhausted; escalate instead of looping.
+			escalate(run, step, attempt, failureClass, severity, response, state,
+				"Recoverable retry exhausted: " + message);
+			return;
+		}
 		if (definition.failurePolicy() == FailurePolicy.REQUEST_REPLAN) {
+			state.incrementReplanAttempts();
+			state.setRecommendedAction(RecommendedAction.REPLAN.name());
+			executionStateRepository.save(state);
+			if (limits.exceeded(state) != null
+					|| state.getReplanAttempts() >= limits.maxReplanAttempts()) {
+				stopForLimit(run, step, attempt, "maxReplanAttempts", failureClass, state);
+				return;
+			}
 			replanRequestService.create(run, step, job, message, artifactMissing);
 			run.markReplanRequired(message, now);
 		}
 		else {
 			run.markFailed(message, now);
 		}
+	}
+
+	/**
+	 * Submits one bounded AI repair job for an L1 AI failure and binds it to
+	 * the running attempt with a deterministic repair job id so reconcile
+	 * ticks never create a duplicate. Returns false when a limit is already
+	 * reached or submission fails; the caller then falls through to the
+	 * normal failure path.
+	 */
+	private boolean submitAiRepair(PlanRun run, PlanStep definition, StepRun step,
+			StepAttempt attempt, String failureMessage, RunExecutionState state,
+			ExecutionLimits limits) {
+		if (limits.exceeded(state) != null) {
+			return false;
+		}
+		try {
+			TaskDefinition task = taskFactory.create(run, definition, step, attempt,
+				resolveInputs(run, definition));
+			task.setId(task.getId() + ":repair:" + state.getRepairAttempts());
+			Map<String, Object> metadata = new java.util.LinkedHashMap<>(task.getMetadata());
+			metadata.put("isRepair", true);
+			metadata.put("repairAttempt", state.getRepairAttempts());
+			metadata.put("repairReason", failureMessage);
+			task.setMetadata(Map.copyOf(metadata));
+			String repairJobId = "job-" + attempt.getId() + ":repair:"
+				+ state.getRepairAttempts();
+			JobSubmissionResponse submission = jobService.submit(task, repairJobId);
+			attempt.bindJob(submission.jobId());
+			state.incrementAiAttempts();
+			state.incrementTotalAttempts();
+			executionStateRepository.save(state);
+			auditService.guardrailEvent(EventType.AI_REPAIR_REQUESTED, run, step, attempt,
+				step.getStatus().name(), "REPAIR",
+				"AI repair requested " + state.getRepairAttempts() + "/"
+					+ limits.maxRepairAttempts(),
+				failureMetadata(state));
+			return true;
+		}
+		catch (RuntimeException exception) {
+			return false;
+		}
+	}
+
+	/**
+	 * Marks the run as needing intervention with the severity-appropriate
+	 * intervention status and audit event. The run never stays in an
+	 * automatic retry loop at this severity.
+	 */
+	private void escalate(PlanRun run, StepRun step, StepAttempt attempt,
+			FailureClass failureClass, FailureSeverity severity, FailureResponse response,
+			RunExecutionState state, String reason) {
+		switch (severity) {
+			case L4_SYSTEM_FAILURE -> {
+				state.setInterventionStatus(InterventionStatus.STOPPED_SYSTEM_FAILURE.name());
+				auditService.guardrailEvent(EventType.SYSTEM_EXECUTION_STOPPED, run, step,
+					attempt, run.getStatus().name(),
+					PlanRunStatus.NEEDS_INTERVENTION.name(), reason, failureMetadata(state));
+			}
+			case L3_HUMAN_REQUIRED -> {
+				state.setInterventionStatus(InterventionStatus.HUMAN_REQUIRED.name());
+				auditService.guardrailEvent(EventType.HUMAN_INTERVENTION_REQUIRED, run, step,
+					attempt, run.getStatus().name(),
+					PlanRunStatus.NEEDS_INTERVENTION.name(), reason, failureMetadata(state));
+			}
+			case L2_HUMAN_DECISION -> {
+				state.setInterventionStatus(InterventionStatus.HUMAN_GATE.name());
+				auditService.guardrailEvent(EventType.HUMAN_INTERVENTION_REQUIRED, run, step,
+					attempt, run.getStatus().name(),
+					PlanRunStatus.NEEDS_INTERVENTION.name(), reason, failureMetadata(state));
+			}
+			default -> {
+				state.setInterventionStatus(
+					InterventionStatus.HUMAN_INTERVENTION_REQUIRED.name());
+				auditService.guardrailEvent(EventType.HUMAN_INTERVENTION_REQUIRED, run, step,
+					attempt, run.getStatus().name(),
+					PlanRunStatus.NEEDS_INTERVENTION.name(), reason, failureMetadata(state));
+			}
+		}
+		executionStateRepository.save(state);
+		run.markNeedsIntervention(reason, Instant.now(clock));
+	}
+
+	/**
+	 * Stops the run when an execution limit is reached. No new job, LLM call
+	 * or tool execution is started after this point.
+	 */
+	private void stopForLimit(PlanRun run, StepRun step, StepAttempt attempt, String exceeded,
+			FailureClass failureClass, RunExecutionState state) {
+		String reason = "Execution limit reached: " + exceeded;
+		auditService.guardrailEvent(EventType.EXECUTION_LIMIT_REACHED, run, step, attempt,
+			run.getStatus().name(), PlanRunStatus.NEEDS_INTERVENTION.name(), reason,
+			failureMetadata(state));
+		auditService.guardrailEvent(EventType.HUMAN_INTERVENTION_REQUIRED, run, step, attempt,
+			run.getStatus().name(), PlanRunStatus.NEEDS_INTERVENTION.name(), reason,
+			failureMetadata(state));
+		state.setInterventionStatus(InterventionStatus.LIMIT_REACHED.name());
+		executionStateRepository.save(state);
+		run.markNeedsIntervention(reason, Instant.now(clock));
+	}
+
+	/**
+	 * Marks the run for human intervention after the AI repair budget is
+	 * exhausted.
+	 */
+	private void repairExhausted(PlanRun run, StepRun step, StepAttempt attempt,
+			RunExecutionState state, String reason) {
+		auditService.guardrailEvent(EventType.AI_REPAIR_EXHAUSTED, run, step, attempt,
+			run.getStatus().name(), PlanRunStatus.NEEDS_INTERVENTION.name(), reason,
+			failureMetadata(state));
+		auditService.guardrailEvent(EventType.HUMAN_INTERVENTION_REQUIRED, run, step, attempt,
+			run.getStatus().name(), PlanRunStatus.NEEDS_INTERVENTION.name(), reason,
+			failureMetadata(state));
+		state.setInterventionStatus(InterventionStatus.HUMAN_INTERVENTION_REQUIRED.name());
+		executionStateRepository.save(state);
+		run.markNeedsIntervention(reason, Instant.now(clock));
+	}
+
+	private int maxAttempts(ExecutionLimits limits, FailureResponse response) {
+		return switch (response) {
+			case RETRY_TOOL -> limits.maxToolAttempts();
+			case RETRY_AI, REPLAN_AI -> limits.maxRepairAttempts();
+			case REQUEST_HUMAN, STOP -> 0;
+		};
+	}
+
+	private Map<String, Object> failureMetadata(RunExecutionState state) {
+		Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+		metadata.put("failureClass", state.getLastFailureClass() == null
+			? "" : state.getLastFailureClass());
+		metadata.put("severity", state.getLastSeverity() == null ? "" : state.getLastSeverity());
+		metadata.put("response", state.getLastResponse() == null ? "" : state.getLastResponse());
+		metadata.put("attempt", state.getLastAttempt());
+		metadata.put("maxAttempts", state.getLastMaxAttempts());
+		metadata.put("reason", state.getLastReason() == null ? "" : state.getLastReason());
+		metadata.put("recommendedAction", state.getRecommendedAction() == null
+			? "" : state.getRecommendedAction());
+		return metadata;
+	}
+
+	private RunExecutionState executionState(PlanRun run) {
+		if (executionStateRepository == null) {
+			throw new IllegalStateException("Execution guardrail service unavailable");
+		}
+		RunExecutionState state = executionStateRepository.get(run.getId());
+		if (state == null) {
+			state = new RunExecutionState(run.getId());
+			executionStateRepository.save(state);
+		}
+		return state;
+	}
+
+	private String exceededLimit(PlanRun run) {
+		return ExecutionLimits.resolve(plannerMetadata(run)).exceeded(executionState(run));
 	}
 
 	private StepRun activeStep(PlanRun run) {
@@ -811,7 +1297,9 @@ public class PlanScheduler {
 
 	private boolean terminal(PlanRunStatus status) {
 		return status == PlanRunStatus.SUCCESS || status == PlanRunStatus.FAILED
-			|| status == PlanRunStatus.REPLAN_REQUIRED;
+			|| status == PlanRunStatus.REPLAN_REQUIRED
+			|| status == PlanRunStatus.NEEDS_INTERVENTION
+			|| status == PlanRunStatus.ABORTED;
 	}
 
 	private String errorMessage(RuntimeException exception) {

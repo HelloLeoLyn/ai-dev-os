@@ -9,6 +9,7 @@ import com.aidevos.orchestrator.plan.Plan;
 import com.aidevos.orchestrator.plan.PlanSnapshot;
 import com.aidevos.orchestrator.plan.PlanValidationResult;
 import com.aidevos.orchestrator.plan.PlanValidator;
+import com.aidevos.orchestrator.plan.StepExecutionType;
 import com.aidevos.orchestrator.tool.ToolAccess;
 import org.junit.jupiter.api.Test;
 
@@ -95,6 +96,32 @@ class HermesMultiStepPlannerTest {
 		assertTrue(step.expectedArtifacts().getFirst().required());
 		assertEquals(1, step.expectedArtifacts().getFirst().minimumCount());
 		assertTrue(step.requiresWorkspaceChange());
+	}
+
+	@Test
+	void toolchainPlanClassifiesFixCompileAndTestSteps() {
+		PlanningRequest request = new PlanningRequest("user-fix",
+			"修改 UserService 中的一个 bug，然后编译并运行对应测试。", HermesPlanner.NAME,
+			null, "prompt-v1",
+			Map.of("toolPlan", true, "workspace", "/tmp/user-service", "module", "user-service"),
+			snapshot(), Map.of());
+
+		Plan plan = planner.plan(request).toPlan();
+
+		assertEquals(List.of("fix-code", "compile", "test"),
+			plan.steps().stream().map(step -> step.id()).toList());
+		assertEquals(List.of(StepExecutionType.AI_STEP, StepExecutionType.TOOL_STEP,
+			StepExecutionType.TOOL_STEP),
+			plan.steps().stream().map(step -> step.executionType()).toList());
+		assertEquals("maven", plan.steps().get(1).toolName());
+		assertEquals("compile", plan.steps().get(1).toolArguments().get("command"));
+		assertEquals("maven", plan.steps().get(2).toolName());
+		assertEquals("test", plan.steps().get(2).toolArguments().get("command"));
+		assertEquals("FAST", plan.snapshot().plannerMetadata().get("validationProfile"));
+		assertEquals("/tmp/user-service",
+			plan.snapshot().plannerMetadata().get("workspacePath"));
+		assertEquals("/tmp/user-service", plan.steps().get(1).parameters().get("workingDirectory"));
+		assertTrue(validator.validate(plan).valid());
 	}
 
 	private PlanningRequest request(PlanSnapshot snapshot) {

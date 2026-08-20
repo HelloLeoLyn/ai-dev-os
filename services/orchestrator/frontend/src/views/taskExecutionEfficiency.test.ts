@@ -21,6 +21,17 @@ describe('execution efficiency UX', () => {
     expect(source).toContain('formatMs(efficiency.waitingMs)')
   })
 
+  it('shows execution guardrail counters and next action', () => {
+    expect(source).toContain('<span>Attempts</span>')
+    expect(source).toContain('<span>AI Attempts</span>')
+    expect(source).toContain('<span>Tool Attempts</span>')
+    expect(source).toContain('<span>Repair Attempts</span>')
+    expect(source).toContain('<span>Current Failure</span>')
+    expect(source).toContain('<span>Severity</span>')
+    expect(source).toContain('<span>Next Action</span>')
+    expect(source).toContain('getExecutionState(runId)')
+  })
+
   it('classifies records as AI or tool deterministically', () => {
     expect(source).toContain("name === 'deterministic'")
     expect(source).toContain("record.executionType === 'TOOL_STEP'")

@@ -13,6 +13,7 @@ import java.util.Set;
 
 import com.aidevos.orchestrator.execution.ExecutionRecordRepository;
 import com.aidevos.orchestrator.execution.FailureClass;
+import com.aidevos.orchestrator.execution.RunExecutionState;
 import com.aidevos.orchestrator.execution.ExecutionArtifact;
 import com.aidevos.orchestrator.execution.ExecutionResult;
 import com.aidevos.orchestrator.execution.tool.DeterministicTool;
@@ -172,20 +173,22 @@ class PlanSchedulerTest {
 	}
 
 	@Test
-	void jobFailureShouldStopPlanAndLeaveLaterStepPending() {
+	void jobL3FailureStopsPlanAndLeavesLaterStepPending() {
 		Plan plan = plan(List.of(step("first", false), step("second", false)),
 			List.of(new Dependency("first", "second", true)));
 		approve(plan);
 		PlanRun run = scheduler.start("approval-1");
 
 		ExecutionResult failure = result(false, false);
-		job(0).markFailed(failure, "executor failed", "record-1");
+		job(0).markFailed(failure, "credential invalid", "record-1");
 		scheduler.reconcile();
 
-		assertEquals(PlanRunStatus.FAILED, run.getStatus());
+		assertEquals(PlanRunStatus.NEEDS_INTERVENTION, run.getStatus());
 		assertEquals(StepRunStatus.FAILED, run.getSteps().get(0).getStatus());
 		assertEquals(StepRunStatus.PENDING, run.getSteps().get(1).getStatus());
 		assertEquals(1, submissions.size());
+		assertEquals("FIX_CREDENTIAL",
+			scheduler.executionState(run.getId()).getRecommendedAction());
 	}
 
 	@Test
@@ -462,7 +465,7 @@ class PlanSchedulerTest {
 	}
 
 	@Test
-	void toolStepRetriesUpToBudgetBeforeFailing() {
+	void toolStepL1FailureIsNotRetriedAtToolLayer() {
 		ToolExecutionService toolService = mock(ToolExecutionService.class);
 		scheduler.setToolExecutionService(toolService);
 		when(toolService.execute(any())).thenReturn(new ToolExecutionResult(
@@ -476,12 +479,12 @@ class PlanSchedulerTest {
 		assertEquals(PlanRunStatus.FAILED, run.getStatus());
 		assertEquals(StepRunStatus.FAILED, run.getSteps().getFirst().getStatus());
 		assertTrue(run.getError().contains("Tool step failed"));
-		verify(toolService, times(2)).execute(any());
+		verify(toolService, times(1)).execute(any());
 		assertEquals(0, submissions.size());
 	}
 
 	@Test
-	void toolStepPermanentFailureDoesNotRetry() {
+	void toolStepL3CredentialFailureDoesNotRetryOrInvokeAi() {
 		ToolExecutionService toolService = mock(ToolExecutionService.class);
 		scheduler.setToolExecutionService(toolService);
 		when(toolService.execute(any())).thenReturn(new ToolExecutionResult(
@@ -492,9 +495,12 @@ class PlanSchedulerTest {
 
 		PlanRun run = scheduler.start("approval-1");
 
-		assertEquals(PlanRunStatus.FAILED, run.getStatus());
+		assertEquals(PlanRunStatus.NEEDS_INTERVENTION, run.getStatus());
+		assertEquals(StepRunStatus.FAILED, run.getSteps().getFirst().getStatus());
 		verify(toolService, times(1)).execute(any());
-		assertEquals(0, submissions.size());
+		verify(jobService, never()).submit(any(), any());
+		assertEquals("HUMAN_REQUIRED",
+			scheduler.executionState(run.getId()).getInterventionStatus());
 	}
 
 	@Test
@@ -509,9 +515,13 @@ class PlanSchedulerTest {
 
 		PlanRun run = scheduler.start("approval-1");
 
-		assertEquals(PlanRunStatus.FAILED, run.getStatus());
+		assertEquals(PlanRunStatus.NEEDS_INTERVENTION, run.getStatus());
 		verify(toolService, times(2)).execute(any());
 		assertEquals(0, submissions.size());
+		assertEquals("HUMAN_INTERVENTION_REQUIRED",
+			scheduler.executionState(run.getId()).getInterventionStatus());
+		assertEquals("CHECK_NETWORK",
+			scheduler.executionState(run.getId()).getRecommendedAction());
 	}
 
 	@Test
@@ -732,6 +742,449 @@ class PlanSchedulerTest {
 		assertEquals(1, task.getMetadata().get("maxToolRetries"));
 	}
 
+	@Test
+	void toolRetryLimitStopsExecutionWithoutInfiniteRetry() {
+		ToolExecutionService toolService = mock(ToolExecutionService.class);
+		scheduler.setToolExecutionService(toolService);
+		when(toolService.execute(any())).thenReturn(new ToolExecutionResult(
+			DeterministicTool.GIT, false, 1, null, "connection refused", 3,
+			FailureClass.NETWORK_ERROR));
+		PlanStep toolStep = step("tool", false).withExecutionType(StepExecutionType.TOOL_STEP);
+		Map<String, Object> limits = new LinkedHashMap<>();
+		limits.put("maxToolAttempts", 1);
+		approve(planWithMetadata(List.of(toolStep), List.of(), limits));
+
+		PlanRun run = scheduler.start("approval-1");
+
+		assertEquals(PlanRunStatus.NEEDS_INTERVENTION, run.getStatus());
+		assertEquals(StepRunStatus.FAILED, run.getSteps().getFirst().getStatus());
+		assertEquals("LIMIT_REACHED", scheduler.executionState(run.getId()).getInterventionStatus());
+		verify(toolService, times(2)).execute(any());
+		verify(jobService, never()).submit(any(), any());
+	}
+
+	@Test
+	void aiRepairLimitRoutesToHumanIntervention() {
+		Map<String, Object> limits = new LinkedHashMap<>();
+		limits.put("maxRepairAttempts", 1);
+		approve(planWithMetadata(List.of(step("ai", false)), List.of(), limits));
+		PlanRun run = scheduler.start("approval-1");
+		ExecutionResult failure = result(false, false);
+		failure.setMessage("build failure: cannot find symbol");
+		job(0).markFailed(failure, "build failure: cannot find symbol", "record-1");
+		scheduler.reconcile();
+
+		assertEquals(PlanRunStatus.NEEDS_INTERVENTION, run.getStatus());
+		RunExecutionState state = scheduler.executionState(run.getId());
+		assertEquals(1, state.getRepairAttempts());
+		assertEquals("HUMAN_INTERVENTION_REQUIRED", state.getInterventionStatus());
+		assertEquals("BUILD_FAILED", state.getLastFailureClass());
+		assertEquals("L1_AI_RECOVERABLE", state.getLastSeverity());
+		assertEquals("RETRY_AI", state.getLastResponse());
+	}
+
+	@Test
+	void replanLimitStopsInsteadOfReplanning() {
+		Map<String, Object> limits = new LinkedHashMap<>();
+		limits.put("maxReplanAttempts", 1);
+		approve(planWithMetadata(List.of(replanStep("failed")), List.of(), limits));
+		PlanRun run = scheduler.start("approval-1");
+		ExecutionResult failure = result(false, false);
+		failure.setMessage("tool failed");
+		job(0).markFailed(failure, "tool failed", "record-1");
+		scheduler.reconcile();
+
+		assertEquals(PlanRunStatus.NEEDS_INTERVENTION, run.getStatus());
+		assertEquals(null, replanRequestStore.findByPlanRun(run.getId()));
+		assertEquals("LIMIT_REACHED",
+			scheduler.executionState(run.getId()).getInterventionStatus());
+	}
+
+	@Test
+	void maxTotalAttemptsBlocksAllExecution() {
+		Map<String, Object> limits = new LinkedHashMap<>();
+		limits.put("maxTotalAttempts", 0);
+		approve(planWithMetadata(List.of(step("ai", false)), List.of(), limits));
+
+		PlanRun run = scheduler.start("approval-1");
+
+		assertEquals(PlanRunStatus.NEEDS_INTERVENTION, run.getStatus());
+		assertEquals(0, submissions.size());
+		verify(jobService, never()).submit(any(), any());
+	}
+
+	@Test
+	void l2FailureRoutesToHumanGate() {
+		ToolExecutionService toolService = mock(ToolExecutionService.class);
+		scheduler.setToolExecutionService(toolService);
+		when(toolService.execute(any())).thenReturn(new ToolExecutionResult(
+			DeterministicTool.GIT, false, 1, null, "merge conflict", 3,
+			FailureClass.GIT_CONFLICT));
+		PlanStep toolStep = step("tool", false).withExecutionType(StepExecutionType.TOOL_STEP);
+		approve(plan(List.of(toolStep), List.of()));
+
+		PlanRun run = scheduler.start("approval-1");
+
+		assertEquals(PlanRunStatus.NEEDS_INTERVENTION, run.getStatus());
+		assertEquals("HUMAN_GATE", scheduler.executionState(run.getId()).getInterventionStatus());
+		verify(toolService, times(1)).execute(any());
+		verify(jobService, never()).submit(any(), any());
+	}
+
+	@Test
+	void l4FailureStopsImmediately() {
+		ToolExecutionService toolService = mock(ToolExecutionService.class);
+		scheduler.setToolExecutionService(toolService);
+		when(toolService.execute(any())).thenReturn(new ToolExecutionResult(
+			DeterministicTool.SHELL, false, 1, null, "state corruption detected", 3,
+			FailureClass.STATE_CORRUPTION));
+		PlanStep toolStep = step("tool", false).withExecutionType(StepExecutionType.TOOL_STEP);
+		approve(plan(List.of(toolStep), List.of()));
+
+		PlanRun run = scheduler.start("approval-1");
+
+		assertEquals(PlanRunStatus.NEEDS_INTERVENTION, run.getStatus());
+		assertEquals("STOPPED_SYSTEM_FAILURE",
+			scheduler.executionState(run.getId()).getInterventionStatus());
+		verify(toolService, times(1)).execute(any());
+		verify(jobService, never()).submit(any(), any());
+	}
+
+	@Test
+	void executionCountersSurviveSchedulerRestart() {
+		InMemoryPlanRunRepository runRepository = new InMemoryPlanRunRepository();
+		com.aidevos.orchestrator.execution.InMemoryExecutionStateRepository states =
+			new com.aidevos.orchestrator.execution.InMemoryExecutionStateRepository();
+		scheduler = new PlanScheduler(jobService, new StepTaskFactory(), approvalService,
+			replanRequestService, runRepository, Clock.fixed(NOW, ZoneOffset.UTC));
+		scheduler.setExecutionStateRepository(states);
+		ToolExecutionService toolService = mock(ToolExecutionService.class);
+		scheduler.setToolExecutionService(toolService);
+		when(toolService.execute(any())).thenReturn(new ToolExecutionResult(
+			DeterministicTool.GIT, false, 1, null, "connection refused", 3,
+			FailureClass.NETWORK_ERROR));
+		Map<String, Object> limits = new LinkedHashMap<>();
+		limits.put("maxToolAttempts", 1);
+		PlanStep toolStep = step("tool", false).withExecutionType(StepExecutionType.TOOL_STEP);
+		approve(planWithMetadata(List.of(toolStep), List.of(), limits));
+
+		PlanRun run = scheduler.start("approval-1");
+		assertEquals(PlanRunStatus.NEEDS_INTERVENTION, run.getStatus());
+		assertEquals(1, scheduler.executionState(run.getId()).getToolAttempts());
+		assertEquals(1, scheduler.executionState(run.getId()).getTotalAttempts());
+
+		// Simulated restart: a fresh scheduler shares the persisted execution
+		// state repository; counters and intervention status must survive.
+		PlanScheduler restarted = new PlanScheduler(jobService, new StepTaskFactory(),
+			approvalService, replanRequestService, runRepository,
+			Clock.fixed(NOW, ZoneOffset.UTC));
+		restarted.setExecutionStateRepository(states);
+		restarted.setToolExecutionService(toolService);
+		restarted.reconcile();
+
+		assertEquals(PlanRunStatus.NEEDS_INTERVENTION, run.getStatus());
+		assertEquals(1, restarted.executionState(run.getId()).getToolAttempts());
+		assertEquals("LIMIT_REACHED",
+			restarted.executionState(run.getId()).getInterventionStatus());
+		verify(toolService, times(2)).execute(any());
+	}
+
+	@Test
+	void schedulerDoesNotReconcileInterventionRunsOrGrowAiCalls() {
+		Map<String, Object> limits = new LinkedHashMap<>();
+		limits.put("maxAiAttempts", 1);
+		approve(planWithMetadata(List.of(step("first", false), step("second", false)),
+			List.of(new Dependency("first", "second", true)), limits));
+		PlanRun run = scheduler.start("approval-1");
+		assertEquals(1, submissions.size());
+		succeed(job(0), false);
+		scheduler.reconcile();
+
+		assertEquals(PlanRunStatus.NEEDS_INTERVENTION, run.getStatus());
+		assertEquals(1, scheduler.executionState(run.getId()).getAiAttempts());
+		assertEquals(1, submissions.size());
+
+		for (int tick = 0; tick < 5; tick++) {
+			scheduler.reconcile();
+		}
+		assertEquals(1, submissions.size());
+		assertEquals(1, scheduler.executionState(run.getId()).getAiAttempts());
+		verify(jobService, times(1)).submit(any(), any());
+	}
+
+	@Test
+	void aiJobL1FailureCreatesSingleRepairJob() {
+		approve(plan(List.of(step("ai", false)), List.of()));
+		PlanRun run = scheduler.start("approval-1");
+		ExecutionResult failure = result(false, false);
+		failure.setMessage("build failure: cannot find symbol");
+		job(0).markFailed(failure, "build failure: cannot find symbol", "record-1");
+		scheduler.reconcile();
+
+		assertEquals(PlanRunStatus.RUNNING, run.getStatus());
+		assertEquals(StepRunStatus.RUNNING, run.getSteps().getFirst().getStatus());
+		assertEquals(2, submissions.size());
+		RunExecutionState state = scheduler.executionState(run.getId());
+		assertEquals(1, state.getRepairAttempts());
+		assertEquals(true, submissions.get(1).getMetadata().get("isRepair"));
+		assertEquals(1, submissions.get(1).getMetadata().get("repairAttempt"));
+	}
+
+	@Test
+	void reconcileDoesNotDuplicateRepairJob() {
+		approve(plan(List.of(step("ai", false)), List.of()));
+		PlanRun run = scheduler.start("approval-1");
+		ExecutionResult failure = result(false, false);
+		failure.setMessage("build failure");
+		job(0).markFailed(failure, "build failure", "record-1");
+		scheduler.reconcile();
+		assertEquals(2, submissions.size());
+
+		for (int tick = 0; tick < 3; tick++) {
+			scheduler.reconcile();
+		}
+
+		assertEquals(2, submissions.size());
+		verify(jobService, times(2)).submit(any(), any());
+		assertEquals(StepRunStatus.RUNNING, run.getSteps().getFirst().getStatus());
+	}
+
+	@Test
+	void repairJobSuccessContinuesOriginalPlan() {
+		Plan plan = plan(List.of(step("first", false), step("second", false)),
+			List.of(new Dependency("first", "second", true)));
+		approve(plan);
+		PlanRun run = scheduler.start("approval-1");
+		ExecutionResult failure = result(false, false);
+		failure.setMessage("test failed");
+		job(0).markFailed(failure, "test failed", "record-1");
+		scheduler.reconcile();
+		assertEquals(2, submissions.size());
+		assertEquals(StepRunStatus.RUNNING, run.getSteps().get(0).getStatus());
+
+		succeed(job(1), false);
+		scheduler.reconcile();
+
+		assertEquals(StepRunStatus.SUCCESS, run.getSteps().get(0).getStatus());
+		assertEquals(StepRunStatus.RUNNING, run.getSteps().get(1).getStatus());
+		assertEquals(3, submissions.size());
+		assertEquals(PlanRunStatus.RUNNING, run.getStatus());
+	}
+
+	@Test
+	void repairFailureReachesBudgetThenNeedsIntervention() {
+		approve(plan(List.of(step("ai", false)), List.of()));
+		PlanRun run = scheduler.start("approval-1");
+		ExecutionResult failure = result(false, false);
+		failure.setMessage("build failure");
+		job(0).markFailed(failure, "build failure", "record-1");
+		scheduler.reconcile();
+		assertEquals(2, submissions.size());
+
+		job(1).markFailed(failure, "build failure", "record-2");
+		scheduler.reconcile();
+
+		assertEquals(PlanRunStatus.NEEDS_INTERVENTION, run.getStatus());
+		RunExecutionState state = scheduler.executionState(run.getId());
+		assertEquals(2, state.getRepairAttempts());
+		assertEquals("HUMAN_INTERVENTION_REQUIRED", state.getInterventionStatus());
+		assertEquals("REVIEW_CODE", state.getRecommendedAction());
+		assertEquals(2, submissions.size());
+	}
+
+	@Test
+	void maxAiAttemptsBlocksRepairJobCreation() {
+		Map<String, Object> limits = new LinkedHashMap<>();
+		limits.put("maxAiAttempts", 1);
+		approve(planWithMetadata(List.of(step("ai", false)), List.of(), limits));
+		PlanRun run = scheduler.start("approval-1");
+		ExecutionResult failure = result(false, false);
+		failure.setMessage("build failure");
+		job(0).markFailed(failure, "build failure", "record-1");
+		scheduler.reconcile();
+
+		assertEquals(PlanRunStatus.NEEDS_INTERVENTION, run.getStatus());
+		assertEquals(1, submissions.size());
+		verify(jobService, times(1)).submit(any(), any());
+		assertEquals(1, scheduler.executionState(run.getId()).getAiAttempts());
+	}
+
+	@Test
+	void usageLimitDoesNotAutoRetryOrSwitchModel() {
+		ToolExecutionService toolService = mock(ToolExecutionService.class);
+		scheduler.setToolExecutionService(toolService);
+		when(toolService.execute(any())).thenReturn(new ToolExecutionResult(
+			DeterministicTool.GIT, false, 1, null, "usage limit exceeded", 3,
+			FailureClass.USAGE_LIMIT));
+		PlanStep toolStep = step("tool", false).withExecutionType(StepExecutionType.TOOL_STEP);
+		approve(plan(List.of(toolStep), List.of()));
+
+		PlanRun run = scheduler.start("approval-1");
+
+		assertEquals(PlanRunStatus.NEEDS_INTERVENTION, run.getStatus());
+		verify(toolService, times(1)).execute(any());
+		verify(jobService, never()).submit(any(), any());
+		assertEquals("HUMAN_REQUIRED",
+			scheduler.executionState(run.getId()).getInterventionStatus());
+		assertEquals("RETRY_MANUALLY",
+			scheduler.executionState(run.getId()).getRecommendedAction());
+	}
+
+	@Test
+	void repairStateSurvivesSchedulerRestart() {
+		InMemoryPlanRunRepository runRepository = new InMemoryPlanRunRepository();
+		com.aidevos.orchestrator.execution.InMemoryExecutionStateRepository states =
+			new com.aidevos.orchestrator.execution.InMemoryExecutionStateRepository();
+		scheduler = new PlanScheduler(jobService, new StepTaskFactory(), approvalService,
+			replanRequestService, runRepository, Clock.fixed(NOW, ZoneOffset.UTC));
+		scheduler.setExecutionStateRepository(states);
+		approve(plan(List.of(step("ai", false)), List.of()));
+		PlanRun run = scheduler.start("approval-1");
+		ExecutionResult failure = result(false, false);
+		failure.setMessage("build failure");
+		job(0).markFailed(failure, "build failure", "record-1");
+		scheduler.reconcile();
+		assertEquals(2, submissions.size());
+		assertEquals(1, scheduler.executionState(run.getId()).getRepairAttempts());
+
+		PlanScheduler restarted = new PlanScheduler(jobService, new StepTaskFactory(),
+			approvalService, replanRequestService, runRepository,
+			Clock.fixed(NOW, ZoneOffset.UTC));
+		restarted.setExecutionStateRepository(states);
+		restarted.reconcile();
+
+		assertEquals(1, restarted.executionState(run.getId()).getRepairAttempts());
+		assertEquals(2, submissions.size());
+		assertEquals(StepRunStatus.RUNNING, run.getSteps().getFirst().getStatus());
+	}
+
+	@Test
+	void interventionRetryResumesSchedulerAndContinuesPlan() {
+		ToolExecutionService toolService = mock(ToolExecutionService.class);
+		scheduler.setToolExecutionService(toolService);
+		when(toolService.execute(any())).thenReturn(new ToolExecutionResult(
+			DeterministicTool.GIT, false, 1, null, "authentication failed", 3,
+			FailureClass.CREDENTIAL_MISSING)).thenReturn(new ToolExecutionResult(
+			DeterministicTool.GIT, true, 0, "On branch main", null, 5, null));
+		PlanStep toolStep = step("tool", false).withExecutionType(StepExecutionType.TOOL_STEP);
+		Plan plan = plan(List.of(toolStep, step("second", false)),
+			List.of(new Dependency("tool", "second", true)));
+		approve(plan);
+		PlanRun run = scheduler.start("approval-1");
+		assertEquals(PlanRunStatus.NEEDS_INTERVENTION, run.getStatus());
+		assertEquals(StepRunStatus.FAILED, run.getSteps().get(0).getStatus());
+
+		scheduler.decideIntervention(run.getId(), "RETRY", "credential fixed");
+
+		assertEquals(StepRunStatus.SUCCESS, run.getSteps().get(0).getStatus());
+		assertEquals(StepRunStatus.RUNNING, run.getSteps().get(1).getStatus());
+		assertEquals(PlanRunStatus.RUNNING, run.getStatus());
+		assertEquals(1, submissions.size());
+		verify(toolService, times(2)).execute(any());
+	}
+
+	@Test
+	void interventionRetryKeepsAttemptBudgets() {
+		ToolExecutionService toolService = mock(ToolExecutionService.class);
+		scheduler.setToolExecutionService(toolService);
+		when(toolService.execute(any())).thenReturn(new ToolExecutionResult(
+			DeterministicTool.GIT, false, 1, null, "authentication failed", 3,
+			FailureClass.CREDENTIAL_MISSING)).thenReturn(new ToolExecutionResult(
+			DeterministicTool.GIT, true, 0, "ok", null, 5, null));
+		PlanStep toolStep = step("tool", false).withExecutionType(StepExecutionType.TOOL_STEP);
+		approve(plan(List.of(toolStep), List.of()));
+		PlanRun run = scheduler.start("approval-1");
+		RunExecutionState before = scheduler.executionState(run.getId());
+		assertEquals(1, before.getToolAttempts());
+		assertEquals(1, before.getTotalAttempts());
+		assertEquals(1, before.getConsecutiveFailures());
+
+		scheduler.decideIntervention(run.getId(), "RETRY", null);
+
+		RunExecutionState after = scheduler.executionState(run.getId());
+		assertEquals(2, after.getToolAttempts());
+		assertEquals(2, after.getTotalAttempts());
+		assertEquals(0, after.getConsecutiveFailures());
+		assertEquals("NONE", after.getInterventionStatus());
+		assertEquals(PlanRunStatus.SUCCESS, run.getStatus());
+	}
+
+	@Test
+	void interventionReplanFollowsReplanPath() {
+		ToolExecutionService toolService = mock(ToolExecutionService.class);
+		scheduler.setToolExecutionService(toolService);
+		when(toolService.execute(any())).thenReturn(new ToolExecutionResult(
+			DeterministicTool.GIT, false, 1, null, "authentication failed", 3,
+			FailureClass.CREDENTIAL_MISSING));
+		PlanStep toolStep = step("tool", false).withExecutionType(StepExecutionType.TOOL_STEP);
+		approve(plan(List.of(toolStep), List.of()));
+		PlanRun run = scheduler.start("approval-1");
+		assertEquals(PlanRunStatus.NEEDS_INTERVENTION, run.getStatus());
+
+		scheduler.decideIntervention(run.getId(), "REPLAN", "replan this");
+
+		assertEquals(PlanRunStatus.REPLAN_REQUIRED, run.getStatus());
+		assertEquals(1, scheduler.executionState(run.getId()).getReplanAttempts());
+		assertEquals("tool", replanRequestStore.findByPlanRun(run.getId()).failedStepId());
+	}
+
+	@Test
+	void interventionReplanFailsClosedWhenBudgetExhausted() {
+		Map<String, Object> limits = new LinkedHashMap<>();
+		limits.put("maxReplanAttempts", 1);
+		approve(planWithMetadata(List.of(replanStep("failed")), List.of(), limits));
+		PlanRun run = scheduler.start("approval-1");
+		ExecutionResult failure = result(false, false);
+		failure.setMessage("tool failed");
+		job(0).markFailed(failure, "tool failed", "record-1");
+		scheduler.reconcile();
+		assertEquals(PlanRunStatus.NEEDS_INTERVENTION, run.getStatus());
+
+		assertThrows(IllegalStateException.class,
+			() -> scheduler.decideIntervention(run.getId(), "REPLAN", "again"));
+		assertEquals(PlanRunStatus.NEEDS_INTERVENTION, run.getStatus());
+	}
+
+	@Test
+	void interventionAbortStopsSchedulerAndIsIdempotent() {
+		ToolExecutionService toolService = mock(ToolExecutionService.class);
+		scheduler.setToolExecutionService(toolService);
+		when(toolService.execute(any())).thenReturn(new ToolExecutionResult(
+			DeterministicTool.GIT, false, 1, null, "authentication failed", 3,
+			FailureClass.CREDENTIAL_MISSING));
+		PlanStep toolStep = step("tool", false).withExecutionType(StepExecutionType.TOOL_STEP);
+		approve(plan(List.of(toolStep), List.of()));
+		PlanRun run = scheduler.start("approval-1");
+		assertEquals(PlanRunStatus.NEEDS_INTERVENTION, run.getStatus());
+
+		scheduler.decideIntervention(run.getId(), "ABORT", "not now");
+		assertEquals(PlanRunStatus.ABORTED, run.getStatus());
+		scheduler.decideIntervention(run.getId(), "ABORT", "again");
+		assertEquals(PlanRunStatus.ABORTED, run.getStatus());
+
+		for (int tick = 0; tick < 3; tick++) {
+			scheduler.reconcile();
+		}
+		verify(toolService, times(1)).execute(any());
+		verify(jobService, never()).submit(any(), any());
+	}
+
+	@Test
+	void interventionOnNonInterventionRunFailsClosed() {
+		approve(plan(List.of(step("ai", false)), List.of()));
+		PlanRun run = scheduler.start("approval-1");
+		succeed(job(0), false);
+		scheduler.reconcile();
+		assertEquals(PlanRunStatus.SUCCESS, run.getStatus());
+
+		assertThrows(IllegalStateException.class,
+			() -> scheduler.decideIntervention(run.getId(), "RETRY", "no"));
+		assertThrows(IllegalStateException.class,
+			() -> scheduler.decideIntervention(run.getId(), "REPLAN", "no"));
+		assertThrows(IllegalStateException.class,
+			() -> scheduler.decideIntervention(run.getId(), "ABORT", "no"));
+	}
+
 	private void approve(Plan plan) {
 		PlanApprovalRequest approval = approval(plan);
 		approval.approve("reviewer", NOW);
@@ -795,6 +1248,14 @@ class PlanSchedulerTest {
 			new AgentAssignment("coder", List.of("coding"), List.of()), null, null,
 			Map.of("input", id), List.of(), RetryPolicy.noRetry(),
 			FailurePolicy.REQUEST_REPLAN, false);
+	}
+
+	private Plan planWithMetadata(List<PlanStep> steps, List<Dependency> dependencies,
+			Map<String, Object> plannerMetadata) {
+		return new Plan("plan-1", 1, "Execute plan", PlanStatus.DRAFT, steps, dependencies,
+			new PlanSnapshot(List.of(new PlanSnapshot.AgentSnapshot("coder", "codex",
+				List.of("coding"), "workspace-write", true)), Set.of("coding"), List.of(),
+				Set.of("codex"), "policy-v1", plannerMetadata), NOW);
 	}
 
 	private PlanSnapshot snapshot() {

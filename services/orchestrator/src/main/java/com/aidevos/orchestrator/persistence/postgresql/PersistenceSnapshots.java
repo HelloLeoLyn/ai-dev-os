@@ -79,4 +79,16 @@ final class PersistenceSnapshots {
 			return run;
 		}
 	}
+	record ExecutionState(String runId,int totalAttempts,int aiAttempts,int toolAttempts,
+		int repairAttempts,int replanAttempts,int consecutiveFailures,String interventionStatus,
+		String lastFailureClass,String lastSeverity,String lastResponse,int lastAttempt,
+		int lastMaxAttempts,String lastReason,String recommendedAction){
+		static ExecutionState of(com.aidevos.orchestrator.execution.RunExecutionState v){
+			return new ExecutionState(v.getRunId(),v.getTotalAttempts(),v.getAiAttempts(),v.getToolAttempts(),v.getRepairAttempts(),v.getReplanAttempts(),v.getConsecutiveFailures(),v.getInterventionStatus(),v.getLastFailureClass(),v.getLastSeverity(),v.getLastResponse(),v.getLastAttempt(),v.getLastMaxAttempts(),v.getLastReason(),v.getRecommendedAction());
+		}
+		com.aidevos.orchestrator.execution.RunExecutionState value(){
+			return new com.aidevos.orchestrator.execution.RunExecutionState(runId,totalAttempts,aiAttempts,toolAttempts,repairAttempts,replanAttempts,consecutiveFailures,interventionStatus,lastFailureClass,lastSeverity,lastResponse,lastAttempt,lastMaxAttempts,lastReason,recommendedAction);
+		}
+	}
+
 }

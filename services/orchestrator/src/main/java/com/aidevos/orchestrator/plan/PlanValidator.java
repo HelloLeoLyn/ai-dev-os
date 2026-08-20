@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.aidevos.orchestrator.execution.tool.DeterministicTool;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -143,7 +144,9 @@ public class PlanValidator {
 		}
 		boolean known = snapshot.tools().stream().anyMatch(tool ->
 			tool.providerId().equals(step.toolProviderId()) && tool.name().equals(step.toolName()));
-		if (!known) {
+		boolean deterministic = "deterministic".equalsIgnoreCase(step.toolProviderId())
+			&& DeterministicTool.fromName(step.toolName()).isPresent();
+		if (!known && !deterministic) {
 			errors.add("UNKNOWN_TOOL:" + step.toolProviderId() + "/" + step.toolName());
 		}
 	}

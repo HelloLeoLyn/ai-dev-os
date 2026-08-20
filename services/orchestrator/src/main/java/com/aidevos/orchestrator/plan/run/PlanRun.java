@@ -64,6 +64,17 @@ public class PlanRun {
 		error = message;
 		completedAt = time;
 	}
+	public synchronized void markNeedsIntervention(String message, Instant time) {
+		status = PlanRunStatus.NEEDS_INTERVENTION;
+		error = message;
+		completedAt = time;
+	}
+	public synchronized void markAborted(String message, Instant time) {
+		status = PlanRunStatus.ABORTED;
+		error = message;
+		completedAt = time;
+	}
+
 	public synchronized void markReplanRequired(String message, Instant time) {
 		status = PlanRunStatus.REPLAN_REQUIRED;
 		error = message;

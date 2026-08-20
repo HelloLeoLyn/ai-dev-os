@@ -4,6 +4,7 @@ import java.net.URI;
 import java.util.List;
 
 import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
+import com.aidevos.orchestrator.execution.RunExecutionState;
 import com.aidevos.orchestrator.human.HumanApproval;
 import com.aidevos.orchestrator.plan.run.PlanRun;
 import com.aidevos.orchestrator.plan.schedule.PlanScheduler;
@@ -49,6 +50,30 @@ public class PlanRunController {
 		return ResponseEntity.ok(run);
 	}
 
+	@GetMapping("/{id}/execution-state")
+	public ResponseEntity<RunExecutionState> executionState(@PathVariable String id) {
+		RunExecutionState state = scheduler.executionState(id);
+		if (state == null) {
+			throw new ResourceNotFoundException("Plan run execution state", id);
+		}
+		return ResponseEntity.ok(state);
+	}
+
+	@PostMapping("/{id}/intervention")
+	public ResponseEntity<PlanRun> intervene(@PathVariable String id,
+			@RequestBody InterventionRequest request) {
+		try {
+			return ResponseEntity.ok(scheduler.decideIntervention(id, request.action(),
+				request.comment()));
+		}
+		catch (IllegalArgumentException exception) {
+			throw new ResourceNotFoundException("Plan run", id);
+		}
+		catch (IllegalStateException exception) {
+			return ResponseEntity.status(409).build();
+		}
+	}
+
 	@GetMapping
 	public List<PlanRun> getAll() {
 		return scheduler.getAll();
@@ -87,4 +112,6 @@ public class PlanRunController {
 	public record StartRequest(String approvalId) { }
 
 	public record GateDecisionRequest(String reviewer, String comment) { }
+
+	public record InterventionRequest(String action, String comment) { }
 }

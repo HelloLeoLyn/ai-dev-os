@@ -121,6 +121,17 @@ public class AuditService {
 			case JOB_FAILED -> "JOB_FAILED";
 			case PLAN_RUN_SUCCEEDED -> "PLANRUN_COMPLETED";
 			case PLAN_RUN_FAILED -> "PLANRUN_FAILED";
+			case PLAN_RUN_INTERVENTION_REQUIRED -> "PLANRUN_INTERVENTION_REQUIRED";
+			case EXECUTION_RETRY -> "EXECUTION_RETRY";
+			case EXECUTION_LIMIT_REACHED -> "EXECUTION_LIMIT_REACHED";
+			case AI_REPAIR_REQUESTED -> "AI_REPAIR_REQUESTED";
+			case AI_REPAIR_EXHAUSTED -> "AI_REPAIR_EXHAUSTED";
+			case HUMAN_INTERVENTION_REQUIRED -> "HUMAN_INTERVENTION_REQUIRED";
+			case SYSTEM_EXECUTION_STOPPED -> "SYSTEM_EXECUTION_STOPPED";
+			case HUMAN_INTERVENTION_RETRY -> "HUMAN_INTERVENTION_RETRY";
+			case HUMAN_INTERVENTION_REPLAN -> "HUMAN_INTERVENTION_REPLAN";
+			case HUMAN_INTERVENTION_ABORT -> "HUMAN_INTERVENTION_ABORT";
+			case PLAN_RUN_ABORTED -> "PLANRUN_ABORTED";
 			case TASK_RUNNING -> "TASK_STARTED";
 			case CODING_APPROVAL_REQUESTED, CODING_APPROVAL_APPROVED,
 				CODING_APPROVAL_CONSUMED, EXECUTION_RECORD_SAVED -> event.type().name();
@@ -888,6 +899,24 @@ public class AuditService {
 		planRunEvent(EventType.PLAN_RUN_CREATED, run, null, run.getStatus().name());
 	}
 
+	/**
+	 * Records an execution guardrail event (limit reached, repair exhausted,
+	 * human intervention or system stop) on the plan-run aggregate with the
+	 * failure classification, severity, response and attempt budget metadata.
+	 */
+	public void guardrailEvent(EventType type, PlanRun run, StepRun step, StepAttempt attempt,
+			String fromStatus, String toStatus, String reason, Map<String, Object> metadata) {
+		String stepRunId = step == null ? null : step.getId();
+		String attemptId = attempt == null ? null : attempt.getId();
+		record(event(type, "plan-run", run.getId(), fromStatus, toStatus,
+			run.getOriginalTaskId(), run.getPlanId(), run.getPlanVersion(), run.getId(),
+			stepRunId, attemptId, null, null, null, null, null, "SYSTEM", "plan-scheduler",
+			reason == null || reason.isBlank() ? type.name() : reason,
+			metadata == null ? Map.of() : Map.copyOf(metadata),
+			type + ":plan-run:" + run.getId() + ":" + value(attemptId) + ":"
+				+ UUID.randomUUID()));
+	}
+
 	public void planRunTransition(PlanRun run, String fromStatus, String toStatus) {
 		if (value(fromStatus).equals(value(toStatus))) return;
 		EventType type = switch (run.getStatus()) {
@@ -897,6 +926,8 @@ public class AuditService {
 			case SUCCESS -> EventType.PLAN_RUN_SUCCEEDED;
 			case FAILED -> EventType.PLAN_RUN_FAILED;
 			case REPLAN_REQUIRED -> EventType.PLAN_RUN_REPLAN_REQUIRED;
+			case NEEDS_INTERVENTION -> EventType.PLAN_RUN_INTERVENTION_REQUIRED;
+			case ABORTED -> EventType.PLAN_RUN_ABORTED;
 			case DRAFT -> EventType.PLAN_RUN_CREATED;
 		};
 		planRunEvent(type, run, fromStatus, toStatus);
