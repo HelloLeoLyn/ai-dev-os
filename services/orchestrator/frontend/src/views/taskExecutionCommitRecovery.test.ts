@@ -18,7 +18,9 @@ describe('commit state recovery UX', () => {
   })
 
   it('C: recover is manual, never automatic on mount', () => {
-    const calls = (source.match(/recoverCommitState\(/g) || []).length
-    expect(calls).toBe(2)
+    const lifecycleSection = source.slice(source.indexOf('onMounted(async'),
+      source.indexOf('</script>'))
+    expect(lifecycleSection).not.toContain('recoverCommitState(')
+    expect(source).toContain('async function recoverCommitState(commit: CommitRecord): Promise<void>')
   })
 })

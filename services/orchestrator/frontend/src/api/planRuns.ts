@@ -15,6 +15,7 @@ export interface ExecutionState {
   lastAttempt: number
   lastMaxAttempts: number
   lastReason: string | null
+  recommendedAction: string | null
 }
 
 export function getExecutionState(runId: string): Promise<ExecutionState> {
