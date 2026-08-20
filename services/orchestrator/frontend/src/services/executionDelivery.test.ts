@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deliveryStages, primaryAction, workflowSummary, type ExecutionViewInput } from './executionDelivery'
+import { deliveryStages, interventionAction, primaryAction, requiresConfirmation, workflowSummary, type ExecutionViewInput } from './executionDelivery'
 import type { ChangeSet } from '../api/changes'
 import type { CommitRecord } from '../api/commits'
 import type { ExecutionState } from '../api/planRuns'
@@ -71,10 +71,29 @@ describe('execution delivery primary action', () => {
     const summary = workflowSummary(input)
     expect(summary.status).toBe('NEEDS_INTERVENTION')
     expect(summary.failureClass).toBe('CREDENTIAL_MISSING')
+    expect(summary.severity).toBe('L3_HUMAN_REQUIRED')
     expect(summary.errorMessage).toBe('DeepSeek credential is not configured.')
     expect(summary.recommendedAction).toBe('FIX_CREDENTIAL')
     expect(summary.nextAction).toBe('Fix credential → Retry')
     expect(primaryAction(input)).toBeNull()
+  })
+
+  it('maps RecommendedAction to the intervention API action', () => {
+    expect(interventionAction('FIX_CREDENTIAL')).toBe('RETRY')
+    expect(interventionAction('CHECK_NETWORK')).toBe('RETRY')
+    expect(interventionAction('REVIEW_CODE')).toBe('RETRY')
+    expect(interventionAction('RETRY_MANUALLY')).toBe('RETRY')
+    expect(interventionAction('REPLAN')).toBe('REPLAN')
+    expect(interventionAction('ABORT')).toBe('ABORT')
+    expect(interventionAction(null)).toBeNull()
+    expect(interventionAction('UNKNOWN')).toBeNull()
+  })
+
+  it('ABORT requires confirmation while RETRY and REPLAN do not', () => {
+    expect(requiresConfirmation('ABORT')).toBe(true)
+    expect(requiresConfirmation('RETRY')).toBe(false)
+    expect(requiresConfirmation('REPLAN')).toBe(false)
+    expect(requiresConfirmation(null)).toBe(false)
   })
 })
 

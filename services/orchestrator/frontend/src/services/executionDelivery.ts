@@ -1,6 +1,6 @@
 import type { ChangeSet } from '../api/changes'
 import type { CommitRecord } from '../api/commits'
-import type { ExecutionState } from '../api/planRuns'
+import type { ExecutionState, InterventionAction } from '../api/planRuns'
 import type { RemotePushApproval } from '../api/remotePush'
 import type { QualityGateResult, ValidationRun } from '../types/validation'
 
@@ -44,6 +44,7 @@ export interface WorkflowSummary {
   failureClass: string | null
   errorMessage: string | null
   recommendedAction: string | null
+  severity: string | null
 }
 
 const STAGE_LABELS: Record<string, string> = {
@@ -88,6 +89,34 @@ export function recommendedActionLabel(action: string | null): string {
     case 'ABORT': return 'Abort'
     default: return action || ''
   }
+}
+
+/**
+ * Maps the stored RecommendedAction to the human intervention API action.
+ * The recommendation is only a suggestion; the user must click the button.
+ */
+export function interventionAction(recommendedAction: string | null): InterventionAction | null {
+  switch (recommendedAction) {
+    case 'FIX_CREDENTIAL':
+    case 'CHECK_NETWORK':
+    case 'REVIEW_CODE':
+    case 'RETRY_MANUALLY':
+      return 'RETRY'
+    case 'REPLAN':
+      return 'REPLAN'
+    case 'ABORT':
+      return 'ABORT'
+    default:
+      return null
+  }
+}
+
+/**
+ * ABORT is a destructive termination and must be confirmed by the user before
+ * the intervention API is called. RETRY and REPLAN need no confirmation.
+ */
+export function requiresConfirmation(action: InterventionAction | null): boolean {
+  return action === 'ABORT'
 }
 
 export function deliveryStages(input: ExecutionViewInput): DeliveryProjection {
@@ -209,6 +238,7 @@ export function workflowSummary(input: ExecutionViewInput): WorkflowSummary {
       failureClass,
       errorMessage: state?.lastReason ?? null,
       recommendedAction,
+      severity: state?.lastSeverity ?? null,
     }
   }
 
@@ -261,6 +291,7 @@ export function workflowSummary(input: ExecutionViewInput): WorkflowSummary {
     failureClass: null,
     errorMessage: null,
     recommendedAction: null,
+    severity: null,
   }
 }
 

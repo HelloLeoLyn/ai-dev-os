@@ -2,6 +2,7 @@ package com.aidevos.orchestrator.controller;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Map;
 
 import com.aidevos.orchestrator.common.exception.ResourceNotFoundException;
 import com.aidevos.orchestrator.execution.RunExecutionState;
@@ -60,7 +61,7 @@ public class PlanRunController {
 	}
 
 	@PostMapping("/{id}/intervention")
-	public ResponseEntity<PlanRun> intervene(@PathVariable String id,
+	public ResponseEntity<?> intervene(@PathVariable String id,
 			@RequestBody InterventionRequest request) {
 		try {
 			return ResponseEntity.ok(scheduler.decideIntervention(id, request.action(),
@@ -70,7 +71,7 @@ public class PlanRunController {
 			throw new ResourceNotFoundException("Plan run", id);
 		}
 		catch (IllegalStateException exception) {
-			return ResponseEntity.status(409).build();
+			return ResponseEntity.status(409).body(Map.of("message", exception.getMessage()));
 		}
 	}
 

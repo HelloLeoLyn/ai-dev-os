@@ -15,15 +15,16 @@ import { approveCodingApproval, getCodingApprovals, rejectCodingApproval } from 
 import type { CodingApprovalRequest } from '../types/codingApproval'
 import type { ExecutionJob } from '../types/job'
 import { useTaskNotifications } from '../composables/useTaskNotifications'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { getExecutionWorkspace, getExecutionWorkspaceReview, promoteExecutionWorkspace, rejectExecutionWorkspace } from '../api/executions'
 import type { ExecutionWorkspaceReview } from '../api/executions'
 import type { ExecutionWorkspace } from '../types/executionWorkspace'
 import { getRemotePushApprovals, approveRemotePush, rejectRemotePush, pushRemote } from '../api/remotePush'
 import type { RemotePushApproval } from '../api/remotePush'
-import { getExecutionState } from '../api/planRuns'
-import type { ExecutionState } from '../api/planRuns'
-import { deliveryStages, primaryAction, workflowSummary, recommendedActionLabel, type ExecutionViewInput } from '../services/executionDelivery'
+import { getExecutionState, intervene } from '../api/planRuns'
+import type { ExecutionState, InterventionAction } from '../api/planRuns'
+import { ApiError } from '../api/client'
+import { deliveryStages, primaryAction, workflowSummary, recommendedActionLabel, interventionAction, requiresConfirmation, type ExecutionViewInput } from '../services/executionDelivery'
 import { getTaskChanges, reviewChange, approveChange, rejectChange, commitChange, retryChangeProjection as retryChangeProjectionApi } from '../api/changes'
 import type { ChangeSet } from '../api/changes'
 import { getTaskCommits, recoverCommit } from '../api/commits'
@@ -54,6 +55,7 @@ const changeRetrying = ref(false)
 const deliveryValidation = ref<ValidationRun | null>(null)
 const deliveryGate = ref<QualityGateResult | null>(null)
 const validationBusy = ref(false)
+const interventionBusy = ref(false)
 const executionState = ref<ExecutionState | null>(null)
 const monitoredTask = taskNotifications.taskState(taskId)
 const pendingRecord = computed(() => executions.records.value.slice().reverse().find(record => record.status === 'WAITING_APPROVAL' && record.approvalId && record.jobId && jobs.value[record.jobId]?.status === 'WAITING_APPROVAL' && codingApprovals.value[record.approvalId]?.status === 'PENDING') ?? null)
@@ -149,6 +151,7 @@ const deliveryInput = computed<ExecutionViewInput>(() => ({
 const delivery = computed(() => deliveryStages(deliveryInput.value))
 const primary = computed(() => primaryAction(deliveryInput.value))
 const summary = computed(() => workflowSummary(deliveryInput.value))
+const interventionPrimary = computed(() => interventionAction(summary.value.recommendedAction))
 const primaryBusy = computed(() => approvalBusy.value || validationBusy.value
   || promotionBusy.value || commitRecoverBusy.value)
 const modelLine = computed(() => {
@@ -173,6 +176,34 @@ function runPrimaryAction(): void {
     case 'APPROVE_REMOTE_PUSH': void decideRemotePush('approve'); break
     case 'PROMOTE_WORKSPACE': void promoteWorkspace(); break
   }
+}
+async function runIntervention(action: InterventionAction): Promise<void> {
+  const runId = context.task.value?.planRunId
+  if (!runId || interventionBusy.value) return
+  if (requiresConfirmation(action)) {
+    try {
+      await ElMessageBox.confirm('Abort this plan run? This is a destructive termination and cannot be resumed automatically.', 'Abort Plan Run', { type: 'warning', confirmButtonText: 'Abort', cancelButtonText: 'Cancel' })
+    }
+    catch { return }
+  }
+  interventionBusy.value = true
+  try {
+    await intervene(runId, action)
+    await Promise.all([loadExecutionState(), context.load(taskId), taskTimeline.load(taskId)])
+  }
+  catch (error) {
+    ElMessage.error(interventionErrorText(error))
+  }
+  finally { interventionBusy.value = false }
+}
+function interventionErrorText(error: unknown): string {
+  if (error instanceof ApiError && error.status === 409) {
+    const message = error.message
+    return message && !message.includes('status 409')
+      ? `Intervention rejected: ${message}`
+      : 'Intervention rejected: the run is not waiting for intervention or an execution limit was reached.'
+  }
+  return error instanceof Error ? error.message : 'Intervention failed.'
 }
 const latestRecord = computed(() => executions.records.value.at(-1) ?? null)
 const latestJob = computed(() => latestRecord.value?.jobId ? jobs.value[latestRecord.value.jobId] ?? null : null)
@@ -330,9 +361,17 @@ function reload(): void { void Promise.all([context.load(taskId), loadExecutionS
         <article><span>Next Recommended Action</span><strong>{{ summary.nextAction }}</strong></article>
       </div>
       <div v-if="summary.failureClass" class="failure-banner" aria-label="Intervention Required">
-        <strong class="failure-code">{{ summary.failureClass }}</strong>
-        <p>{{ summary.errorMessage || 'Execution requires human intervention.' }}</p>
-        <p v-if="summary.recommendedAction">Recommended: <code>{{ recommendedActionLabel(summary.recommendedAction) }}</code></p>
+        <dl class="failure-grid">
+          <div><dt>Failure</dt><dd><code>{{ summary.failureClass }}</code></dd></div>
+          <div v-if="summary.severity"><dt>Severity</dt><dd>{{ summary.severity }}</dd></div>
+          <div><dt>Reason</dt><dd>{{ summary.errorMessage || 'Execution requires human intervention.' }}</dd></div>
+          <div v-if="summary.recommendedAction"><dt>Recommended</dt><dd>{{ recommendedActionLabel(summary.recommendedAction) }}</dd></div>
+        </dl>
+        <div class="intervention-actions">
+          <el-button v-if="interventionPrimary === 'RETRY'" type="primary" :loading="interventionBusy" @click="runIntervention('RETRY')">Retry</el-button>
+          <el-button v-if="interventionPrimary === 'REPLAN'" type="primary" :loading="interventionBusy" @click="runIntervention('REPLAN')">Replan</el-button>
+          <el-button v-if="interventionPrimary === 'ABORT'" type="danger" :loading="interventionBusy" @click="runIntervention('ABORT')">Abort</el-button>
+        </div>
       </div>
       <div v-if="primary" class="primary-action">
         <el-button type="primary" size="large" :loading="primaryBusy" @click="runPrimaryAction">{{ primary.label }}</el-button>
@@ -411,4 +450,4 @@ function reload(): void { void Promise.all([context.load(taskId), loadExecutionS
   <el-drawer v-model="diffVisible" title="Execution Workspace Diff" size="min(900px, 96vw)" append-to-body><pre class="artifact-content">{{ workspaceReview?.diff || (workspaceReview?.untrackedFiles?.length ? 'Unable to render untracked file diff.' : 'No changes.') }}</pre></el-drawer>
 </section></template>
 
-<style scoped>.back-link { display: inline-block; margin-bottom: 1rem; color: var(--color-primary-strong); text-decoration: none; }.state { text-align: center; color: var(--color-text-muted); }.error { color: var(--color-danger); }.approval-action{padding:1.2rem;border:2px solid var(--color-warning);border-radius:var(--radius-small);scroll-margin-top:1rem}.approval-action h2{margin:.2rem 0 .8rem}.approval-distinction,.approval-actions,.review-actions{display:flex;flex-wrap:wrap;align-items:center;gap:1rem}.approval-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.75rem}.approval-grid div{padding:.7rem;border:1px solid var(--color-border);border-radius:var(--radius-small)}.execution-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; }.execution-overview article, .record-grid div,.flow-summary article { display: grid; min-width: 0; gap: .4rem; padding: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-small); background: rgb(255 255 255 / 2%); }.execution-overview span, dt,.flow-summary span { color: var(--color-text-muted); font-size: .75rem; text-transform: uppercase; }.flow-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.75rem;margin:1rem 0}.flow-summary strong{overflow-wrap:anywhere}.record-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }.record-header h2 { margin: 0; }.record-header .page-eyebrow span{color:var(--color-primary-strong)}.historical-attempt{opacity:.78;border-left:3px solid var(--color-warning)}.record-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; margin: 0; }.record-grid dd,.approval-grid dd { margin: 0; overflow-wrap:anywhere; }.review-changes{padding:1.2rem;margin:1rem 0;border:2px solid var(--color-primary-strong);border-radius:var(--radius-small)}.review-header{display:flex;justify-content:space-between;align-items:center;gap:1rem}.review-header h2{margin:0}.review-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.75rem}.review-grid div{padding:.7rem;border:1px solid var(--color-border);border-radius:var(--radius-small)}.review-grid dd{margin:0;overflow-wrap:anywhere}.changed-files{max-height:10rem;overflow:auto;padding-left:1.2rem}.result { margin-top: 1rem; }.result p { white-space: pre-wrap; }.technical-details{margin-top:1rem}.technical-details dl{display:grid;gap:.6rem}.artifact-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .75rem; }.artifact-grid button { padding: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-small); color: inherit; background: rgb(255 255 255 / 2%); cursor: pointer; text-align: left; }.artifact-grid button > * { display: block; margin: .3rem 0; }.artifact-grid span, .artifact-grid em { color: var(--color-text-muted); }.artifact-meta { display: grid; gap: .75rem; }.artifact-meta div { display: grid; grid-template-columns: 8rem 1fr; }.artifact-meta dd { margin: 0; overflow-wrap: anywhere; }.artifact-content { padding: 1rem; overflow: auto; border-radius:var(--radius-small);background:#080d19;white-space:pre-wrap; }@media(max-width:900px){.execution-overview,.record-grid,.flow-summary,.review-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}@media(max-width:560px){.execution-overview,.record-grid,.flow-summary,.review-grid{grid-template-columns:1fr;}}.workflow-summary{padding:1.2rem;margin:1rem 0;border:2px solid var(--color-primary-strong);border-radius:var(--radius-small)}.workflow-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.75rem}.workflow-summary article{display:grid;gap:.4rem;padding:1rem;border:1px solid var(--color-border);border-radius:var(--radius-small);background:rgb(255 255 255 / 2%)}.workflow-summary span{color:var(--color-text-muted);font-size:.75rem;text-transform:uppercase}.workflow-summary strong{overflow-wrap:anywhere}.failure-banner{margin-top:.75rem;padding:.9rem;border:1px solid var(--color-danger);border-radius:var(--radius-small);background:rgb(255 0 0 / 5%)}.failure-banner p{margin:.3rem 0 0}.failure-code{color:var(--color-danger)}.primary-action{margin-top:1rem}.delivery-timeline{display:flex;flex-wrap:wrap;gap:.5rem;list-style:none;margin:.75rem 0;padding:0}.delivery-stage{display:flex;flex-direction:column;gap:.2rem;min-width:7.5rem;padding:.6rem .8rem;border:1px solid var(--color-border);border-radius:var(--radius-small);background:rgb(255 255 255 / 2%)}.delivery-stage .stage-name{font-size:.75rem;text-transform:uppercase;color:var(--color-text-muted)}.delivery-stage .stage-status{font-size:.8rem}.delivery-stage.current{outline:2px solid var(--color-primary-strong)}.delivery-stage.is-waiting_approval{border-color:var(--color-warning)}.delivery-stage.is-failed{border-color:var(--color-danger)}.delivery-stage.is-success{border-color:var(--color-success)}.execution-details,.details-section{margin:1rem 0}.execution-details summary,.details-section summary{cursor:pointer;font-weight:600;margin-bottom:.5rem}.model-line{margin:.5rem 0;color:var(--color-text-muted)}@media(max-width:900px){.execution-overview,.record-grid,.flow-summary,.review-grid,.workflow-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}@media(max-width:560px){.execution-overview,.record-grid,.flow-summary,.review-grid,.workflow-summary-grid{grid-template-columns:1fr;}}</style>
+<style scoped>.back-link { display: inline-block; margin-bottom: 1rem; color: var(--color-primary-strong); text-decoration: none; }.state { text-align: center; color: var(--color-text-muted); }.error { color: var(--color-danger); }.approval-action{padding:1.2rem;border:2px solid var(--color-warning);border-radius:var(--radius-small);scroll-margin-top:1rem}.approval-action h2{margin:.2rem 0 .8rem}.approval-distinction,.approval-actions,.review-actions{display:flex;flex-wrap:wrap;align-items:center;gap:1rem}.approval-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.75rem}.approval-grid div{padding:.7rem;border:1px solid var(--color-border);border-radius:var(--radius-small)}.execution-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; }.execution-overview article, .record-grid div,.flow-summary article { display: grid; min-width: 0; gap: .4rem; padding: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-small); background: rgb(255 255 255 / 2%); }.execution-overview span, dt,.flow-summary span { color: var(--color-text-muted); font-size: .75rem; text-transform: uppercase; }.flow-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.75rem;margin:1rem 0}.flow-summary strong{overflow-wrap:anywhere}.record-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }.record-header h2 { margin: 0; }.record-header .page-eyebrow span{color:var(--color-primary-strong)}.historical-attempt{opacity:.78;border-left:3px solid var(--color-warning)}.record-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; margin: 0; }.record-grid dd,.approval-grid dd { margin: 0; overflow-wrap:anywhere; }.review-changes{padding:1.2rem;margin:1rem 0;border:2px solid var(--color-primary-strong);border-radius:var(--radius-small)}.review-header{display:flex;justify-content:space-between;align-items:center;gap:1rem}.review-header h2{margin:0}.review-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.75rem}.review-grid div{padding:.7rem;border:1px solid var(--color-border);border-radius:var(--radius-small)}.review-grid dd{margin:0;overflow-wrap:anywhere}.changed-files{max-height:10rem;overflow:auto;padding-left:1.2rem}.result { margin-top: 1rem; }.result p { white-space: pre-wrap; }.technical-details{margin-top:1rem}.technical-details dl{display:grid;gap:.6rem}.artifact-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .75rem; }.artifact-grid button { padding: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-small); color: inherit; background: rgb(255 255 255 / 2%); cursor: pointer; text-align: left; }.artifact-grid button > * { display: block; margin: .3rem 0; }.artifact-grid span, .artifact-grid em { color: var(--color-text-muted); }.artifact-meta { display: grid; gap: .75rem; }.artifact-meta div { display: grid; grid-template-columns: 8rem 1fr; }.artifact-meta dd { margin: 0; overflow-wrap: anywhere; }.artifact-content { padding: 1rem; overflow: auto; border-radius:var(--radius-small);background:#080d19;white-space:pre-wrap; }@media(max-width:900px){.execution-overview,.record-grid,.flow-summary,.review-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}@media(max-width:560px){.execution-overview,.record-grid,.flow-summary,.review-grid{grid-template-columns:1fr;}}.workflow-summary{padding:1.2rem;margin:1rem 0;border:2px solid var(--color-primary-strong);border-radius:var(--radius-small)}.workflow-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.75rem}.workflow-summary article{display:grid;gap:.4rem;padding:1rem;border:1px solid var(--color-border);border-radius:var(--radius-small);background:rgb(255 255 255 / 2%)}.workflow-summary span{color:var(--color-text-muted);font-size:.75rem;text-transform:uppercase}.workflow-summary strong{overflow-wrap:anywhere}.failure-banner{margin-top:.75rem;padding:.9rem;border:1px solid var(--color-danger);border-radius:var(--radius-small);background:rgb(255 0 0 / 5%)}.failure-banner p{margin:.3rem 0 0}.failure-code{color:var(--color-danger)}.primary-action{margin-top:1rem}.delivery-timeline{display:flex;flex-wrap:wrap;gap:.5rem;list-style:none;margin:.75rem 0;padding:0}.delivery-stage{display:flex;flex-direction:column;gap:.2rem;min-width:7.5rem;padding:.6rem .8rem;border:1px solid var(--color-border);border-radius:var(--radius-small);background:rgb(255 255 255 / 2%)}.delivery-stage .stage-name{font-size:.75rem;text-transform:uppercase;color:var(--color-text-muted)}.delivery-stage .stage-status{font-size:.8rem}.delivery-stage.current{outline:2px solid var(--color-primary-strong)}.delivery-stage.is-waiting_approval{border-color:var(--color-warning)}.delivery-stage.is-failed{border-color:var(--color-danger)}.delivery-stage.is-success{border-color:var(--color-success)}.execution-details,.details-section{margin:1rem 0}.execution-details summary,.details-section summary{cursor:pointer;font-weight:600;margin-bottom:.5rem}.model-line{margin:.5rem 0;color:var(--color-text-muted)}@media(max-width:900px){.execution-overview,.record-grid,.flow-summary,.review-grid,.workflow-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}@media(max-width:560px){.execution-overview,.record-grid,.flow-summary,.review-grid,.workflow-summary-grid{grid-template-columns:1fr;}}.failure-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.75rem;margin:0}.failure-grid div{padding:.7rem;border:1px solid var(--color-border);border-radius:var(--radius-small)}.failure-grid dt{color:var(--color-text-muted);font-size:.75rem;text-transform:uppercase}.failure-grid dd{margin:.2rem 0 0;overflow-wrap:anywhere}.intervention-actions{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:1rem}</style>
