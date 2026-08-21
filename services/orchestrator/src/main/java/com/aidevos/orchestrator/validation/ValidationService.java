@@ -18,6 +18,7 @@ import com.aidevos.orchestrator.validation.provider.ProjectCapabilityDetector;
 import com.aidevos.orchestrator.validation.provider.ValidationCheckResult;
 import com.aidevos.orchestrator.validation.provider.ValidationContext;
 import com.aidevos.orchestrator.validation.provider.ValidationProvider;
+import com.aidevos.orchestrator.validationplan.ValidationExecutionModels.CheckExecutionStatus;
 import com.aidevos.orchestrator.validation.browser.BrowserScenario;
 import com.aidevos.orchestrator.validation.browser.BrowserScenarioCatalog;
 import com.aidevos.orchestrator.workspace.Workspace;
@@ -48,6 +49,8 @@ public class ValidationService {
 	private final BrowserScenarioCatalog browserScenarios;
 	private volatile ChangeService changeService;
 	private volatile ExecutionWorkspacePromotionService executionWorkspaces;
+	private volatile com.aidevos.orchestrator.validationplan.ValidationPlanService validationPlanService;
+	private volatile com.aidevos.orchestrator.validationplan.ValidationPlanExecutionService validationPlanExecutionService;
 
 	public ValidationService(ValidationRepository repository, TaskCenterService taskCenterService,
 			WorkspaceService workspaceService, ProjectCapabilityDetector detector,
@@ -78,6 +81,13 @@ public class ValidationService {
 	public void setChangeService(ChangeService value) { this.changeService = value; }
 	@org.springframework.beans.factory.annotation.Autowired(required = false)
 	public void setExecutionWorkspaces(ExecutionWorkspacePromotionService value) { this.executionWorkspaces = value; }
+	@org.springframework.beans.factory.annotation.Autowired(required = false)
+	public void setValidationPlanServices(
+			com.aidevos.orchestrator.validationplan.ValidationPlanService planService,
+			com.aidevos.orchestrator.validationplan.ValidationPlanExecutionService executionService) {
+		this.validationPlanService = planService;
+		this.validationPlanExecutionService = executionService;
+	}
 
 	public ValidationRun start(String taskId) {
 		return start(taskId, null);
@@ -124,6 +134,11 @@ public class ValidationService {
 				Map.of("changeSetId", changeSetId, "fingerprint", fingerprint));
 			return reused;
 		}
+		// V1-C：唯一主链 = Multi-Mode Validation Planning (AUTO) + Deterministic Execution。
+		// ValidationService 不再自己决定跑什么测试/workingDirectory——全部来自 Final ValidationPlan。
+		if (validationPlanService == null || validationPlanExecutionService == null) {
+			throw new IllegalStateException("V1-C validation planning/execution is not configured");
+		}
 		ValidationRun run = new ValidationRun("validation-" + UUID.randomUUID(), change.getTaskId(),
 			change.getProjectId(), workspace.getId(), null, change.getExecutionId());
 		run.setExecutionWorkspaceId(workspace.getId());
@@ -136,7 +151,42 @@ public class ValidationService {
 		audit(run, EventType.VALIDATION_STARTED, null, ValidationStatus.RUNNING,
 			"Delivery validation started", Map.of("changeSetId", changeSetId,
 				"executionWorkspaceId", workspace.getId()));
-		return executeChecks(run, path, null);
+		try {
+			List<String> files = parseDiffFiles(change.getDiff());
+			com.aidevos.orchestrator.validationplan.ValidationPlanModels.ValidationPlan plan =
+				validationPlanService.generate(change.getTaskId(), changeSetId, files,
+					com.aidevos.orchestrator.validationplan.ValidationPlanModels.ValidationMode.AUTO,
+					null);
+			run.getMetadata().put("planMode", plan.mode() == null ? "" : plan.mode().name());
+			run.getMetadata().put("planProfile", plan.profile() == null ? "" : plan.profile());
+			run.getMetadata().put("planRisk", plan.risk() == null ? "" : plan.risk().name());
+			run.getMetadata().put("planConfidence",
+				plan.confidence() == null ? "" : plan.confidence().name());
+			run.getMetadata().put("planFingerprint", validationPlanExecutionService.planFingerprint(plan));
+			com.aidevos.orchestrator.validationplan.ValidationExecutionModels.ValidationRunResult result =
+				validationPlanExecutionService.execute(change.getTaskId(), changeSetId, plan);
+			mapPlanResult(run, result);
+		}
+		catch (RuntimeException exception) {
+			run.setStatus(ValidationStatus.ERROR);
+			run.setCompletedAt(Instant.now());
+			run.setSummary("Validation error: " + exception.getMessage());
+			repository.save(run);
+			audit(run, EventType.VALIDATION_FAILED, null, ValidationStatus.ERROR,
+				"Delivery validation error: " + exception.getMessage(),
+				Map.of("changeSetId", changeSetId));
+			throw exception;
+		}
+		if (run.getStatus() == ValidationStatus.SUCCESS) {
+			audit(run, EventType.VALIDATION_SUCCEEDED, null, ValidationStatus.SUCCESS,
+				"Delivery validation succeeded",
+				Map.of("changeSetId", changeSetId, "checks", run.getChecks().size()));
+		}
+		else if (run.getStatus() == ValidationStatus.FAILED) {
+			audit(run, EventType.VALIDATION_FAILED, null, ValidationStatus.FAILED,
+				failureReason(run), Map.of("changeSetId", changeSetId));
+		}
+		return run;
 	}
 
 	/**
@@ -158,6 +208,131 @@ public class ValidationService {
 			}
 		}
 		return null;
+	}
+
+	/** git diff 文本 → changed file paths（diff --git a/x b/y 行取 b/ 路径）。 */
+	private static List<String> parseDiffFiles(String diff) {
+		List<String> files = new ArrayList<>();
+		if (diff == null) {
+			return files;
+		}
+		for (String line : diff.split("\\R")) {
+			if (line.startsWith("diff --git ")) {
+				int bIndex = line.indexOf(" b/");
+				if (bIndex >= 0) {
+					String path = line.substring(bIndex + 3).trim();
+					if (!path.isBlank() && !path.endsWith("/dev/null")) {
+						files.add(path);
+					}
+				}
+			}
+		}
+		return files;
+	}
+
+	/**
+	 * V1-C Failure Mapping：把最关键失败 Check 映射成 Delivery/Diagnosis 可消费的
+	 * 结构化失败描述（checkType / errorCode / selectedTest / exitCode / workingDirectory）。
+	 */
+	public String failureReason(ValidationRun run) {
+		for (ValidationCheck check : run.getChecks()) {
+			if (check.getStatus() == ValidationStatus.FAILED
+					|| check.getStatus() == ValidationStatus.ERROR) {
+				String checkType = (String) check.getMetadata().getOrDefault("planCheckType",
+					check.getType().name());
+				String errorCode = (String) check.getMetadata().getOrDefault("errorCode",
+					check.getErrorMessage() == null ? "" : check.getErrorMessage());
+				String selectedTest = (String) check.getMetadata().getOrDefault("selectedTest", "");
+				String exitCode = (String) check.getMetadata().getOrDefault("exitCode", "");
+				String wd = (String) check.getMetadata().getOrDefault("workingDirectory", "");
+				StringBuilder reason = new StringBuilder("Validation failed: ")
+					.append(checkType == null ? "" : checkType)
+					.append(" / ").append(errorCode == null ? "" : errorCode);
+				if (selectedTest != null && !selectedTest.isBlank()) {
+					reason.append(" / ").append(selectedTest);
+				}
+				if (exitCode != null && !exitCode.isBlank()) {
+					reason.append(" / exitCode=").append(exitCode);
+				}
+				if (wd != null && !wd.isBlank()) {
+					reason.append(" / ").append(wd);
+				}
+				return reason.toString();
+			}
+		}
+		return "Validation failed";
+	}
+
+	/** V1-C：ValidationRunResult → 现有 ValidationRun（最小 adapter，不重写 Validation domain）。 */
+	private void mapPlanResult(ValidationRun run,
+			com.aidevos.orchestrator.validationplan.ValidationExecutionModels.ValidationRunResult result) {
+		run.getMetadata().put("planFingerprint", result.planFingerprint());
+		run.getMetadata().put("reused", result.reused());
+		int passed = 0;
+		int index = 0;
+		for (com.aidevos.orchestrator.validationplan.ValidationExecutionModels.ValidationCheckResult check
+				: result.checks()) {
+			index++;
+			ValidationCheck mapped = new ValidationCheck("check-" + index,
+				mapCheckType(check.checkType()), check.checkType(),
+				check.status() != CheckExecutionStatus.SKIPPED, true);
+			mapped.setStatus(mapCheckStatus(check.status()));
+			mapped.setStartedAt(check.startedAt());
+			mapped.setCompletedAt(check.finishedAt());
+			mapped.setDurationMs(check.durationMillis());
+			mapped.setSummary(check.commandSummary());
+			if (check.status() == CheckExecutionStatus.FAILED) {
+				mapped.setErrorMessage(check.errorCode());
+				mapped.getMetadata().put("planCheckType", check.checkType());
+				mapped.getMetadata().put("errorCode", check.errorCode());
+				mapped.getMetadata().put("selectedTest",
+					check.selectedTest() == null ? "" : check.selectedTest());
+				mapped.getMetadata().put("exitCode",
+					check.exitCode() == null ? "" : String.valueOf(check.exitCode()));
+				mapped.getMetadata().put("workingDirectory",
+					check.workingDirectory() == null ? "" : check.workingDirectory());
+				mapped.getMetadata().put("outputSnippet",
+					check.outputSnippet() == null ? "" : check.outputSnippet());
+			}
+			run.getChecks().add(mapped);
+			if (check.status() == CheckExecutionStatus.SUCCESS) {
+				passed++;
+			}
+		}
+		boolean success = result.reused()
+			|| result.status() == com.aidevos.orchestrator.validationplan.ValidationExecutionModels.ValidationStatus.SUCCESS;
+		run.setStatus(success ? ValidationStatus.SUCCESS : ValidationStatus.FAILED);
+		run.setCompletedAt(result.finishedAt() == null ? Instant.now() : result.finishedAt());
+		run.setDecision(success ? ValidationDecision.PASS : ValidationDecision.FAIL);
+		run.getMetadata().put("checksPassed", passed);
+		run.getMetadata().put("checksTotal", result.checks().size());
+		run.setSummary(result.reused() ? "Validation reused (SUCCESS)"
+			: success ? "Validation passed " + passed + "/" + result.checks().size()
+				: failureReason(run));
+		repository.save(run);
+	}
+
+	private ValidationCheckType mapCheckType(String planCheckType) {
+		if (planCheckType == null) {
+			return ValidationCheckType.GENERIC;
+		}
+		return switch (planCheckType) {
+			case "BACKEND_COMPILE", "FRONTEND_BUILD" -> planCheckType.equals("FRONTEND_BUILD")
+				? ValidationCheckType.FRONTEND_BUILD : ValidationCheckType.BACKEND_BUILD;
+			case "MAVEN_TARGETED_TEST", "MAVEN_MODULE_TEST" -> ValidationCheckType.BACKEND_TEST;
+			case "FRONTEND_TYPECHECK", "FRONTEND_TARGETED_TEST" -> ValidationCheckType.FRONTEND_TEST;
+			case "GIT_DIFF_CHECK" -> ValidationCheckType.GENERIC;
+			default -> ValidationCheckType.GENERIC;
+		};
+	}
+
+	private ValidationStatus mapCheckStatus(
+			com.aidevos.orchestrator.validationplan.ValidationExecutionModels.CheckExecutionStatus status) {
+		return switch (status) {
+			case SUCCESS -> ValidationStatus.SUCCESS;
+			case FAILED -> ValidationStatus.FAILED;
+			case SKIPPED -> ValidationStatus.SKIPPED;
+		};
 	}
 
 	/**

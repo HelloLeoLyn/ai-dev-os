@@ -27,11 +27,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class ValidationPlanController {
 
 	private final ValidationPlanService validationPlanService;
+	private final com.aidevos.orchestrator.validationplan.ValidationPlanExecutionService validationPlanExecutionService;
 	private final ChangeService changeService;
 
 	public ValidationPlanController(ValidationPlanService validationPlanService,
+			com.aidevos.orchestrator.validationplan.ValidationPlanExecutionService validationPlanExecutionService,
 			ChangeService changeService) {
 		this.validationPlanService = validationPlanService;
+		this.validationPlanExecutionService = validationPlanExecutionService;
 		this.changeService = changeService;
 	}
 
@@ -51,6 +54,25 @@ public class ValidationPlanController {
 		ValidationPlan plan = validationPlanService.generate(taskId, change.getChangeId(),
 			files, mode, request == null ? null : request.profile());
 		return ResponseEntity.ok(plan);
+	}
+
+	@PostMapping("/{taskId}/validation-plan/execute")
+	public ResponseEntity<?> generateAndExecute(@PathVariable String taskId,
+			@RequestBody(required = false) PlanRequest request) {
+		List<ChangeSet> changes = changeService.getChangesByTask(taskId);
+		if (changes.isEmpty()) {
+			return ResponseEntity.badRequest().body("No ChangeSet found for task: " + taskId);
+		}
+		ChangeSet change = changes.get(changes.size() - 1);
+		ValidationMode mode = request != null && request.mode() != null
+			&& !request.mode().isBlank()
+			? ValidationMode.valueOf(request.mode().trim().toUpperCase())
+			: ValidationMode.AUTO;
+		List<String> files = DiffFiles.parse(change.getDiff());
+		ValidationPlan plan = validationPlanService.generate(taskId, change.getChangeId(),
+			files, mode, request == null ? null : request.profile());
+		return ResponseEntity.ok(validationPlanExecutionService.execute(taskId,
+			change.getChangeId(), plan));
 	}
 
 	public record PlanRequest(String mode, String profile) {

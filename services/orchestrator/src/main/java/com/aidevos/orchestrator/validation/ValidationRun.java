@@ -23,6 +23,7 @@ public class ValidationRun {
 	private List<ValidationCheck> checks = new ArrayList<>();
 	private ValidationDecision decision;
 	private String summary;
+	private java.util.Map<String, Object> metadata = new java.util.LinkedHashMap<>();
 
 	public ValidationRun() { }
 
@@ -74,4 +75,8 @@ public class ValidationRun {
 	public void setDecision(ValidationDecision value) { decision = value; }
 	public String getSummary() { return summary; }
 	public void setSummary(String value) { summary = value; }
+	public java.util.Map<String, Object> getMetadata() { return metadata; }
+	public void setMetadata(java.util.Map<String, Object> value) {
+		metadata = value == null ? new java.util.LinkedHashMap<>() : new java.util.LinkedHashMap<>(value);
+	}
 }

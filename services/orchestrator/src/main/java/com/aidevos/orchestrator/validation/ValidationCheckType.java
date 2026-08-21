@@ -12,5 +12,6 @@ public enum ValidationCheckType {
 	SECURITY,
 	COVERAGE,
 	CONTRACT,
-	PERFORMANCE
+	PERFORMANCE,
+	GENERIC
 }

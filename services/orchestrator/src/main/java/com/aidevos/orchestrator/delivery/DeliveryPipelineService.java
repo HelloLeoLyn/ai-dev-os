@@ -304,6 +304,14 @@ public class DeliveryPipelineService {
 			}
 			case VALIDATING -> {
 				if (notBlank(pipeline.getValidationRunId())) {
+					// V1-C：绑定过 FAILED/ERROR run 的 pipeline 不得继续推进（幂等拦截）
+					ValidationRun bound = validationService.get(pipeline.getValidationRunId());
+					if (bound != null && (bound.getStatus() == ValidationStatus.FAILED
+							|| bound.getStatus() == ValidationStatus.ERROR)) {
+						fail(pipeline, DeliveryFailureClass.RECOVERABLE,
+							validationService.failureReason(bound));
+						return false;
+					}
 					return progressed(pipeline, DeliveryStage.VALIDATING);
 				}
 				// V1-FLOW-CONFORMANCE：重建/历史任务复用已有 SUCCESS delivery run（不重复测试）。
@@ -317,6 +325,13 @@ public class DeliveryPipelineService {
 				try {
 					ValidationRun run = validationService.startDelivery(pipeline.getChangeSetId());
 					pipeline.bindValidation(run.getValidationRunId());
+					if (run.getStatus() == ValidationStatus.FAILED
+							|| run.getStatus() == ValidationStatus.ERROR) {
+						// V1-C：Validation FAILED → 不进 Quality Gate → Pipeline FAILED（结构化失败）
+						fail(pipeline, DeliveryFailureClass.RECOVERABLE,
+							validationService.failureReason(run));
+						return false;
+					}
 					stageSucceeded(pipeline, DeliveryStage.VALIDATING, run.getValidationRunId());
 					return progressed(pipeline, DeliveryStage.VALIDATING);
 				}
