@@ -39,6 +39,22 @@ public class PullRequestRecord {
 		this.updatedAt = createdAt;
 	}
 
+	/**
+	 * V1-PR-PERSISTENCE-CLOSEOUT：从持久化快照恢复完整业务状态（含 status/url/externalId/updatedAt）。
+	 * 与 RemoteBranchRecord.restore 同模式。
+	 */
+	public static PullRequestRecord restore(String pullRequestId, String taskId, String commitId,
+			String remoteId, String branch, String targetBranch, String title,
+			String description, String url, Instant createdAt, PullRequestStatus status,
+			String externalId, Instant updatedAt) {
+		PullRequestRecord value = new PullRequestRecord(pullRequestId, taskId, commitId,
+			remoteId, branch, targetBranch, title, description, url, createdAt);
+		value.status = status == null ? PullRequestStatus.CREATED : status;
+		value.externalId = externalId;
+		value.updatedAt = updatedAt == null ? createdAt : updatedAt;
+		return value;
+	}
+
 	public synchronized void markOpened() {
 		requireStatus(PullRequestStatus.CREATED, "Only a CREATED pull request can open");
 		this.status = PullRequestStatus.OPEN;

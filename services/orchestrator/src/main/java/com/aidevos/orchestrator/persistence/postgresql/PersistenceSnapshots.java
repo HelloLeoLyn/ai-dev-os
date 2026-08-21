@@ -42,6 +42,12 @@ final class PersistenceSnapshots {
 		static RemoteBranch of(com.aidevos.orchestrator.remote.RemoteBranchRecord v){return new RemoteBranch(v.getRemoteId(),v.getTaskId(),v.getWorkspaceId(),v.getCommitId(),v.getBranch(),v.getRemote(),v.getUrl(),v.getCreatedAt(),v.getStatus(),v.getUpdatedAt());}
 		com.aidevos.orchestrator.remote.RemoteBranchRecord value(){return com.aidevos.orchestrator.remote.RemoteBranchRecord.restore(id,taskId,workspaceId,commitId,branch,remote,url,createdAt,status,updatedAt);}
 	}
+	record PullRequest(String pullRequestId,String taskId,String commitId,String remoteId,
+		String branch,String targetBranch,String title,String description,String url,
+		Instant createdAt,com.aidevos.orchestrator.pr.PullRequestStatus status,String externalId,Instant updatedAt){
+		static PullRequest of(com.aidevos.orchestrator.pr.PullRequestRecord v){return new PullRequest(v.getPullRequestId(),v.getTaskId(),v.getCommitId(),v.getRemoteId(),v.getBranch(),v.getTargetBranch(),v.getTitle(),v.getDescription(),v.getUrl(),v.getCreatedAt(),v.getStatus(),v.getExternalId(),v.getUpdatedAt());}
+		com.aidevos.orchestrator.pr.PullRequestRecord value(){return com.aidevos.orchestrator.pr.PullRequestRecord.restore(pullRequestId,taskId,commitId,remoteId,branch,targetBranch,title,description,url,createdAt,status,externalId,updatedAt);}
+	}
 	record ToolApproval(String id,String executionId,String invocationId,String jobId,String providerId,
 		String toolName,String argumentsHash,String workspace,String permissionLevel,String reason,
 		Instant createdAt,ApprovalStatus status,Instant decidedAt){
