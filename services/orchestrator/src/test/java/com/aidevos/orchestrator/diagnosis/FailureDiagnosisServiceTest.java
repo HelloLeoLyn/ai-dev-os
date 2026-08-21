@@ -15,6 +15,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * V1 Failure Diagnosis 确定性规则测试（不调用 LLM / collector）。
@@ -42,7 +45,7 @@ class FailureDiagnosisServiceTest {
 
 	private TaskFailureEvidence evidence(TaskRecord task, ExecutionRecordDetail execution,
 			DeliveryPipeline pipeline) {
-		return new TaskFailureEvidence(task, execution, pipeline, null);
+		return new TaskFailureEvidence(task, execution, pipeline, null, List.of());
 	}
 
 	/** 1. Maven wrong working directory → BUILD_FAILED + WRONG_WORKING_DIRECTORY */
@@ -186,5 +189,151 @@ class FailureDiagnosisServiceTest {
 			.filter(item -> item.contains("Mystery error"))
 			.count();
 		assertEquals(1, occurrences, "同一原始错误不得重复展示三遍");
+	}
+
+	// ==================== KNOWN-FAILURE-AND-DIAGNOSIS-HISTORY-V1 ====================
+
+	private FailureDiagnosisService knownService(com.aidevos.orchestrator.audit.AuditService audit) {
+		com.aidevos.orchestrator.diagnosis.InMemoryKnownFailureRepository repository =
+			new com.aidevos.orchestrator.diagnosis.InMemoryKnownFailureRepository();
+		KnownFailureService knownFailureService = new KnownFailureService(repository);
+		knownFailureService.setAuditService(audit);
+		FailureDiagnosisService diagnosed = new FailureDiagnosisService(null);
+		diagnosed.setKnownFailureService(knownFailureService);
+		return diagnosed;
+	}
+
+	private TaskFailureEvidence mavenEvidence(String taskId) {
+		return evidence(failedTask(taskId, "BUILD FAILURE"),
+			execution("BUILD_FAILED", "Maven build failed", "No POM in this directory.", 1), null);
+	}
+
+	/** 1. 第一次 diagnosis → 创建 KnownFailure → occurrenceCount=1 → knownFailure=false */
+	@Test
+	void firstDiagnosisCreatesKnownFailureWithCountOne() {
+		FailureDiagnosisService diagnosed = knownService(com.aidevos.orchestrator.audit.AuditService.noop());
+
+		FailureDiagnosis diagnosis = diagnosed.diagnose(mavenEvidence("task-1"));
+
+		assertNotNull(diagnosis);
+		assertEquals(false, diagnosis.knownFailure());
+		assertEquals(1, diagnosis.occurrenceCount());
+		assertNotNull(diagnosis.firstSeenAt());
+		assertNotNull(diagnosis.lastSeenAt());
+	}
+
+	/** 2. 不同 taskId 同 fingerprint → 复用同一 KnownFailure → occurrenceCount=2 → knownFailure=true */
+	@Test
+	void secondTaskWithSameFingerprintReusesKnownFailure() {
+		FailureDiagnosisService diagnosed = knownService(com.aidevos.orchestrator.audit.AuditService.noop());
+		diagnosed.diagnose(mavenEvidence("task-1"));
+
+		FailureDiagnosis second = diagnosed.diagnose(mavenEvidence("task-2"));
+
+		assertNotNull(second);
+		assertEquals(true, second.knownFailure());
+		assertEquals(2, second.occurrenceCount());
+	}
+
+	/** 3. 同一个 task 重复 GET diagnosis → occurrenceCount 不增加 */
+	@Test
+	void repeatedDiagnosisForSameTaskDoesNotIncreaseCount() {
+		FailureDiagnosisService diagnosed = knownService(com.aidevos.orchestrator.audit.AuditService.noop());
+		diagnosed.diagnose(mavenEvidence("task-1"));
+		diagnosed.diagnose(mavenEvidence("task-2")); // count=2
+
+		for (int i = 0; i < 10; i++) {
+			FailureDiagnosis again = diagnosed.diagnose(mavenEvidence("task-1"));
+			assertEquals(2, again.occurrenceCount(), "同 task 重复诊断（如 UI 刷新）不得增加计数");
+		}
+	}
+
+	/** 4. 同类错误含不同 UUID/path/timestamp → fingerprint 相同 */
+	@Test
+	void fingerprintIgnoresUuidPathAndTimestamp() {
+		TaskFailureEvidence first = evidence(failedTask("task-a", "BUILD FAILURE"),
+			execution("BUILD_FAILED", "Maven failed",
+				"No POM in /tmp/task-11111111-2222-3333-4444-555555555555/repo at 2026-08-01T00:00:00Z", 1),
+			null);
+		TaskFailureEvidence second = evidence(failedTask("task-b", "BUILD FAILURE"),
+			execution("BUILD_FAILED", "Maven failed",
+				"No POM in /home/other-user/workspace/proj at 2026-08-02T12:00:00Z", 1),
+			null);
+
+		FailureDiagnosis d1 = service.diagnose(first);
+		FailureDiagnosis d2 = service.diagnose(second);
+
+		assertNotNull(d1);
+		assertNotNull(d2);
+		assertEquals(d1.fingerprint(), d2.fingerprint(),
+			"不同 UUID/路径/时间戳的同类错误 fingerprint 必须一致");
+	}
+
+	/** 5. Timeline 有 STEP_FAILED/EXECUTION_FAILED → evidence 包含关键 timeline 事件，不含整份 */
+	@Test
+	void timelineEvidenceIncludesOnlyKeyFailureEvents() {
+		com.aidevos.orchestrator.timeline.TimelineService timeline =
+			mock(com.aidevos.orchestrator.timeline.TimelineService.class);
+		com.aidevos.orchestrator.taskcenter.TaskCenterService tasks =
+			mock(com.aidevos.orchestrator.taskcenter.TaskCenterService.class);
+		com.aidevos.orchestrator.execution.query.ExecutionRecordQueryService executions =
+			mock(com.aidevos.orchestrator.execution.query.ExecutionRecordQueryService.class);
+		com.aidevos.orchestrator.delivery.DeliveryPipelineService delivery =
+			mock(com.aidevos.orchestrator.delivery.DeliveryPipelineService.class);
+		com.aidevos.orchestrator.plan.run.PlanRunRepository planRuns =
+			mock(com.aidevos.orchestrator.plan.run.PlanRunRepository.class);
+		when(tasks.getTask("task-t")).thenReturn(java.util.Optional.of(failedTask("task-t", "x")));
+		when(executions.getAll(any(), any())).thenReturn(List.of());
+		when(timeline.timeline("task-t")).thenReturn(new com.aidevos.orchestrator.timeline.UnifiedTimeline(
+			"TASK", "task-t", List.of(
+				new com.aidevos.orchestrator.timeline.TimelineEventDTO("e1", "STEP_SUCCEEDED",
+					"STEP", "s1", "SUCCESS", "ok", NOW),
+				new com.aidevos.orchestrator.timeline.TimelineEventDTO("e2", "STEP_FAILED",
+					"STEP", "s1", "FAILED", "Maven build failed", NOW),
+				new com.aidevos.orchestrator.timeline.TimelineEventDTO("e3", "EXECUTION_FAILED",
+					"EXECUTION", "e1", "FAILED", "executor failed", NOW),
+				new com.aidevos.orchestrator.timeline.TimelineEventDTO("e4", "STEP_FAILED",
+					"STEP", "s2", "FAILED", "Maven build failed", NOW))));
+		FailureEvidenceCollector collector = new FailureEvidenceCollector(tasks, executions,
+			delivery, planRuns, timeline);
+
+		TaskFailureEvidence evidence = collector.collect("task-t");
+
+		// STEP_FAILED 去重后 1 条 + EXECUTION_FAILED 1 条 = 2 条；成功事件不进入
+		assertEquals(2, evidence.timelineEvidence().size());
+		assertTrue(evidence.timelineEvidence().stream().anyMatch(item -> item.startsWith("STEP_FAILED")));
+		assertTrue(evidence.timelineEvidence().stream().anyMatch(item -> item.startsWith("EXECUTION_FAILED")));
+		assertTrue(evidence.timelineEvidence().stream().noneMatch(item -> item.contains("STEP_SUCCEEDED")));
+
+		// diagnosis evidence 合并关键 timeline 事件
+		FailureDiagnosis diagnosis = service.diagnose(evidence);
+		assertNotNull(diagnosis);
+		assertTrue(diagnosis.evidence().stream().anyMatch(item -> item.startsWith("STEP_FAILED")));
+	}
+
+	/** 6. 同一 task/fingerprint 重复 diagnosis → FAILURE_DIAGNOSED timeline event 只产生一次 */
+	@Test
+	void diagnosedEventEmittedOnlyOncePerTaskFingerprint() {
+		com.aidevos.orchestrator.audit.InMemoryAuditRepository auditRepository =
+			new com.aidevos.orchestrator.audit.InMemoryAuditRepository();
+		com.aidevos.orchestrator.audit.AuditService audit =
+			new com.aidevos.orchestrator.audit.AuditService(auditRepository);
+		FailureDiagnosisService diagnosed = knownService(audit);
+
+		diagnosed.diagnose(mavenEvidence("task-1"));
+		diagnosed.diagnose(mavenEvidence("task-1"));
+		diagnosed.diagnose(mavenEvidence("task-1"));
+
+		long events = auditRepository.query(com.aidevos.orchestrator.audit.EventQuery.all()).stream()
+			.filter(event -> event.type() == com.aidevos.orchestrator.audit.EventType.FAILURE_DIAGNOSED
+				&& "task-1".equals(event.taskId()))
+			.count();
+		assertEquals(1, events, "同一 task/fingerprint 的 FAILURE_DIAGNOSED 事件只能产生一次");
+
+		diagnosed.diagnose(mavenEvidence("task-2"));
+		long total = auditRepository.query(com.aidevos.orchestrator.audit.EventQuery.all()).stream()
+			.filter(event -> event.type() == com.aidevos.orchestrator.audit.EventType.FAILURE_DIAGNOSED)
+			.count();
+		assertEquals(2, total, "新 task 计入时再产生一次事件");
 	}
 }

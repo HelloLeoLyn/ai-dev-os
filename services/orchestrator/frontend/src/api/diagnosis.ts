@@ -16,6 +16,11 @@ export interface FailureDiagnosis {
   retryable: boolean
   fingerprint: string
   diagnosedAt: string
+  // KNOWN-FAILURE-AND-DIAGNOSIS-HISTORY-V1
+  knownFailure: boolean
+  occurrenceCount: number
+  firstSeenAt: string | null
+  lastSeenAt: string | null
 }
 
 /**

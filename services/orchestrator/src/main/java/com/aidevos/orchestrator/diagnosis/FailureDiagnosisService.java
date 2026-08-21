@@ -22,23 +22,77 @@ import org.springframework.stereotype.Service;
 @Service
 public class FailureDiagnosisService {
 
+	private static final int MAX_EVIDENCE = 12;
+
 	private final FailureEvidenceCollector collector;
+	private volatile KnownFailureService knownFailures;
 
 	public FailureDiagnosisService(FailureEvidenceCollector collector) {
 		this.collector = collector;
+	}
+
+	@org.springframework.beans.factory.annotation.Autowired(required = false)
+	public void setKnownFailureService(KnownFailureService knownFailures) {
+		this.knownFailures = knownFailures;
 	}
 
 	public FailureDiagnosis diagnose(String taskId) {
 		if (taskId == null || taskId.isBlank()) {
 			return null;
 		}
-		return diagnose(collector.collect(taskId));
+		return finalize(collector.collect(taskId));
 	}
 
 	public FailureDiagnosis diagnose(TaskFailureEvidence evidence) {
 		if (evidence == null) {
 			return null;
 		}
+		return finalize(evidence);
+	}
+
+	private FailureDiagnosis finalize(TaskFailureEvidence evidence) {
+		FailureDiagnosis base = diagnoseInternal(evidence);
+		if (base == null) {
+			return null;
+		}
+		FailureDiagnosis merged = mergeTimelineEvidence(base, evidence.timelineEvidence());
+		return recordKnownFailure(merged);
+	}
+
+	/** 阶段 F：合并 Timeline 关键失败事件（去重、有限数量），不塞整份 timeline。 */
+	private FailureDiagnosis mergeTimelineEvidence(FailureDiagnosis diagnosis,
+			java.util.List<String> timelineEvidence) {
+		if (timelineEvidence == null || timelineEvidence.isEmpty()) {
+			return diagnosis;
+		}
+		java.util.List<String> merged = new java.util.ArrayList<>(diagnosis.evidence());
+		for (String item : timelineEvidence) {
+			if (merged.size() >= MAX_EVIDENCE) {
+				break;
+			}
+			if (!merged.contains(item)) {
+				merged.add(item);
+			}
+		}
+		return new FailureDiagnosis(diagnosis.taskId(), diagnosis.source(), diagnosis.stage(),
+			diagnosis.failedStepId(), diagnosis.errorCode(), diagnosis.code(),
+			diagnosis.category(), diagnosis.summary(), diagnosis.rootCause(), merged,
+			diagnosis.recommendedAction(), diagnosis.retryable(), diagnosis.fingerprint(),
+			diagnosis.diagnosedAt(), diagnosis.knownFailure(), diagnosis.occurrenceCount(),
+			diagnosis.firstSeenAt(), diagnosis.lastSeenAt());
+	}
+
+	/** 阶段 D/E：记录 Known Failure（幂等计数）并回填 known 信息。 */
+	private FailureDiagnosis recordKnownFailure(FailureDiagnosis diagnosis) {
+		if (knownFailures == null || diagnosis.taskId() == null) {
+			return diagnosis;
+		}
+		KnownFailureService.KnownFailureRecorded recorded =
+			knownFailures.record(diagnosis, diagnosis.taskId());
+		return diagnosis.withKnownFailure(recorded.failure(), recorded.knownFailure());
+	}
+
+	private FailureDiagnosis diagnoseInternal(TaskFailureEvidence evidence) {
 		// 阶段 H：正常人工 Gate / 等待审批 → 不是失败，不伪造 diagnosis
 		if (isWaitingApproval(evidence)) {
 			return null;
@@ -375,7 +429,7 @@ public class FailureDiagnosisService {
 			boolean retryable, String fingerprint) {
 		return new FailureDiagnosis(taskId, source, stage, failedStepId, errorCode, code,
 			category, summary, rootCause, List.copyOf(evidence), recommendedAction,
-			retryable, fingerprint, Instant.now());
+			retryable, fingerprint, Instant.now(), false, 1, null, null);
 	}
 
 	private static void addUnique(List<String> items, java.util.Set<String> seen,

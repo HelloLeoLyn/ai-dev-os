@@ -1,5 +1,7 @@
 package com.aidevos.orchestrator.diagnosis;
 
+import java.util.List;
+
 import com.aidevos.orchestrator.delivery.DeliveryPipeline;
 import com.aidevos.orchestrator.execution.query.ExecutionRecordDetail;
 import com.aidevos.orchestrator.plan.run.PlanRun;
@@ -16,6 +18,8 @@ public record TaskFailureEvidence(
 	/** DeliveryPipeline（可空，含 failureClass/failureReason/currentStage） */
 	DeliveryPipeline pipeline,
 	/** PlanRun（可空，含 error） */
-	PlanRun planRun
+	PlanRun planRun,
+	/** Timeline/Audit 关键失败事件（有限数量，如 STEP_FAILED/EXECUTION_FAILED 等） */
+	List<String> timelineEvidence
 ) {
 }
