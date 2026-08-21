@@ -117,6 +117,7 @@ public class CiService {
 			run.updatePipelineId(trigger.pipelineId());
 			run.updateReportUrl(trigger.reportUrl());
 			run.markRunning();
+			repository.save(run); // CI persistence：markRunning 必须落库（否则 DB 停留在 PENDING）
 			auditService.ciEvent(EventType.CI_STARTED, taskId, run.getCiRunId(),
 				pullRequestId, CiStatus.PENDING.name(), CiStatus.RUNNING.name(),
 				"CI run started: " + value(trigger.pipelineId()), metadata(run));
@@ -187,6 +188,7 @@ public class CiService {
 		}
 		auditService.ciEvent(type, run.getTaskId(), run.getCiRunId(), run.getPullRequestId(),
 			from.name(), target.name(), summary, metadata(run));
+		repository.save(run); // CI persistence：SUCCESS/FAILED/CANCELLED 状态变更必须落库
 		return true;
 	}
 

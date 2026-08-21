@@ -114,6 +114,20 @@ class CiServiceTest {
 			&& "task-1".equals(event.taskId())));
 	}
 
+	/** V1-DELIVERY-AUTO-ADVANCE-CLOSEOUT：CI RUNNING 状态变更后必须持久化，reload 仍为 RUNNING */
+	@Test
+	void ciRunningStatePersistsAfterReload() {
+		when(provider.getStatus("pipeline-1"))
+			.thenReturn(new CiRunResult(CiStatus.RUNNING, REPORT_URL));
+
+		CiRunRecord run = ciService.check("pr-1");
+		assertEquals(CiStatus.RUNNING, run.getStatus());
+
+		// reload：markRunning 后必须落库（修复前仓库/DB 停留在 PENDING）
+		CiRunRecord reloaded = repository.get(run.getCiRunId());
+		assertEquals(CiStatus.RUNNING, reloaded.getStatus());
+	}
+
 	@Test
 	void shouldMarkFailedAndStartRepairFromCiFailure() {
 		when(provider.getStatus("pipeline-1"))

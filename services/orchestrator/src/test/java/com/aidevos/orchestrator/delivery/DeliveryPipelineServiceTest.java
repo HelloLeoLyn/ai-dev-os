@@ -793,4 +793,147 @@ class DeliveryPipelineServiceTest {
 		verify(pullRequestService, never()).merge(anyString());
 	}
 
+	// ==================== V1-DELIVERY-AUTO-ADVANCE-CLOSEOUT ====================
+
+	/** 1. CI RUNNING → poller tick → advance → CI SUCCESS → DELIVERY_COMPLETE */
+	@Test
+	void pollerAdvancesCiCheckingPipelineToComplete() {
+		ChangeSet change = approvedChange();
+		ValidationRun run = successRun(change.getChangeId());
+		QualityGateResult gate = passGate(change.getChangeId(), run.getValidationRunId());
+		when(validationService.startDelivery(change.getChangeId())).thenReturn(run);
+		when(validationService.get(run.getValidationRunId())).thenReturn(run);
+		when(qualityGateService.evaluate(run.getValidationRunId())).thenReturn(gate);
+		when(qualityGateService.get(gate.getGateResultId())).thenReturn(gate);
+		when(gitCommandExecutor.commit("/tmp/repo", commitMessage(change.getChangeId())))
+			.thenReturn("abc123def");
+		when(gitCommandExecutor.listRemotes("/tmp/repo")).thenReturn(ORIGIN);
+		when(gitCommandExecutor.push("/tmp/repo", "origin", TASK_BRANCH)).thenReturn(true);
+		PullRequestRecord pr = new PullRequestRecord("pr-1", "task-1", "commit-1",
+			"remote-1", TASK_BRANCH, "main", "title", "desc", "https://pr", NOW);
+		pr.markOpened();
+		when(pullRequestService.getByCommit(anyString())).thenReturn(Optional.empty());
+		when(pullRequestService.createPullRequest(anyString(), any()))
+			.thenAnswer(invocation -> {
+				PullRequestRecord created = new PullRequestRecord("pr-1", "task-1",
+					invocation.getArgument(0), "remote-1", TASK_BRANCH, "main", "title",
+					"desc", "https://pr", NOW);
+				created.markOpened();
+				return created;
+			});
+		when(pullRequestService.get("pr-1")).thenReturn(Optional.of(pr));
+		// 可变的 CI run：第一次 check RUNNING，第二次 check SUCCESS（MockCiProvider 语义）
+		CiRunRecord ciRun = new CiRunRecord("ci-1", "task-1", "pr-1", "mock",
+			TASK_BRANCH, "abc123def", NOW);
+		when(ciService.get("ci-1")).thenAnswer(inv -> Optional.of(ciRun));
+		when(ciService.check("pr-1", "abc123def")).thenAnswer(inv -> {
+			if (ciRun.getStatus() == CiStatus.PENDING) {
+				ciRun.markRunning();
+			}
+			else if (ciRun.getStatus() == CiStatus.RUNNING) {
+				ciRun.markSuccess();
+			}
+			return ciRun;
+		});
+
+		// 首次推进：停在 Remote Push Approval（正式人工 Gate）→ approve → push→PR→CI poll #1 RUNNING → 停
+		DeliveryPipeline waiting = pipelineService.advance("task-1");
+		assertEquals(DeliveryStage.WAITING_REMOTE_PUSH_APPROVAL, waiting.getCurrentStage());
+		RemotePushApproval approval = approvalService.get(waiting.getRemotePushApprovalId());
+		approvalService.approve(approval.getApprovalId());
+
+		DeliveryPipeline stuck = pipelineService.get("task-1");
+		assertEquals(DeliveryStage.CI_CHECKING, stuck.getCurrentStage());
+		assertEquals(DeliveryStatus.RUNNING, stuck.getStatus());
+		assertEquals(CiStatus.RUNNING, ciRun.getStatus());
+
+		// 服务端 poller tick（无任何浏览器/UI 参与）→ advance #2 → CI SUCCESS → COMPLETE
+		DeliveryPipelinePoller poller = new DeliveryPipelinePoller(pipelineRepository, pipelineService);
+		poller.poll();
+
+		DeliveryPipeline done = pipelineService.get("task-1");
+		assertEquals(DeliveryStatus.COMPLETE, done.getStatus());
+		assertEquals(DeliveryStage.DELIVERY_COMPLETE, done.getCurrentStage());
+		verify(ciService, times(2)).check("pr-1", "abc123def");
+		verify(pullRequestService, never()).merge(anyString());
+	}
+
+	/** 2. WAITING_APPROVAL → poller 不自动推进 */
+	@Test
+	void pollerSkipsWaitingApprovalPipeline() {
+		ChangeSet change = approvedChange();
+		ValidationRun run = successRun(change.getChangeId());
+		QualityGateResult gate = new QualityGateResult();
+		gate.setGateResultId("gate-wait");
+		gate.setValidationRunId(run.getValidationRunId());
+		gate.setTaskId("task-1");
+		gate.setChangeSetId(change.getChangeId());
+		gate.setDecision(QualityGateDecision.REQUIRE_APPROVAL);
+		gate.setStatus(com.aidevos.orchestrator.qualitygate.QualityGateStatus.EVALUATED);
+		when(validationService.startDelivery(change.getChangeId())).thenReturn(run);
+		when(validationService.get(run.getValidationRunId())).thenReturn(run);
+		when(qualityGateService.evaluate(run.getValidationRunId())).thenReturn(gate);
+		when(qualityGateService.get(gate.getGateResultId())).thenReturn(gate);
+		when(gitCommandExecutor.commit("/tmp/repo", commitMessage(change.getChangeId())))
+			.thenReturn("abc123def");
+		when(gitCommandExecutor.listRemotes("/tmp/repo")).thenReturn(ORIGIN);
+
+		DeliveryPipeline waiting = pipelineService.advance("task-1");
+		assertEquals(DeliveryStatus.WAITING_APPROVAL, waiting.getStatus());
+
+		DeliveryPipelinePoller poller = new DeliveryPipelinePoller(pipelineRepository, pipelineService);
+		poller.poll();
+
+		DeliveryPipeline after = pipelineService.get("task-1");
+		assertEquals(DeliveryStatus.WAITING_APPROVAL, after.getStatus(), "人工 gate 不得被 poller 推进");
+		verify(gitCommandExecutor, never()).commit(anyString(), anyString());
+	}
+
+	/** 3. DELIVERY_COMPLETE → poller 不再 poll / 无副作用 */
+	@Test
+	void pollerSkipsCompletedPipeline() {
+		ChangeSet change = approvedChange();
+		ValidationRun run = successRun(change.getChangeId());
+		QualityGateResult gate = passGate(change.getChangeId(), run.getValidationRunId());
+		when(validationService.startDelivery(change.getChangeId())).thenReturn(run);
+		when(validationService.get(run.getValidationRunId())).thenReturn(run);
+		when(qualityGateService.evaluate(run.getValidationRunId())).thenReturn(gate);
+		when(qualityGateService.get(gate.getGateResultId())).thenReturn(gate);
+		when(gitCommandExecutor.commit("/tmp/repo", commitMessage(change.getChangeId())))
+			.thenReturn("abc123def");
+		when(gitCommandExecutor.listRemotes("/tmp/repo")).thenReturn(ORIGIN);
+		when(gitCommandExecutor.push("/tmp/repo", "origin", TASK_BRANCH)).thenReturn(true);
+		PullRequestRecord pr = new PullRequestRecord("pr-1", "task-1", "commit-1",
+			"remote-1", TASK_BRANCH, "main", "title", "desc", "https://pr", NOW);
+		pr.markOpened();
+		when(pullRequestService.getByCommit(anyString())).thenReturn(Optional.empty());
+		when(pullRequestService.createPullRequest(anyString(), any()))
+			.thenAnswer(invocation -> {
+				PullRequestRecord created = new PullRequestRecord("pr-1", "task-1",
+					invocation.getArgument(0), "remote-1", TASK_BRANCH, "main", "title",
+					"desc", "https://pr", NOW);
+				created.markOpened();
+				return created;
+			});
+		when(pullRequestService.get("pr-1")).thenReturn(Optional.of(pr));
+		CiRunRecord ci = ciRun("ci-1", "pr-1", CiStatus.SUCCESS);
+		when(ciService.check("pr-1", "abc123def")).thenReturn(ci);
+		when(ciService.get("ci-1")).thenReturn(Optional.of(ci));
+
+		DeliveryPipeline waiting = pipelineService.advance("task-1");
+		RemotePushApproval approval = approvalService.get(waiting.getRemotePushApprovalId());
+		approvalService.approve(approval.getApprovalId());
+		assertEquals(DeliveryStatus.COMPLETE, pipelineService.get("task-1").getStatus());
+		org.mockito.Mockito.clearInvocations(gitCommandExecutor, pullRequestService, ciService);
+
+		DeliveryPipelinePoller poller = new DeliveryPipelinePoller(pipelineRepository, pipelineService);
+		poller.poll();
+
+		assertEquals(DeliveryStatus.COMPLETE, pipelineService.get("task-1").getStatus());
+		verify(gitCommandExecutor, never()).push(anyString(), anyString(), anyString());
+		verify(pullRequestService, never()).createPullRequest(anyString(), any());
+		verify(ciService, never()).check(anyString(), anyString());
+		verify(pullRequestService, never()).merge(anyString());
+	}
+
 }

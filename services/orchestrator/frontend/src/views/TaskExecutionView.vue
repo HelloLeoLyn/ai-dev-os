@@ -352,9 +352,8 @@ async function kickDelivery(): Promise<void> {
 onMounted(async () => {
   await Promise.all([context.load(taskId), loadExecutionState(), taskTimeline.load(taskId)])
   if (context.task.value) taskNotifications.track(context.task.value)
-  if (deliveryPipeline.value || ['APPROVED', 'COMMITTED'].includes(changes.value[0]?.status ?? '')) {
-    void kickDelivery()
-  }
+  // V1-DELIVERY-AUTO-ADVANCE-CLOSEOUT：正常自动推进由服务端 DeliveryPipelinePoller 负责，
+  // 不再依赖页面加载/刷新触发 kickDelivery（kickDelivery 仍保留给 RETRY_DELIVERY 等手工 recovery）。
 })
 watch(monitoredTask, () => { void Promise.all([context.load(taskId), loadExecutionState(), taskTimeline.load(taskId)]) })
 function reload(): void { void Promise.all([context.load(taskId), loadExecutionState(), taskTimeline.load(taskId)]) }
