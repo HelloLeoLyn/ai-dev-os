@@ -168,6 +168,18 @@ public class FailureDiagnosisService {
 				fingerprint("MODEL", "AGENT_DEFAULT_MODEL_MISSING",
 					"no model requested and no agent default", "model-resolution"));
 		}
+		// 通用规则：AI Provider 认证失败（不绑定具体 provider，不按 URL 判断）
+		if (isProviderAuthenticationFailure(combined)) {
+			List<String> authEvidence = authenticationEvidence(combined, execution);
+			return build(taskId, "EXECUTION", "Model Resolution", stepId,
+				firstNonBlank(errorCode, "EXECUTOR_FAILED"), "PROVIDER_AUTHENTICATION_FAILED",
+				FailureCategory.CONFIGURATION,
+				"AI provider authentication failed",
+				"The configured AI provider credentials were rejected by the provider.",
+				authEvidence, RecommendedAction.FIX_CONFIGURATION, false,
+				fingerprint("CONFIGURATION", "PROVIDER_AUTHENTICATION_FAILED",
+					"provider authentication failed", "model-resolution"));
+		}
 		// 规则 3：MODE_CONFLICT → TASK_MODE_CONFLICT
 		if (containsAny(combined, "MODE_CONFLICT")) {
 			return build(taskId, "EXECUTION", "Preflight", stepId, "MODE_CONFLICT",
@@ -202,17 +214,16 @@ public class FailureDiagnosisService {
 		String rawCode = execution != null && execution.errorCode() != null
 			? execution.errorCode() : taskStatus == null ? "UNKNOWN" : taskStatus.name();
 		List<String> evidenceItems = new ArrayList<>();
+		java.util.Set<String> seen = new java.util.HashSet<>();
 		if (evidence.task() != null && evidence.task().getErrorMessage() != null) {
-			evidenceItems.add("taskError=" + FailureEvidenceCollector.snippet(
-				evidence.task().getErrorMessage()));
+			addUnique(evidenceItems, seen, "taskError=", evidence.task().getErrorMessage());
 		}
 		if (execution != null) {
 			if (execution.errorMessage() != null) {
-				evidenceItems.add("errorMessage=" + FailureEvidenceCollector.snippet(
-					execution.errorMessage()));
+				addUnique(evidenceItems, seen, "errorMessage=", execution.errorMessage());
 			}
 			if (execution.message() != null) {
-				evidenceItems.add("message=" + FailureEvidenceCollector.snippet(execution.message()));
+				addUnique(evidenceItems, seen, "message=", execution.message());
 			}
 			if (execution.exitCode() != null) {
 				evidenceItems.add("exitCode=" + execution.exitCode());
@@ -271,6 +282,91 @@ public class FailureDiagnosisService {
 			.trim();
 	}
 
+	// ==================== 通用 Provider 认证失败（规则 9） ====================
+
+	/**
+	 * 通用认证失败匹配：HTTP 401 / Unauthorized / Authentication failed(Fails) /
+	 * invalid api key / invalid token / credential。不绑定具体 provider，不按 URL 判断。
+	 */
+	private static boolean isProviderAuthenticationFailure(String combined) {
+		if (combined == null) {
+			return false;
+		}
+		boolean http401 = containsAny(combined, "401", "HTTP 401", "status 401");
+		boolean authPhrase = containsAny(combined, "Unauthorized", "unauthorized",
+			"Authentication failed", "Authentication Fails", "authentication failed",
+			"invalid api key", "invalid API key", "invalid token", "invalid credential");
+		return http401 || authPhrase;
+	}
+
+	/**
+	 * 认证失败 evidence 提炼：HTTP status / 认证消息 / provider endpoint / exitCode。
+	 * 去重 + 关键片段，不重复展示同一原始错误。
+	 */
+	private List<String> authenticationEvidence(String combined, ExecutionRecordDetail execution) {
+		List<String> items = new ArrayList<>();
+		java.util.Set<String> seen = new java.util.HashSet<>();
+		String httpStatus = extractHttpStatus(combined);
+		addUnique(items, seen, null, httpStatus);
+		String authMessage = extractAuthMessage(combined);
+		addUnique(items, seen, null, authMessage);
+		String endpoint = extractEndpoint(combined);
+		if (endpoint != null) {
+			String line = "Provider endpoint: " + endpoint;
+			if (seen.add(line)) {
+				items.add(line);
+			}
+		}
+		if (execution.exitCode() != null) {
+			items.add("exitCode=" + execution.exitCode());
+		}
+		return items;
+	}
+
+	private static String extractHttpStatus(String combined) {
+		java.util.regex.Matcher matcher = java.util.regex.Pattern
+			.compile("(?i)(HTTP status |status |HTTP )?401([^,;.\n]{0,40})")
+			.matcher(combined == null ? "" : combined);
+		if (matcher.find()) {
+			String value = matcher.group().trim();
+			return value.startsWith("HTTP") || value.startsWith("status") ? value
+				: "HTTP " + value;
+		}
+		return null;
+	}
+
+	private static String extractAuthMessage(String combined) {
+		if (combined == null) {
+			return null;
+		}
+		java.util.regex.Matcher matcher = java.util.regex.Pattern
+			.compile("(?i)(Authentication (failed|fails)|Unauthorized|invalid (api key|API key|token|credential))")
+			.matcher(combined);
+		if (matcher.find()) {
+			return matcher.group();
+		}
+		return null;
+	}
+
+	private static String extractEndpoint(String combined) {
+		if (combined == null) {
+			return null;
+		}
+		java.util.regex.Matcher matcher = java.util.regex.Pattern
+			.compile("https?://[^\\s\"'，,;]+|\\b(?:api|api[.-]?\\w+)[.-]?\\w+\\.[a-z]{2,}(?:/[^\\s\"'，,;]*)?")
+			.matcher(combined);
+		return matcher.find() ? matcher.group().replaceAll("[\"']$", "") : null;
+	}
+
+	private static String firstNonBlank(String... values) {
+		for (String value : values) {
+			if (value != null && !value.isBlank()) {
+				return value;
+			}
+		}
+		return "UNKNOWN";
+	}
+
 	// ==================== helpers ====================
 
 	private FailureDiagnosis build(String taskId, String source, String stage, String failedStepId,
@@ -280,6 +376,19 @@ public class FailureDiagnosisService {
 		return new FailureDiagnosis(taskId, source, stage, failedStepId, errorCode, code,
 			category, summary, rootCause, List.copyOf(evidence), recommendedAction,
 			retryable, fingerprint, Instant.now());
+	}
+
+	private static void addUnique(List<String> items, java.util.Set<String> seen,
+			String label, String content) {
+		if (content == null || content.isBlank()) {
+			return;
+		}
+		String snippet = FailureEvidenceCollector.snippet(content);
+		// 以内容为去重键：taskError/errorMessage/message 相同文本只保留一份
+		if (!seen.add(snippet)) {
+			return;
+		}
+		items.add(label == null ? snippet : label + snippet);
 	}
 
 	private static boolean containsAny(String value, String... needles) {

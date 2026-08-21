@@ -149,4 +149,42 @@ class FailureDiagnosisServiceTest {
 			"同类错误在不同 task 必须产生相同 fingerprint");
 		assertEquals(16, d1.fingerprint().length());
 	}
+
+	/** A. EXECUTOR_FAILED + 401 Unauthorized + Authentication Fails → PROVIDER_AUTHENTICATION_FAILED */
+	@Test
+	void providerAuthenticationFailureDiagnosesGenericRule() {
+		TaskFailureEvidence evidence = evidence(failedTask("task-auth", "Provider error"),
+			execution("EXECUTOR_FAILED", "unexpected status 401 Unauthorized",
+				"Authentication Fails. Check provider/model endpoint credentials.", 1), null);
+
+		FailureDiagnosis diagnosis = service.diagnose(evidence);
+
+		assertNotNull(diagnosis);
+		assertEquals("PROVIDER_AUTHENTICATION_FAILED", diagnosis.code());
+		assertEquals(FailureCategory.CONFIGURATION, diagnosis.category());
+		assertEquals(RecommendedAction.FIX_CONFIGURATION, diagnosis.recommendedAction());
+		assertEquals(false, diagnosis.retryable());
+		// evidence 提炼：HTTP status / 认证消息 / endpoint / exitCode
+		assertTrue(diagnosis.evidence().stream().anyMatch(item -> item.contains("401")));
+		assertTrue(diagnosis.evidence().stream().anyMatch(item ->
+			item.contains("Unauthorized") || item.contains("Authentication")));
+		assertTrue(diagnosis.evidence().stream().anyMatch(item -> item.startsWith("exitCode=1")));
+	}
+
+	/** B. taskError/errorMessage/message 重复 → evidence 去重，不出现三份相同长文本 */
+	@Test
+	void unknownEvidenceDeduplicatesRepeatedRawError() {
+		String repeated = "Mystery error: widget exploded while applying flux capacitor";
+		TaskFailureEvidence evidence = evidence(failedTask("task-dup", repeated),
+			execution(null, repeated, repeated, 7), null);
+
+		FailureDiagnosis diagnosis = service.diagnose(evidence);
+
+		assertNotNull(diagnosis);
+		assertEquals("UNKNOWN", diagnosis.code());
+		long occurrences = diagnosis.evidence().stream()
+			.filter(item -> item.contains("Mystery error"))
+			.count();
+		assertEquals(1, occurrences, "同一原始错误不得重复展示三遍");
+	}
 }
