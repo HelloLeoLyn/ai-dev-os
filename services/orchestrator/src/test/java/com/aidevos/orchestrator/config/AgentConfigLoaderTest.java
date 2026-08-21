@@ -37,6 +37,53 @@ class AgentConfigLoaderTest {
 		assertEquals("read-only", agents.get(6).getPermissionLevel());
 	}
 
+	/** V1-FINAL-CLOSEOUT：analyst 默认模型与 coder 一致，且能被 ModelResolver 正确解析 */
+	@Test
+	void analystDefaultModelIsConfiguredAndResolvable() {
+		AgentConfigLoader agentConfigLoader = new AgentConfigLoader();
+		AgentDefinition analyst = agentConfigLoader.loadAgents().stream()
+			.filter(agent -> "analyst".equals(agent.getName()))
+			.findFirst().orElseThrow();
+		Object analystModel = analyst.getExecutorConfig().get("model");
+		assertEquals("deepseek-v4-flash", analystModel,
+			"analyst 必须配置有效默认模型（与 coder 一致）");
+
+		// 用真实 ModelResolver 验证 default model 可解析（analyst 是 codex executor）
+		com.aidevos.orchestrator.modelregistry.InMemoryProviderDefinitionRepository providers =
+			new com.aidevos.orchestrator.modelregistry.InMemoryProviderDefinitionRepository();
+		com.aidevos.orchestrator.modelregistry.InMemoryModelDefinitionRepository models =
+			new com.aidevos.orchestrator.modelregistry.InMemoryModelDefinitionRepository();
+		com.aidevos.orchestrator.modelregistry.ProviderDefinition provider =
+			new com.aidevos.orchestrator.modelregistry.ProviderDefinition();
+		provider.setProviderId("deepseek");
+		provider.setDisplayName("DeepSeek");
+		provider.setBaseUrl("https://api.deepseek.com");
+		provider.setCredentialRef("DEEPSEEK_API_KEY");
+		provider.setEnabled(true);
+		providers.save(provider);
+		com.aidevos.orchestrator.modelregistry.ModelDefinition model =
+			new com.aidevos.orchestrator.modelregistry.ModelDefinition();
+		model.setModelId("deepseek-v4-flash");
+		model.setDisplayName("DeepSeek V4 Flash");
+		model.setProviderId("deepseek");
+		model.setExecutorType("codex");
+		model.setEnabled(true);
+		models.save(model);
+		com.aidevos.orchestrator.modelregistry.ModelResolver resolver =
+			new com.aidevos.orchestrator.modelregistry.ModelResolver(providers, models) {
+				@Override
+				protected String lookupEnv(String name) {
+					return "test-value";
+				}
+			};
+
+		com.aidevos.orchestrator.modelregistry.ResolvedModel resolved =
+			resolver.resolve(null, String.valueOf(analystModel));
+
+		assertEquals("deepseek-v4-flash", resolved.resolvedModelId());
+		assertEquals("codex", resolved.executorType());
+	}
+
 	private void assertAgent(AgentDefinition agent, String name, String executor, List<String> capabilities) {
 		assertEquals(name, agent.getName());
 		assertEquals(executor, agent.getExecutor());

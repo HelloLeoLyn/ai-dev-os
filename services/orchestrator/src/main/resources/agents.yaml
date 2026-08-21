@@ -15,7 +15,7 @@ agents:
     executor: codex
     codex:
       workspace:
-      model:
+      model: deepseek-v4-flash
       sandbox: read-only
     capabilities:
       - analysis

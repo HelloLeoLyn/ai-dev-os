@@ -69,6 +69,17 @@ public class TaskController {
 		}
 	}
 
+	@PostMapping("/{id}/cancel")
+	public ResponseEntity<?> cancel(@PathVariable String id) {
+		ensureTask(id);
+		try {
+			return ResponseEntity.ok(taskCenterService.cancel(id));
+		}
+		catch (IllegalStateException exception) {
+			return ResponseEntity.status(HttpStatus.CONFLICT).body(exception.getMessage());
+		}
+	}
+
 	private void ensureTask(String id) {
 		if (taskCenterService.getTask(id).isEmpty()) {
 			throw new ResourceNotFoundException("Task", id);

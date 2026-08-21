@@ -177,9 +177,19 @@ public class TaskRecord {
 		this.updatedAt = Instant.now();
 	}
 
+	/** V1-FINAL-CLOSEOUT：用户主动取消（仅非终态可取消；重复调用幂等返回）。 */
+	public synchronized void markCancelled() {
+		if (isTerminal()) {
+			return;
+		}
+		this.status = TaskStatus.CANCELLED;
+		this.updatedAt = Instant.now();
+	}
+
 	private boolean isTerminal() {
 		return status == TaskStatus.SUCCESS || status == TaskStatus.FAILED
-			|| status == TaskStatus.COMPLETED || status == TaskStatus.REJECTED;
+			|| status == TaskStatus.COMPLETED || status == TaskStatus.REJECTED
+			|| status == TaskStatus.CANCELLED;
 	}
 
 	public synchronized void setPlanRunId(String planRunId) {

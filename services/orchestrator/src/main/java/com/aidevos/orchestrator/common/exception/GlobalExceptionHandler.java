@@ -49,6 +49,13 @@ public class GlobalExceptionHandler {
 			.body(ApiError.of("CONFLICT", message(exception)));
 	}
 
+	@ExceptionHandler(com.aidevos.orchestrator.taskcenter.TaskModeConflictException.class)
+	public ResponseEntity<ApiError> handleModeConflict(
+			com.aidevos.orchestrator.taskcenter.TaskModeConflictException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+			.body(ApiError.of("MODE_CONFLICT", message(exception)));
+	}
+
 	@ExceptionHandler(Exception.class)
 	public ResponseEntity<ApiError> handleUnexpected(Exception exception) throws Exception {
 		if (exception instanceof ErrorResponse) {

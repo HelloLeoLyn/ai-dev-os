@@ -16,6 +16,7 @@ import com.aidevos.orchestrator.plan.approval.PlanApprovalRequest;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalService;
 import com.aidevos.orchestrator.plan.run.PlanRun;
 import com.aidevos.orchestrator.plan.run.PlanRunRepository;
+import com.aidevos.orchestrator.plan.run.PlanRunStatus;
 import com.aidevos.orchestrator.planner.PlanningResult;
 import com.aidevos.orchestrator.planner.PlannerService;
 import com.aidevos.orchestrator.planner.PlanningRequest;
@@ -24,10 +25,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -262,5 +266,88 @@ class TaskCenterServiceTest {
 		assertEquals(TaskStatus.SUCCESS, refreshed.get().getStatus());
 		assertEquals("run-1", refreshed.get().getPlanRunId());
 		verify(handoff).project(task.getTaskId(), "run-1");
+	}
+
+	// ==================== V1-FINAL-CLOSEOUT ====================
+
+	private TaskCenterService fullService(AgentCoordinatorService coordinator,
+			TaskRepository repository) {
+		return new TaskCenterService(plannerService, approvalService, planRunRepository,
+			coordinator, AuditService.noop(), repository);
+	}
+
+	private TaskRecord approvedReadOnlyTask(String taskId, TaskRepository repository) {
+		TaskRecord task = new TaskRecord(taskId, "Task", "Description", "p1", "w1",
+			ExecutionMode.READ_ONLY);
+		task.markApproved();
+		repository.save(task);
+		return task;
+	}
+
+	/** 1. READ_ONLY + 明确写任务 → MODE_CONFLICT（fail closed，不进入执行） */
+	@Test
+	void readOnlyCodeGenerationTaskFailsClosedWithModeConflict() {
+		InMemoryTaskRepository repository = new InMemoryTaskRepository();
+		AgentCoordinatorService coordinator = mock(AgentCoordinatorService.class);
+		TaskCenterService svc = fullService(coordinator, repository);
+		approvedReadOnlyTask("task-ro", repository);
+
+		TaskModeConflictException ex = assertThrows(TaskModeConflictException.class,
+			() -> svc.execute("task-ro", TaskType.CODE_GENERATION));
+		assertTrue(ex.getMessage().contains("MODE_CONFLICT"));
+		verify(coordinator, never()).createCollaborationPlan(any(), any());
+	}
+
+	/** 2. 正常 READ_ONLY 分析任务 → 不触发 MODE_CONFLICT，正常进入执行 */
+	@Test
+	void readOnlyAnalysisTaskDoesNotTriggerModeConflict() {
+		InMemoryTaskRepository repository = new InMemoryTaskRepository();
+		AgentCoordinatorService coordinator = mock(AgentCoordinatorService.class);
+		TaskCenterService svc = fullService(coordinator, repository);
+		approvedReadOnlyTask("task-an", repository);
+
+		svc.execute("task-an", TaskType.TASK_ANALYSIS);
+
+		verify(coordinator, times(1)).createCollaborationPlan("task-an", TaskType.TASK_ANALYSIS);
+	}
+
+	/** 3. RUNNING Task → Cancel → CANCELLED 且已有 PlanRun ABORTED（不再推进） */
+	@Test
+	void cancelRunningTaskMovesToCancelledAndAbortsPlanRun() {
+		InMemoryTaskRepository repository = new InMemoryTaskRepository();
+		AgentCoordinatorService coordinator = mock(AgentCoordinatorService.class);
+		TaskCenterService svc = fullService(coordinator, repository);
+		TaskRecord task = approvedReadOnlyTask("task-c1", repository);
+		task.setPlanRunId("run-1");
+		task.markRunning();
+		repository.save(task);
+		PlanRun run = new PlanRun("run-1", "approval-1", PLAN, List.of(),
+			Instant.parse("2026-08-01T00:00:00Z"));
+		run.markRunning(Instant.parse("2026-08-01T00:00:00Z"));
+		when(planRunRepository.get("run-1")).thenReturn(run);
+
+		TaskRecord cancelled = svc.cancel("task-c1");
+
+		assertEquals(TaskStatus.CANCELLED, cancelled.getStatus());
+		assertEquals(PlanRunStatus.ABORTED, run.getStatus());
+		verify(planRunRepository).save(run);
+	}
+
+	/** 4. 重复 Cancel → 幂等 */
+	@Test
+	void cancelIsIdempotent() {
+		InMemoryTaskRepository repository = new InMemoryTaskRepository();
+		AgentCoordinatorService coordinator = mock(AgentCoordinatorService.class);
+		TaskCenterService svc = fullService(coordinator, repository);
+		TaskRecord task = approvedReadOnlyTask("task-c2", repository);
+		task.markRunning();
+		repository.save(task);
+
+		TaskRecord first = svc.cancel("task-c2");
+		TaskRecord second = svc.cancel("task-c2");
+
+		assertEquals(TaskStatus.CANCELLED, first.getStatus());
+		assertSame(first, second, "重复 Cancel 应返回同一 CANCELLED 记录");
+		assertEquals(TaskStatus.CANCELLED, second.getStatus());
 	}
 }

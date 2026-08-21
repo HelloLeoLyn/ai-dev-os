@@ -2,6 +2,7 @@ package com.aidevos.orchestrator.taskcenter;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -209,10 +210,18 @@ public class TaskCenterService {
 		if (task.getStatus() != TaskStatus.APPROVED) {
 			throw new IllegalArgumentException("Task is not approved: " + taskId);
 		}
+		TaskType type = taskType == null ? TaskType.GENERAL : taskType;
+		// V1-FINAL-CLOSEOUT：MODE_CONFLICT preflight——READ_ONLY + 明显写代码任务，
+		// 在进入 AI 执行前 fail closed，明确报 MODE_CONFLICT 而非 model/executor 错误。
+		if (task.getExecutionMode() == ExecutionMode.READ_ONLY
+				&& type == TaskType.CODE_GENERATION) {
+			throw new TaskModeConflictException(
+				"MODE_CONFLICT: READ_ONLY task cannot run CODE_GENERATION (write required). "
+					+ "Use READ_WRITE mode for code tasks.");
+		}
 		if (agentCoordinatorService == null) {
 			throw new IllegalStateException("Agent coordinator is not configured");
 		}
-		TaskType type = taskType == null ? TaskType.GENERAL : taskType;
 		auditService.taskEvent(EventType.USER_OPERATION, taskId, task.getStatus().name(),
 			TaskStatus.RUNNING.name(), "Task execution started",
 			Map.of("taskType", type.name()));
@@ -276,6 +285,38 @@ public class TaskCenterService {
 				TaskStatus.RUNNING.name(), "Approved task execution started",
 				Map.of("approvalId", approval.getId(), "planRunId", runId));
 		}
+		return task;
+	}
+
+	/**
+	 * V1-FINAL-CLOSEOUT：Task Cancel 最小闭环。
+	 * 非终态任务 → CANCELLED 终态；已有 PlanRun 一并 ABORTED（PlanScheduler 不再推进）；
+	 * 不启动/继续 DeliveryPipeline；保留 Workspace/Audit/Timeline；重复 Cancel 幂等。
+	 */
+	public synchronized TaskRecord cancel(String taskId) {
+		TaskRecord task = requireTask(taskId);
+		if (task.getStatus() == TaskStatus.CANCELLED) {
+			return task; // 重复 Cancel 幂等
+		}
+		TaskStatus status = task.getStatus();
+		if (status == TaskStatus.SUCCESS || status == TaskStatus.FAILED
+				|| status == TaskStatus.COMPLETED || status == TaskStatus.REJECTED) {
+			throw new IllegalStateException("Task already in terminal state: " + status);
+		}
+		String planRunId = task.getPlanRunId();
+		if (planRunId != null && !planRunId.isBlank()) {
+			PlanRun run = planRunRepository.get(planRunId);
+			if (run != null && run.getStatus() != PlanRunStatus.ABORTED
+					&& run.getStatus() != PlanRunStatus.SUCCESS
+					&& run.getStatus() != PlanRunStatus.FAILED) {
+				run.markAborted("Task cancelled: " + taskId, Instant.now());
+				planRunRepository.save(run);
+			}
+		}
+		task.markCancelled();
+		repository.save(task);
+		auditService.taskEvent(EventType.TASK_CANCELLED, taskId, status.name(),
+			TaskStatus.CANCELLED.name(), "Task cancelled by user", Map.of());
 		return task;
 	}
 

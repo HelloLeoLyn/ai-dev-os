@@ -26,6 +26,7 @@ import type { ExecutionState, InterventionAction } from '../api/planRuns'
 import { ApiError } from '../api/client'
 import { deliveryStages, primaryAction, workflowSummary, recommendedActionLabel, interventionAction, requiresConfirmation, type ExecutionViewInput } from '../services/executionDelivery'
 import { getDeliveryPipeline, advanceDelivery, type DeliveryPipeline } from '../api/delivery'
+import { cancelTask } from '../api/tasks'
 import { getTaskChanges, reviewChange, approveChange, rejectChange, retryChangeProjection as retryChangeProjectionApi } from '../api/changes'
 import type { ChangeSet } from '../api/changes'
 import { getTaskCommits } from '../api/commits'
@@ -317,6 +318,27 @@ async function decideCodingApproval(action: 'approve' | 'reject'): Promise<void>
   } finally { approvalBusy.value = false }
 }
 let deliveryKicked = false
+// V1-FINAL-CLOSEOUT：Task Cancel（非终态可取消，幂等）
+const cancelBusy = ref(false)
+const taskCancellable = computed(() => {
+  const status = context.task.value?.status
+  return Boolean(status && !['SUCCESS', 'COMPLETED', 'FAILED', 'REJECTED', 'CANCELLED'].includes(status))
+})
+async function cancelCurrentTask(): Promise<void> {
+  if (cancelBusy.value || !taskCancellable.value) return
+  try {
+    await ElMessageBox.confirm('Cancel this task? Execution will stop and the task enters CANCELLED.', 'Cancel Task', { type: 'warning', confirmButtonText: 'Cancel Task', cancelButtonText: 'Keep Running' })
+  }
+  catch { return }
+  cancelBusy.value = true
+  try {
+    await cancelTask(taskId)
+    ElMessage.success('Task cancelled.')
+    await Promise.all([context.load(taskId), loadExecutionState(), taskTimeline.load(taskId)])
+  }
+  catch (error) { ElMessage.error(error instanceof Error ? error.message : 'Cancel failed.') }
+  finally { cancelBusy.value = false }
+}
 async function kickDelivery(): Promise<void> {
   const change = changes.value[0]
   if (!change || !['APPROVED', 'COMMITTED'].includes(change.status)) return
@@ -364,6 +386,9 @@ function reload(): void { void Promise.all([context.load(taskId), loadExecutionS
       </div>
       <div v-if="primary" class="primary-action">
         <el-button type="primary" size="large" :loading="primaryBusy" @click="runPrimaryAction">{{ primary.label }}</el-button>
+      </div>
+      <div v-if="taskCancellable" class="primary-action" style="margin-top:.5rem">
+        <el-button type="danger" :loading="cancelBusy" @click="cancelCurrentTask">Cancel Task</el-button>
       </div>
     </section>
     <section v-if="pendingApproval && pendingRecord" id="coding-approval" class="approval-action" aria-live="polite">

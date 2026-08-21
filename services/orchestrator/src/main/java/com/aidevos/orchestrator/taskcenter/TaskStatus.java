@@ -16,5 +16,7 @@ public enum TaskStatus {
 	SUCCESS,
 	COMPLETED,
 	REJECTED,
-	FAILED
+	FAILED,
+	// V1-FINAL-CLOSEOUT：用户主动取消的非终态任务终态（重复 Cancel 幂等）
+	CANCELLED
 }
