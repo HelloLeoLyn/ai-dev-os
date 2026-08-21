@@ -93,18 +93,6 @@ function interventionRequired(state: ExecutionState | null): boolean {
   return Boolean(state && INTERVENTION_STATUSES.has(state.interventionStatus))
 }
 
-function firstChange(changes: ChangeSet[]): ChangeSet | null {
-  return changes[0] ?? null
-}
-
-function firstCommit(commits: CommitRecord[]): CommitRecord | null {
-  return commits[0] ?? null
-}
-
-function pendingRemotePush(approvals: RemotePushApproval[]): boolean {
-  return approvals.some(item => item.status === 'PENDING')
-}
-
 export function recommendedActionLabel(action: string | null): string {
   switch (action) {
     case 'FIX_CREDENTIAL': return 'Fix credential → Retry'
@@ -150,17 +138,8 @@ export function deliveryStages(input: ExecutionViewInput): DeliveryProjection {
   if (pipeline) {
     return pipelineStages(pipeline)
   }
-  const change = firstChange(input.changes)
-  const commit = firstCommit(input.commits)
-  const stages: DeliveryStage[] = [
-    { key: 'CHANGE', label: STAGE_LABELS.CHANGE, status: changeStage(change) },
-    { key: 'VALIDATION', label: STAGE_LABELS.VALIDATION, status: validationStage(change, input.validation) },
-    { key: 'QUALITY_GATE', label: STAGE_LABELS.QUALITY_GATE, status: gateStage(input.validation, input.gate) },
-    { key: 'COMMIT', label: STAGE_LABELS.COMMIT, status: commitStage(change, input.gate, commit) },
-    { key: 'REMOTE_PUSH', label: STAGE_LABELS.REMOTE_PUSH, status: pushStage(input.remotePushApprovals) },
-  ]
-  const current = currentStage(stages, Boolean(change || commit || input.remotePushApprovals.length))
-  return { stages, current }
+  // DELIVERY-LEGACY-FLOW-REMOVAL-V1：Pipeline 缺失 → 空投影，不再投影旧 Workspace/Change stage 链。
+  return { stages: [], current: 'EXECUTION' }
 }
 
 /**
@@ -204,104 +183,25 @@ function failedStage(pipeline: DeliveryPipeline): DeliveryStageKey {
   return 'CHANGE'
 }
 
-function changeStage(change: ChangeSet | null): DeliveryStageStatus {
-  if (!change) return 'NOT_STARTED'
-  if (change.status === 'REJECTED') return 'FAILED'
-  if (change.status === 'APPROVED' || change.status === 'COMMITTED') return 'SUCCESS'
-  return 'ACTIVE'
-}
-
-function validationStage(change: ChangeSet | null, validation: ValidationRun | null): DeliveryStageStatus {
-  if (!change || change.status !== 'APPROVED') return 'NOT_STARTED'
-  if (!validation) return 'ACTIVE'
-  switch (validation.status) {
-    case 'SUCCESS': return 'SUCCESS'
-    case 'FAILED':
-    case 'ERROR':
-    case 'BLOCKED': return 'FAILED'
-    case 'SKIPPED': return 'SUCCESS'
-    default: return 'ACTIVE'
-  }
-}
-
-function gateStage(validation: ValidationRun | null, gate: QualityGateResult | null): DeliveryStageStatus {
-  if (!validation || validation.status !== 'SUCCESS') return 'NOT_STARTED'
-  if (!gate) return 'ACTIVE'
-  if (gate.decision === 'PASS') return 'SUCCESS'
-  if (gate.decision === 'REQUIRE_APPROVAL') return 'WAITING_APPROVAL'
-  return 'FAILED'
-}
-
-function commitStage(change: ChangeSet | null, gate: QualityGateResult | null, commit: CommitRecord | null): DeliveryStageStatus {
-  if (!change || change.status !== 'APPROVED') return 'NOT_STARTED'
-  if (gate?.decision !== 'PASS') return 'NOT_STARTED'
-  if (!commit) return 'ACTIVE'
-  if (commit.status === 'SUCCESS') return 'SUCCESS'
-  if (commit.status === 'FAILED') return 'FAILED'
-  return 'ACTIVE'
-}
-
-function pushStage(approvals: RemotePushApproval[]): DeliveryStageStatus {
-  if (!approvals.length) return 'NOT_STARTED'
-  if (pendingRemotePush(approvals)) return 'WAITING_APPROVAL'
-  if (approvals.some(item => item.status === 'REJECTED')) return 'FAILED'
-  if (approvals.some(item => ['SUCCESS', 'CONSUMED', 'PUSHED'].includes(item.status))) return 'SUCCESS'
-  return 'ACTIVE'
-}
-
-function currentStage(stages: DeliveryStage[], hasDelivery: boolean): string {
-  if (!hasDelivery) return 'EXECUTION'
-  for (const stage of stages) {
-    if (stage.status === 'ACTIVE' || stage.status === 'WAITING_APPROVAL' || stage.status === 'FAILED') {
-      return stage.key
-    }
-  }
-  return stages.at(-1)?.key ?? 'EXECUTION'
-}
-
 export function primaryAction(input: ExecutionViewInput): PrimaryAction | null {
   if (interventionRequired(input.executionState)) return null
   if (input.codingApprovalPending) return { key: 'APPROVE_WORKSPACE_WRITE', label: 'Approve Workspace Write' }
 
+  // DELIVERY-LEGACY-FLOW-REMOVAL-V1：Primary Action 只允许根据 DeliveryPipeline 决定。
+  // Pipeline 存在 → 只按 currentStage/status；Pipeline 缺失 → 不再 fallback 旧 Workspace/Change 推导。
   const pipeline = input.delivery
-  if (pipeline) {
-    if (pipeline.status === 'WAITING_APPROVAL') {
-      if (pipeline.currentStage === 'QUALITY_GATE') {
-        return { key: 'APPROVE_GATE', label: 'Approve Quality Gate' }
-      }
-      if (pipeline.currentStage === 'WAITING_REMOTE_PUSH_APPROVAL') {
-        return { key: 'APPROVE_REMOTE_PUSH', label: 'Approve Remote Push' }
-      }
-    }
-    if (pipeline.status === 'FAILED') {
-      return { key: 'RETRY_DELIVERY', label: 'Retry Delivery' }
-    }
-    return null
-  }
+  if (!pipeline) return null
 
-  const change = firstChange(input.changes)
-  if (change) {
-    if (change.status === 'CREATED') return { key: 'START_REVIEW', label: 'Start Review' }
-    if (change.status === 'REVIEWING') return { key: 'APPROVE_CHANGE', label: 'Approve Change' }
-    if (change.status === 'APPROVED') {
-      if (!input.validation || ['FAILED', 'ERROR', 'BLOCKED'].includes(input.validation.status)) {
-        return { key: 'RUN_VALIDATION', label: 'Run Validation' }
-      }
-      if (input.validation.status === 'SUCCESS' && !input.gate) {
-        return { key: 'EVALUATE_GATE', label: 'Evaluate Quality Gate' }
-      }
-      if (input.gate?.decision === 'REQUIRE_APPROVAL') return { key: 'APPROVE_GATE', label: 'Approve Quality Gate' }
-      if (input.gate?.decision === 'PASS') return { key: 'COMMIT_CHANGE', label: 'Commit Change' }
-      if (input.gate?.decision === 'BLOCK') return { key: 'RERUN_VALIDATION', label: 'Re-run Validation' }
+  if (pipeline.status === 'WAITING_APPROVAL') {
+    if (pipeline.currentStage === 'QUALITY_GATE') {
+      return { key: 'APPROVE_GATE', label: 'Approve Quality Gate' }
+    }
+    if (pipeline.currentStage === 'WAITING_REMOTE_PUSH_APPROVAL') {
+      return { key: 'APPROVE_REMOTE_PUSH', label: 'Approve Remote Push' }
     }
   }
-
-  const commit = firstCommit(input.commits)
-  if (commit && commit.status === 'PENDING') return { key: 'RECOVER_COMMIT', label: 'Recover Commit State' }
-  if (pendingRemotePush(input.remotePushApprovals)) return { key: 'APPROVE_REMOTE_PUSH', label: 'Approve Remote Push' }
-  if ((input.workspaceStatus === 'COMPLETED' || input.workspaceStatus === 'PROMOTION_FAILED')
-      && input.workspaceReviewComplete) {
-    return { key: 'PROMOTE_WORKSPACE', label: 'Promote to Source Workspace' }
+  if (pipeline.status === 'FAILED') {
+    return { key: 'RETRY_DELIVERY', label: 'Retry Delivery' }
   }
   return null
 }
@@ -311,9 +211,8 @@ export function workflowSummary(input: ExecutionViewInput): WorkflowSummary {
   if (pipeline) {
     return pipelineSummary(input, pipeline)
   }
-  const projection = deliveryStages(input)
+  const stage = 'EXECUTION'
   const state = input.executionState
-  const stage = STAGE_LABELS[projection.current] ?? projection.current
 
   if (interventionRequired(state)) {
     const failureClass = state?.lastFailureClass ?? null
@@ -330,53 +229,26 @@ export function workflowSummary(input: ExecutionViewInput): WorkflowSummary {
       severity: state?.lastSeverity ?? null,
     }
   }
-
-  const change = firstChange(input.changes)
-  let status = input.taskStatus
-  let blockedReason = 'None'
   if (input.codingApprovalPending) {
-    status = 'WAITING_APPROVAL'
-    blockedReason = 'Workspace write approval required.'
-  }
-  else if (pendingRemotePush(input.remotePushApprovals)) {
-    status = 'WAITING_APPROVAL'
-    blockedReason = 'Remote push approval required.'
-  }
-  else if (input.gate?.decision === 'REQUIRE_APPROVAL') {
-    status = 'WAITING_APPROVAL'
-    blockedReason = gateReason(input.gate)
-  }
-  else if (input.gate?.decision === 'BLOCK') {
-    status = 'BLOCKED'
-    blockedReason = gateReason(input.gate)
-  }
-  else if (input.validation && ['FAILED', 'ERROR', 'BLOCKED'].includes(input.validation.status)) {
-    status = 'FAILED'
-    blockedReason = input.validation.summary || 'Delivery validation failed.'
-  }
-  else if (change?.status === 'REVIEWING') {
-    status = 'REVIEWING'
-    blockedReason = 'Change review pending.'
-  }
-  else if (change?.status === 'APPROVED' && !input.validation) {
-    status = 'READY'
-    blockedReason = 'None'
-  }
-  else if (change?.status === 'APPROVED' && input.validation?.status === 'SUCCESS' && !input.gate) {
-    status = 'READY'
-    blockedReason = 'None'
-  }
-  else if (change?.status === 'COMMITTED' || (change?.status === 'APPROVED' && input.gate?.decision === 'PASS')) {
-    status = 'DELIVERING'
-    blockedReason = 'None'
+    return {
+      stage,
+      status: 'WAITING_APPROVAL',
+      blockedReason: 'Workspace write approval required.',
+      nextAction: 'Approve Workspace Write',
+      failureClass: null,
+      errorMessage: null,
+      recommendedAction: null,
+      severity: null,
+    }
   }
 
-  const primary = primaryAction(input)
+  // DELIVERY-LEGACY-FLOW-REMOVAL-V1：Pipeline 缺失时不再推进旧 Delivery 流程，
+  // 只显示 Delivery pipeline unavailable / not started。
   return {
     stage,
-    status,
-    blockedReason,
-    nextAction: primary?.label ?? 'Monitor execution',
+    status: 'NOT_STARTED',
+    blockedReason: 'Delivery pipeline not started.',
+    nextAction: 'Delivery pipeline unavailable / not started',
     failureClass: null,
     errorMessage: null,
     recommendedAction: null,
@@ -437,9 +309,4 @@ function pipelineSummary(input: ExecutionViewInput, pipeline: DeliveryPipeline):
     recommendedAction: null,
     severity: null,
   }
-}
-
-function gateReason(gate: QualityGateResult): string {
-  const first = gate.reasons[0]
-  return first?.message || 'Quality gate requires attention.'
 }

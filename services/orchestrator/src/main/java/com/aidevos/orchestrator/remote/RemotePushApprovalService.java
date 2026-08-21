@@ -20,7 +20,7 @@ public class RemotePushApprovalService {
         RemotePushApproval value=new RemotePushApproval("remote-push-"+UUID.randomUUID(),taskId,workspaceId,branch,commitId,hash,remote,"refs/heads/"+branch,Instant.now());
         repository.save(value); flow(EventType.REMOTE_PUSH_APPROVAL_REQUESTED,value,"",value.getStatus().name()); return value;
     }
-    public synchronized RemotePushApproval approve(String id){RemotePushApproval v=require(id);String from=v.getStatus().name();v.approve();repository.save(v);if(!from.equals(v.getStatus().name())){flow(EventType.REMOTE_PUSH_APPROVAL_APPROVED,v,from,v.getStatus().name());if(deliveryPipelineService!=null)deliveryPipelineService.advanceIfExists(v.getTaskId());}return v;}
+    public synchronized RemotePushApproval approve(String id){RemotePushApproval v=require(id);String from=v.getStatus().name();v.approve();repository.save(v);if(!from.equals(v.getStatus().name())){flow(EventType.REMOTE_PUSH_APPROVAL_APPROVED,v,from,v.getStatus().name());if(deliveryPipelineService!=null)deliveryPipelineService.advance(v.getTaskId());}return v;}
     public synchronized RemotePushApproval reject(String id){RemotePushApproval v=require(id);String from=v.getStatus().name();v.reject();repository.save(v);return v;}
     public synchronized boolean consume(RemotePushApproval v){if(!v.consume())return false;repository.save(v);flow(EventType.REMOTE_PUSH_APPROVAL_CONSUMED,v,RemotePushApprovalStatus.APPROVED.name(),v.getStatus().name());return true;}
     public RemotePushApproval get(String id){return repository.get(id);} public List<RemotePushApproval> getAll(){return repository.getAll();} public List<RemotePushApproval> getByTask(String taskId){return repository.getByTask(taskId);}

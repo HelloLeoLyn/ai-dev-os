@@ -26,11 +26,11 @@ import type { ExecutionState, InterventionAction } from '../api/planRuns'
 import { ApiError } from '../api/client'
 import { deliveryStages, primaryAction, workflowSummary, recommendedActionLabel, interventionAction, requiresConfirmation, type ExecutionViewInput } from '../services/executionDelivery'
 import { getDeliveryPipeline, advanceDelivery, type DeliveryPipeline } from '../api/delivery'
-import { getTaskChanges, reviewChange, approveChange, rejectChange, commitChange, retryChangeProjection as retryChangeProjectionApi } from '../api/changes'
+import { getTaskChanges, reviewChange, approveChange, rejectChange, retryChangeProjection as retryChangeProjectionApi } from '../api/changes'
 import type { ChangeSet } from '../api/changes'
-import { getTaskCommits, recoverCommit } from '../api/commits'
+import { getTaskCommits } from '../api/commits'
 import type { CommitRecord } from '../api/commits'
-import { getTaskValidations, startDeliveryValidation, getQualityGates, evaluateQualityGate, approveQualityGate, rejectQualityGate } from '../api/validations'
+import { getTaskValidations, getQualityGates, approveQualityGate, rejectQualityGate } from '../api/validations'
 import type { ValidationRun, QualityGateResult } from '../types/validation'
 
 const route = useRoute()
@@ -65,9 +65,6 @@ const pendingApproval = computed(() => pendingRecord.value?.approvalId ? codingA
 const approvalHistory = computed(() => Object.values(codingApprovals.value).filter(approval => approval.taskId === taskId && (!latestJob.value?.id || approval.jobId === latestJob.value.id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt)))
 const requiresCodingApproval = computed(() => pendingApproval.value?.status === 'PENDING' || pendingApproval.value?.status === 'APPROVED')
 const pendingRemotePush = computed(() => remotePushApprovals.value.find(item => item.status === 'PENDING') ?? null)
-function hasUsableApproval(commitId: string): boolean {
-  return remotePushApprovals.value.some(item => item.commitId === commitId && (item.status === 'PENDING' || item.status === 'APPROVED'))
-}
 const efficiency = computed(() => {
   let aiCalls = 0
   let toolCalls = 0
@@ -166,26 +163,13 @@ const modelLine = computed(() => {
 function runPrimaryAction(): void {
   const action = primary.value
   if (!action) return
+  // DELIVERY-SINGLE-AUTHORITY-V1：Primary Action 只处理 DeliveryPipeline 推导出的动作；
+  // 旧 direct-action（Change/Validation/Commit/RemotePush 直连）不再作为主流程入口。
   switch (action.key) {
     case 'APPROVE_WORKSPACE_WRITE': void decideCodingApproval('approve'); break
-    case 'START_REVIEW': { const change = changes.value[0]; if (change) void changeAction(change.changeId, 'review'); break }
-    case 'APPROVE_CHANGE': { const change = changes.value[0]; if (change) void changeAction(change.changeId, 'approve'); break }
-    case 'RUN_VALIDATION':
-    case 'RERUN_VALIDATION':
-    case 'EVALUATE_GATE':
-    case 'COMMIT_CHANGE':
-      if (deliveryPipeline.value) { void kickDelivery(); break }
-      if (action.key === 'RUN_VALIDATION' || action.key === 'RERUN_VALIDATION') {
-        const change = changes.value[0]; if (change) void runDeliveryValidation(change)
-      }
-      else if (action.key === 'EVALUATE_GATE') void evaluateDeliveryGate()
-      else { const change = changes.value[0]; if (change) void changeAction(change.changeId, 'commit') }
-      break
     case 'APPROVE_GATE': void decideDeliveryGate(true); break
     case 'RETRY_DELIVERY': void kickDelivery(); break
-    case 'RECOVER_COMMIT': { const record = commits.value[0]; if (record) void recoverCommitState(record); break }
     case 'APPROVE_REMOTE_PUSH': void decideRemotePush('approve'); break
-    case 'PROMOTE_WORKSPACE': void promoteWorkspace(); break
   }
 }
 async function runIntervention(action: InterventionAction): Promise<void> {
@@ -255,26 +239,14 @@ async function loadExecutionState(): Promise<void> {
     .slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null : null
   deliveryPipeline.value = await getDeliveryPipeline(taskId).catch(() => null)
 }
-async function changeAction(id: string, action: 'review'|'approve'|'reject'|'commit'): Promise<void> {
+async function changeAction(id: string, action: 'review'|'approve'|'reject'): Promise<void> {
   try {
     if (action === 'review') await reviewChange(id)
     else if (action === 'approve') await approveChange(id)
-    else if (action === 'reject') await rejectChange(id)
-    else await commitChange(id)
+    else await rejectChange(id)
     await loadExecutionState()
     await taskTimeline.load(taskId)
   } catch (error) { ElMessage.error(error instanceof Error ? error.message : 'Change action failed.') }
-}
-async function recoverCommitState(commit: CommitRecord): Promise<void> {
-  if (commitRecoverBusy.value) return
-  commitRecoverBusy.value = true
-  try {
-    await recoverCommit(taskId, commit.commitId)
-    await loadExecutionState()
-    await taskTimeline.load(taskId)
-    ElMessage.success('Commit state recovered from persisted evidence.')
-  } catch (error) { ElMessage.error(error instanceof Error ? error.message : 'Commit recovery failed.') }
-  finally { commitRecoverBusy.value = false }
 }
 async function retryChangeProjection(): Promise<void> {
   if (changeRetrying.value) return
@@ -282,20 +254,6 @@ async function retryChangeProjection(): Promise<void> {
   try { await retryChangeProjectionApi(taskId); await loadExecutionState() }
   catch (error) { ElMessage.error(error instanceof Error ? error.message : 'ChangeSet projection failed.') }
   finally { changeRetrying.value = false }
-}
-async function runDeliveryValidation(change: ChangeSet): Promise<void> {
-  if (validationBusy.value || change.status !== 'APPROVED') return
-  validationBusy.value = true
-  try { deliveryValidation.value = await startDeliveryValidation(change.changeId); deliveryGate.value = null; await loadExecutionState(); ElMessage.success('Delivery validation completed.') }
-  catch (error) { ElMessage.error(error instanceof Error ? error.message : 'Delivery validation failed.') }
-  finally { validationBusy.value = false }
-}
-async function evaluateDeliveryGate(): Promise<void> {
-  if (!deliveryValidation.value || validationBusy.value) return
-  validationBusy.value = true
-  try { deliveryGate.value = await evaluateQualityGate(deliveryValidation.value.validationRunId); await loadExecutionState() }
-  catch (error) { ElMessage.error(error instanceof Error ? error.message : 'Quality Gate evaluation failed.') }
-  finally { validationBusy.value = false }
 }
 async function decideDeliveryGate(approve: boolean): Promise<void> {
   if (!deliveryGate.value || validationBusy.value) return
@@ -425,7 +383,8 @@ function reload(): void { void Promise.all([context.load(taskId), loadExecutionS
       <dl class="review-grid"><div><dt>Files Changed</dt><dd>{{ workspaceReview.changedFiles.length }}</dd></div><div><dt>Review Completeness</dt><dd>{{ reviewValidationStatus(workspaceReview) }}</dd></div><div><dt>Base Revision</dt><dd>{{ workspaceReview.baseRevision }}</dd></div><div><dt>Tests / Artifacts</dt><dd>{{ workspaceReview.artifacts.length ? workspaceReview.artifacts.join(', ') : 'UNKNOWN' }}</dd></div></dl>
       <p v-if="workspaceReview.completeness !== 'COMPLETE'" class="error">Review is incomplete: {{ workspaceReview.incompleteReasons.join(', ') || 'Unable to display all changes.' }} Promotion is disabled.</p>
       <ul class="changed-files"><li v-for="file in workspaceReview.changedFiles" :key="file">{{ file }}</li></ul>
-      <div class="review-actions"><el-button @click="diffVisible = true">View Diff</el-button><el-button v-if="['COMPLETED','PROMOTION_FAILED'].includes(executionWorkspace?.status || '')" :loading="promotionBusy" :disabled="workspaceReview.completeness !== 'COMPLETE'" @click="promoteWorkspace">{{ executionWorkspace?.status === 'PROMOTION_FAILED' ? 'Retry Promote to Source Workspace' : 'Promote to Source Workspace' }}</el-button><el-button v-if="['COMPLETED','PROMOTION_FAILED'].includes(executionWorkspace?.status || '')" :loading="promotionBusy" @click="rejectWorkspace">Reject Changes</el-button></div>
+      <div class="review-actions"><el-button @click="diffVisible = true">View Diff</el-button><el-button v-if="['COMPLETED','PROMOTION_FAILED'].includes(executionWorkspace?.status || '')" :loading="promotionBusy" @click="rejectWorkspace">Reject Changes</el-button></div>
+      <details class="execution-details"><summary>Advanced Workspace Actions</summary><p style="margin:.5rem 0">Promote is an explicit action that will modify the source workspace. It is not part of the delivery main flow.</p><el-button v-if="['COMPLETED','PROMOTION_FAILED'].includes(executionWorkspace?.status || '')" :loading="promotionBusy" :disabled="workspaceReview.completeness !== 'COMPLETE'" @click="promoteWorkspace">{{ executionWorkspace?.status === 'PROMOTION_FAILED' ? 'Retry Promote to Source Workspace' : 'Promote to Source Workspace' }}</el-button></details>
       <p v-if="executionWorkspace?.promotionErrorCode" class="error">{{ executionWorkspace.promotionErrorCode }}: {{ executionWorkspace.promotionReason }}</p>
     </section>
     <section v-if="changes.length || commits.length || remotePushApprovals.length" class="delivery-flow" aria-label="Delivery Flow">
@@ -443,17 +402,9 @@ function reload(): void { void Promise.all([context.load(taskId), loadExecutionS
           <el-button v-if="change.status === 'CREATED'" @click="changeAction(change.changeId, 'review')">Start Review</el-button>
           <el-button v-if="change.status === 'REVIEWING'" @click="changeAction(change.changeId, 'approve')">Approve Change</el-button>
           <el-button v-if="change.status === 'REVIEWING'" @click="changeAction(change.changeId, 'reject')">Reject Change</el-button>
-          <el-button v-if="change.status === 'APPROVED'" :disabled="deliveryGate?.decision !== 'PASS'" @click="changeAction(change.changeId, 'commit')">Commit Change</el-button>
-        </div>
-        <div v-if="change.status === 'APPROVED'" class="validation-delivery">
-          <span>Validation: <StatusBadge :status="deliveryValidation?.status || 'NOT_RUN'" /></span>
-          <span>Quality Gate: <StatusBadge :status="deliveryGate?.decision || 'NOT_EVALUATED'" /></span>
-          <el-button v-if="!deliveryValidation || deliveryValidation.status === 'FAILED' || deliveryGate?.decision === 'BLOCK'" :loading="validationBusy" @click="runDeliveryValidation(change)">{{ deliveryValidation?.status === 'FAILED' || deliveryGate?.decision === 'BLOCK' ? 'Re-run Validation' : 'Run Validation' }}</el-button>
-          <el-button v-if="deliveryValidation?.status === 'SUCCESS' && !deliveryGate" :loading="validationBusy" @click="evaluateDeliveryGate">Evaluate Quality Gate</el-button>
-          <template v-if="deliveryGate?.decision === 'REQUIRE_APPROVAL'"><el-button :loading="validationBusy" @click="decideDeliveryGate(true)">Approve Quality Gate</el-button><el-button :loading="validationBusy" @click="decideDeliveryGate(false)">Reject Quality Gate</el-button></template>
         </div>
       </div>
-      <div v-for="commit in commits" :key="commit.commitId" class="delivery-card"><strong>Commit</strong> <TechnicalId :value="commit.commitId" label="Commit" /> <StatusBadge :status="commit.status" /><span> {{ commit.branch }} {{ commit.gitHash || '' }}</span><el-button v-if="commit.status === 'PENDING' || (commit.status === 'SUCCESS' && !hasUsableApproval(commit.commitId))" size="small" :loading="commitRecoverBusy" @click="recoverCommitState(commit)">Recover Commit State</el-button></div>
+      <div v-for="commit in commits" :key="commit.commitId" class="delivery-card"><strong>Commit</strong> <TechnicalId :value="commit.commitId" label="Commit" /> <StatusBadge :status="commit.status" /><span> {{ commit.branch }} {{ commit.gitHash || '' }}</span></div>
     </section>
     <section v-else-if="executionWorkspace?.status === 'COMPLETED' && context.task.value.executionMode === 'READ_WRITE'" class="delivery-flow" aria-label="Delivery Flow">
       <p class="page-eyebrow">Delivery</p><h2>ChangeSet not generated</h2><p class="error">Execution succeeded, but the ChangeSet projection is not available.</p>

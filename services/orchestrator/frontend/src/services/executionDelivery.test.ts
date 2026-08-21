@@ -4,7 +4,7 @@ import type { ChangeSet } from '../api/changes'
 import type { CommitRecord } from '../api/commits'
 import type { ExecutionState } from '../api/planRuns'
 import type { RemotePushApproval } from '../api/remotePush'
-import type { QualityGateResult, ValidationRun } from '../types/validation'
+import type { ValidationRun } from '../types/validation'
 
 function base(): ExecutionViewInput {
   return {
@@ -37,33 +37,37 @@ function validation(status: string): ValidationRun {
   return { validationRunId: 'v1', taskId: 't1', projectId: 'p1', workspaceId: 'w1', status: status as ValidationRun['status'], startedAt: '2026-01-01T00:00:00Z', checks: [], delivery: true }
 }
 
-function gate(decision: QualityGateResult['decision']): QualityGateResult {
-  return { gateResultId: 'g1', validationRunId: 'v1', taskId: 't1', projectId: 'p1', workspaceId: 'w1', decision, status: 'DECIDED', policyVersion: 'v1', evidenceFingerprint: 'f', reasons: [{ code: 'GATE', severity: 'HIGH', message: 'Gate message', sourceType: 'validation', sourceId: 'v1', blocking: true }], securitySummary: {}, validationSummary: {}, createdAt: '2026-01-01T00:00:00Z', decidedAt: '2026-01-01T00:00:00Z' }
-}
-
 function executionState(interventionStatus: string, overrides: Partial<ExecutionState> = {}): ExecutionState {
   return { runId: 'r1', totalAttempts: 1, aiAttempts: 0, toolAttempts: 1, repairAttempts: 0, replanAttempts: 0, consecutiveFailures: 3, interventionStatus, lastFailureClass: 'CREDENTIAL_MISSING', lastSeverity: 'L3_HUMAN_REQUIRED', lastResponse: 'REQUEST_HUMAN', lastAttempt: 1, lastMaxAttempts: 2, lastReason: 'DeepSeek credential is not configured.', recommendedAction: 'FIX_CREDENTIAL', ...overrides }
+}
+
+function pipeline(overrides: Partial<import('../api/delivery').DeliveryPipeline> = {}): import('../api/delivery').DeliveryPipeline {
+  return {
+    taskId: 't1',
+    changeSetId: 'c1',
+    executionWorkspaceId: 'w1',
+    currentStage: 'VALIDATING',
+    status: 'RUNNING',
+    validationRunId: '',
+    qualityGateId: '',
+    commitId: '',
+    remotePushApprovalId: '',
+    remoteBranchId: '',
+    pullRequestId: '',
+    ciRunId: '',
+    failureClass: null,
+    failureReason: '',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+    completedAt: null,
+    ...overrides,
+  }
 }
 
 describe('execution delivery primary action', () => {
   it('WAITING workspace approval derives Approve Workspace Write', () => {
     const input = { ...base(), codingApprovalPending: true }
     expect(primaryAction(input)).toEqual({ key: 'APPROVE_WORKSPACE_WRITE', label: 'Approve Workspace Write' })
-  })
-
-  it('Change APPROVED with validation NOT_RUN derives Run Validation', () => {
-    const input = { ...base(), changes: [change('APPROVED')] }
-    expect(primaryAction(input)).toEqual({ key: 'RUN_VALIDATION', label: 'Run Validation' })
-  })
-
-  it('Quality Gate REQUIRE_APPROVAL derives Approve Quality Gate', () => {
-    const input = { ...base(), changes: [change('APPROVED')], validation: validation('SUCCESS'), gate: gate('REQUIRE_APPROVAL') }
-    expect(primaryAction(input)).toEqual({ key: 'APPROVE_GATE', label: 'Approve Quality Gate' })
-  })
-
-  it('Commit SUCCESS with Remote Approval PENDING derives Approve Remote Push', () => {
-    const input = { ...base(), changes: [change('COMMITTED')], commits: [commit('SUCCESS')], remotePushApprovals: [pushApproval('PENDING')] }
-    expect(primaryAction(input)).toEqual({ key: 'APPROVE_REMOTE_PUSH', label: 'Approve Remote Push' })
   })
 
   it('NEEDS_INTERVENTION surfaces failure and recommended action', () => {
@@ -95,20 +99,61 @@ describe('execution delivery primary action', () => {
     expect(requiresConfirmation('REPLAN')).toBe(false)
     expect(requiresConfirmation(null)).toBe(false)
   })
+
+  // ===== DELIVERY-LEGACY-FLOW-REMOVAL-V1 =====
+
+  it('Pipeline present: primary action derives only from pipeline stage/status', () => {
+    // 即使旧推导会给出 Run Validation，pipeline 存在时只按 pipeline 决定
+    const running = { ...base(), changes: [change('APPROVED')], validation: null, delivery: pipeline({ currentStage: 'VALIDATING', status: 'RUNNING' }) }
+    expect(primaryAction(running)).toBeNull()
+    // pipeline WAITING_APPROVAL + QUALITY_GATE → Approve Quality Gate
+    const gateWait = { ...base(), changes: [change('APPROVED')], delivery: pipeline({ currentStage: 'QUALITY_GATE', status: 'WAITING_APPROVAL' }) }
+    expect(primaryAction(gateWait)).toEqual({ key: 'APPROVE_GATE', label: 'Approve Quality Gate' })
+    // pipeline FAILED → Retry Delivery（不回落旧推导）
+    const failed = { ...base(), changes: [change('APPROVED')], delivery: pipeline({ currentStage: 'FAILED', status: 'FAILED' }) }
+    expect(primaryAction(failed)).toEqual({ key: 'RETRY_DELIVERY', label: 'Retry Delivery' })
+  })
+
+  it('Pipeline missing: no legacy promote/commit/validation actions', () => {
+    // 旧推导会给建议的完整场景：change APPROVED + validation SUCCESS + workspace COMPLETED + push CONSUMED
+    const input = {
+      ...base(),
+      changes: [change('APPROVED')],
+      validation: validation('SUCCESS'),
+      commits: [commit('SUCCESS')],
+      remotePushApprovals: [pushApproval('CONSUMED')],
+      workspaceStatus: 'COMPLETED',
+      workspaceReviewComplete: true,
+    }
+    expect(primaryAction(input)).toBeNull()
+    const summary = workflowSummary(input)
+    expect(summary.status).toBe('NOT_STARTED')
+    expect(summary.nextAction).toBe('Delivery pipeline unavailable / not started')
+    expect(summary.blockedReason).toBe('Delivery pipeline not started.')
+    expect(deliveryStages(input).stages).toEqual([])
+  })
+
+  it('Remote Push / CI stages never recommend Promote', () => {
+    const pushWait = { ...base(), workspaceStatus: 'COMPLETED', workspaceReviewComplete: true, delivery: pipeline({ currentStage: 'WAITING_REMOTE_PUSH_APPROVAL', status: 'WAITING_APPROVAL' }) }
+    expect(primaryAction(pushWait)).toEqual({ key: 'APPROVE_REMOTE_PUSH', label: 'Approve Remote Push' })
+    const ciChecking = { ...base(), workspaceStatus: 'COMPLETED', workspaceReviewComplete: true, delivery: pipeline({ currentStage: 'CI_CHECKING', status: 'RUNNING' }) }
+    expect(primaryAction(ciChecking)).toBeNull()
+    const ciComplete = { ...base(), workspaceStatus: 'COMPLETED', workspaceReviewComplete: true, delivery: pipeline({ currentStage: 'DELIVERY_COMPLETE', status: 'COMPLETE', ciRunId: 'ci-1' }) }
+    expect(primaryAction(ciComplete)).toBeNull()
+    // 任何 pipeline 阶段都不应产生 PROMOTE_WORKSPACE
+    for (const stage of ['CHANGE_READY', 'VALIDATING', 'QUALITY_GATE', 'COMMITTING', 'WAITING_REMOTE_PUSH_APPROVAL', 'PUSHING', 'CREATING_PR', 'CI_CHECKING']) {
+      const at = { ...base(), workspaceStatus: 'COMPLETED', workspaceReviewComplete: true, delivery: pipeline({ currentStage: stage as never, status: 'RUNNING' }) }
+      expect(primaryAction(at)).not.toEqual({ key: 'PROMOTE_WORKSPACE', label: 'Promote to Source Workspace' })
+    }
+  })
 })
 
 describe('execution delivery timeline', () => {
-  it('walks Change → Validation → Quality Gate → Commit → Remote Push', () => {
-    const input = { ...base(), changes: [change('APPROVED')], validation: validation('SUCCESS'), gate: gate('REQUIRE_APPROVAL') }
+  it('no pipeline projects an empty stage chain (legacy derivation removed)', () => {
+    const input = { ...base(), changes: [change('APPROVED')], validation: validation('SUCCESS'), commits: [commit('SUCCESS')], remotePushApprovals: [pushApproval('CONSUMED')] }
     const projection = deliveryStages(input)
-    expect(projection.stages.map(stage => [stage.key, stage.status])).toEqual([
-      ['CHANGE', 'SUCCESS'],
-      ['VALIDATION', 'SUCCESS'],
-      ['QUALITY_GATE', 'WAITING_APPROVAL'],
-      ['COMMIT', 'NOT_STARTED'],
-      ['REMOTE_PUSH', 'NOT_STARTED'],
-    ])
-    expect(projection.current).toBe('QUALITY_GATE')
+    expect(projection.stages).toEqual([])
+    expect(projection.current).toBe('EXECUTION')
   })
 
   it('empty delivery shows EXECUTION stage', () => {
@@ -117,29 +162,6 @@ describe('execution delivery timeline', () => {
 })
 
 describe('delivery pipeline projection', () => {
-  function pipeline(overrides: Partial<import('../api/delivery').DeliveryPipeline> = {}): import('../api/delivery').DeliveryPipeline {
-    return {
-      taskId: 't1',
-      changeSetId: 'c1',
-      executionWorkspaceId: 'w1',
-      currentStage: 'VALIDATING',
-      status: 'RUNNING',
-      validationRunId: '',
-      qualityGateId: '',
-      commitId: '',
-      remotePushApprovalId: '',
-      remoteBranchId: '',
-      pullRequestId: '',
-      ciRunId: '',
-      failureClass: null,
-      failureReason: '',
-      createdAt: '2026-01-01T00:00:00Z',
-      updatedAt: '2026-01-01T00:00:00Z',
-      completedAt: null,
-      ...overrides,
-    }
-  }
-
   it('WAITING_APPROVAL at Quality Gate derives Approve Quality Gate', () => {
     const input = { ...base(), delivery: pipeline({ currentStage: 'QUALITY_GATE', status: 'WAITING_APPROVAL' }) }
     expect(primaryAction(input)).toEqual({ key: 'APPROVE_GATE', label: 'Approve Quality Gate' })

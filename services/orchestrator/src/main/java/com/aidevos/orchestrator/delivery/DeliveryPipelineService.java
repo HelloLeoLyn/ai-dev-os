@@ -346,6 +346,20 @@ public class DeliveryPipelineService {
 				if (notBlank(pipeline.getCommitId())) {
 					return progressed(pipeline, DeliveryStage.COMMITTING);
 				}
+				// DELIVERY-SINGLE-AUTHORITY-V1：重建/历史任务幂等——change 已有 SUCCESS commit 时复用，
+				// 不重复 git commit（与 reconcile 的 "already produced entities are reused" 设计一致）。
+				CommitRecord existing = existingSuccessCommit(pipeline.getTaskId(),
+					pipeline.getChangeSetId());
+				if (existing != null) {
+					pipeline.bindCommit(existing.getCommitId());
+					stageSucceeded(pipeline, DeliveryStage.COMMITTING, existing.getCommitId());
+					RemotePushApproval approval = ensureApproval(existing);
+					if (approval != null) {
+						pipeline.bindApproval(approval.getApprovalId());
+					}
+					pipeline.advanceTo(DeliveryStage.WAITING_REMOTE_PUSH_APPROVAL);
+					return true;
+				}
 				try {
 					CommitRecord commit = commitService.commit(pipeline.getChangeSetId());
 					pipeline.bindCommit(commit.getCommitId());
@@ -493,6 +507,21 @@ public class DeliveryPipelineService {
 			}
 		}
 		return remoteGitService.requestApproval(commit.getCommitId(), DEFAULT_REMOTE);
+	}
+
+	/**
+	 * Reuses an already-produced SUCCESS commit for the change (idempotent
+	 * rebuild for legacy tasks whose push already succeeded). Never creates
+	 * a second git commit.
+	 */
+	private CommitRecord existingSuccessCommit(String taskId, String changeId) {
+		for (CommitRecord commit : commitService.getCommitsByTask(taskId)) {
+			if (changeId.equals(commit.getChangeId())
+					&& commit.getStatus() == CommitStatus.SUCCESS) {
+				return commit;
+			}
+		}
+		return null;
 	}
 
 	/**

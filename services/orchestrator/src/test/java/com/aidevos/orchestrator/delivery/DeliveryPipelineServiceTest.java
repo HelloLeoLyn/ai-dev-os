@@ -14,6 +14,7 @@ import com.aidevos.orchestrator.change.InMemoryChangeRepository;
 import com.aidevos.orchestrator.ci.CiRunRecord;
 import com.aidevos.orchestrator.ci.CiService;
 import com.aidevos.orchestrator.ci.CiStatus;
+import com.aidevos.orchestrator.commit.CommitRecord;
 import com.aidevos.orchestrator.commit.CommitService;
 import com.aidevos.orchestrator.commit.InMemoryCommitRepository;
 import com.aidevos.orchestrator.pr.PullRequestRecord;
@@ -42,6 +43,8 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -435,6 +438,117 @@ class DeliveryPipelineServiceTest {
 
 	private java.util.List<EventRecord> events() {
 		return auditRepository.query(EventQuery.all());
+	}
+
+	/**
+	 * DELIVERY-SINGLE-AUTHORITY-V1 blocker fix：approve() 现在调用 advance(taskId)，
+	 * pipeline 缺失时创建并继续（历史任务：commit 已 SUCCESS + approval PENDING，无 pipeline）。
+	 */
+	@Test
+	void approveCreatesPipelineWhenMissingAndAdvancesToComplete() {
+		ChangeSet change = approvedChange();
+		ValidationRun run = successRun(change.getChangeId());
+		QualityGateResult gate = passGate(change.getChangeId(), run.getValidationRunId());
+		when(validationService.startDelivery(change.getChangeId())).thenReturn(run);
+		when(validationService.get(run.getValidationRunId())).thenReturn(run);
+		when(qualityGateService.evaluate(run.getValidationRunId())).thenReturn(gate);
+		when(qualityGateService.get(gate.getGateResultId())).thenReturn(gate);
+		when(gitCommandExecutor.commit("/tmp/repo", commitMessage(change.getChangeId())))
+			.thenReturn("abc123def");
+		when(gitCommandExecutor.listRemotes("/tmp/repo")).thenReturn(ORIGIN);
+		when(gitCommandExecutor.push("/tmp/repo", "origin", TASK_BRANCH)).thenReturn(true);
+		PullRequestRecord pr = new PullRequestRecord("pr-1", "task-1", "commit-1",
+			"remote-1", TASK_BRANCH, "main", "title", "desc", "https://pr", NOW);
+		pr.markOpened();
+		when(pullRequestService.getByCommit(anyString())).thenReturn(Optional.empty());
+		when(pullRequestService.createPullRequest(anyString(), any()))
+			.thenAnswer(invocation -> {
+				PullRequestRecord created = new PullRequestRecord("pr-1", "task-1",
+					invocation.getArgument(0), "remote-1", TASK_BRANCH, "main", "title",
+					"desc", "https://pr", NOW);
+				created.markOpened();
+				return created;
+			});
+		when(pullRequestService.get("pr-1")).thenReturn(Optional.of(pr));
+		CiRunRecord ci = ciRun("ci-1", "pr-1", CiStatus.SUCCESS);
+		when(ciService.check("pr-1", "abc123def")).thenReturn(ci);
+		when(ciService.get("ci-1")).thenReturn(Optional.of(ci));
+
+		// 历史任务形态：commit 已 SUCCESS（change 已 COMMITTED），approval PENDING，pipeline 不存在
+		CommitRecord legacyCommit = commitService.commit(change.getChangeId());
+		RemotePushApproval approval = approvalService.request("task-1", "workspace-1",
+			TASK_BRANCH, legacyCommit.getCommitId(), "abc123def", "origin");
+		assertEquals(RemotePushApprovalStatus.PENDING, approval.getStatus());
+		assertNull(pipelineRepository.get("task-1"), "前置：pipeline 必须不存在");
+
+		approvalService.approve(approval.getApprovalId());
+
+		DeliveryPipeline pipeline = pipelineRepository.get("task-1");
+		assertNotNull(pipeline, "approve 必须创建缺失的 DeliveryPipeline");
+		assertEquals(DeliveryStatus.COMPLETE, pipeline.getStatus());
+		assertEquals("pr-1", pipeline.getPullRequestId());
+		assertEquals("ci-1", pipeline.getCiRunId());
+		// 不重复副作用：push/PR/CI 各恰好一次，无 merge
+		verify(gitCommandExecutor, times(1)).push("/tmp/repo", "origin", TASK_BRANCH);
+		verify(pullRequestService, times(1)).createPullRequest(anyString(), any());
+		verify(ciService, times(1)).check("pr-1", "abc123def");
+		verify(pullRequestService, never()).merge(anyString());
+	}
+
+	/**
+	 * DELIVERY-SINGLE-AUTHORITY-V1：pipeline 已存在（已 COMPLETE）时再次 approve，
+	 * 不重建 pipeline、不产生任何推进副作用。
+	 */
+	@Test
+	void approveWithExistingPipelineDoesNotDuplicateSideEffects() {
+		ChangeSet change = approvedChange();
+		ValidationRun run = successRun(change.getChangeId());
+		QualityGateResult gate = passGate(change.getChangeId(), run.getValidationRunId());
+		when(validationService.startDelivery(change.getChangeId())).thenReturn(run);
+		when(validationService.get(run.getValidationRunId())).thenReturn(run);
+		when(qualityGateService.evaluate(run.getValidationRunId())).thenReturn(gate);
+		when(qualityGateService.get(gate.getGateResultId())).thenReturn(gate);
+		when(gitCommandExecutor.commit("/tmp/repo", commitMessage(change.getChangeId())))
+			.thenReturn("abc123def");
+		when(gitCommandExecutor.listRemotes("/tmp/repo")).thenReturn(ORIGIN);
+		when(gitCommandExecutor.push("/tmp/repo", "origin", TASK_BRANCH)).thenReturn(true);
+		PullRequestRecord pr = new PullRequestRecord("pr-1", "task-1", "commit-1",
+			"remote-1", TASK_BRANCH, "main", "title", "desc", "https://pr", NOW);
+		pr.markOpened();
+		when(pullRequestService.getByCommit(anyString())).thenReturn(Optional.empty());
+		when(pullRequestService.createPullRequest(anyString(), any()))
+			.thenAnswer(invocation -> {
+				PullRequestRecord created = new PullRequestRecord("pr-1", "task-1",
+					invocation.getArgument(0), "remote-1", TASK_BRANCH, "main", "title",
+					"desc", "https://pr", NOW);
+				created.markOpened();
+				return created;
+			});
+		when(pullRequestService.get("pr-1")).thenReturn(Optional.of(pr));
+		CiRunRecord ci = ciRun("ci-1", "pr-1", CiStatus.SUCCESS);
+		when(ciService.check("pr-1", "abc123def")).thenReturn(ci);
+		when(ciService.get("ci-1")).thenReturn(Optional.of(ci));
+
+		// pipeline 已存在并推进到 COMPLETE
+		DeliveryPipeline first = pipelineService.advance("task-1");
+		RemotePushApproval approval = approvalService.get(first.getRemotePushApprovalId());
+		approvalService.approve(approval.getApprovalId());
+		DeliveryPipeline completed = pipelineService.get("task-1");
+		assertEquals(DeliveryStatus.COMPLETE, completed.getStatus());
+
+		// 再次 approve（approval 已 CONSUMED）→ 不重建、不产生推进副作用
+		approvalService.approve(approval.getApprovalId());
+		DeliveryPipeline again = pipelineRepository.get("task-1");
+		assertSame(completed, again);
+		assertEquals(DeliveryStatus.COMPLETE, again.getStatus());
+		verify(gitCommandExecutor, times(1)).push("/tmp/repo", "origin", TASK_BRANCH);
+		verify(pullRequestService, times(1)).createPullRequest(anyString(), any());
+		verify(ciService, times(1)).check("pr-1", "abc123def");
+		verify(pullRequestService, never()).merge(anyString());
+		long started = events().stream()
+			.filter(event -> event.type() == EventType.DELIVERY_PIPELINE_STARTED
+				&& "task-1".equals(event.taskId())).count();
+		assertEquals(1, started, "pipeline 只应创建一次");
 	}
 
 }
