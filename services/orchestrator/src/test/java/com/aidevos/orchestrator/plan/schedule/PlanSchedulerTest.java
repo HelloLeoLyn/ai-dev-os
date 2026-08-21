@@ -21,7 +21,11 @@ import com.aidevos.orchestrator.execution.system.RunBookkeepingExecutor;
 import com.aidevos.orchestrator.execution.system.SystemStepService;
 import com.aidevos.orchestrator.execution.tool.DeterministicTool;
 import com.aidevos.orchestrator.execution.tool.ToolExecutionResult;
+import com.aidevos.orchestrator.execution.tool.ToolExecutionRequest;
 import com.aidevos.orchestrator.execution.tool.ToolExecutionService;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspace;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspaceService;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspaceStatus;
 import com.aidevos.orchestrator.executor.command.CommandExecutor;
 import com.aidevos.orchestrator.executor.command.CommandOptions;
 import com.aidevos.orchestrator.executor.command.CommandResult;
@@ -51,6 +55,7 @@ import com.aidevos.orchestrator.plan.StepStatus;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalRequest;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalService;
 import com.aidevos.orchestrator.plan.run.PlanRun;
+import com.aidevos.orchestrator.plan.run.StepRun;
 import com.aidevos.orchestrator.plan.run.PlanRunStatus;
 import com.aidevos.orchestrator.plan.run.InMemoryPlanRunRepository;
 import com.aidevos.orchestrator.plan.run.StepRunStatus;
@@ -62,6 +67,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -1297,9 +1303,135 @@ class PlanSchedulerTest {
 				Set.of("codex"), "policy-v1", plannerMetadata), NOW);
 	}
 
+	@Test
+	void failedRunRetryReexecutesOnlyFailedMavenStepWithTestClass() {
+		// V1 Final Gate：FAILED run 允许 RETRY；retry 只重跑失败的 Maven test step，
+		// 并从原 goal 提取 testClass 构造临时 PlanStep（不改原 plan、不重跑 SUCCESS AI step）
+		ToolExecutionService toolService = mock(ToolExecutionService.class);
+		ExecutionRecordRepository recordRepository = mock(ExecutionRecordRepository.class);
+		when(toolService.execute(any())).thenReturn(new ToolExecutionResult(
+			DeterministicTool.MAVEN, true, 0, "BUILD SUCCESS", null, 5, null));
+		InMemoryPlanRunRepository runRepository = new InMemoryPlanRunRepository();
+		scheduler = new PlanScheduler(jobService, new StepTaskFactory(), approvalService,
+			replanRequestService, runRepository, Clock.fixed(NOW, ZoneOffset.UTC));
+		scheduler.setToolExecutionService(toolService);
+		scheduler.setExecutionRecordRepository(recordRepository);
+
+		// Plan：step-1 AI（SUCCESS）、step-2 maven test（FAILED，toolArguments 无 testClass）
+		PlanStep aiStep = new PlanStep("code", "Modify code", "Modify the code",
+			StepStatus.PLANNED, new AgentAssignment("coder", List.of("coding", "git"),
+				List.of()), Map.of("sandbox", "workspace-write"), List.of(), null, null,
+			Map.of(), List.of(new ExpectedArtifact("git-diff", "changes.patch",
+				"text/plain", true, 1)), RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN,
+			false, null, true, StepExecutionType.AI_STEP);
+		PlanStep mavenTest = new PlanStep("test", "Run targeted tests",
+			"Run the targeted tests for the change", StepStatus.PLANNED,
+			new AgentAssignment("coder", List.of("coding", "git"), List.of()), Map.of(),
+			List.of(), "deterministic", "maven", Map.of("command", "test"), List.of(),
+			RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN, false, null, false,
+			StepExecutionType.TOOL_STEP);
+		Plan plan = new Plan("plan-1", 1,
+			"在 services/orchestrator/src/test/java/com/aidevos/orchestrator/smoke/ 下新增一个 V1FinalGateSmokeTest.java。",
+			PlanStatus.DRAFT, List.of(aiStep, mavenTest), List.of(), snapshot(), NOW);
+
+		StepRun aiRun = StepRun.restore("run-1:step:code", "code", List.of(),
+			StepRunStatus.SUCCESS, null, NOW, NOW);
+		StepRun testRun = StepRun.restore("run-1:step:test", "test", List.of(),
+			StepRunStatus.FAILED, "Tool step failed: MAVEN (exit 1)", NOW, NOW);
+		PlanRun run = PlanRun.restore("run-1", "approval-1", "task-1", plan,
+			List.of(aiRun, testRun), NOW, PlanRunStatus.FAILED,
+			"Tool step failed: MAVEN (exit 1)", NOW, NOW);
+		runRepository.save(run);
+
+		scheduler.decideIntervention("run-1", "RETRY", "targeted test retry");
+
+		// 只执行失败的 Maven step，命令含 -Dtest=V1FinalGateSmokeTest
+		org.mockito.ArgumentCaptor<ToolExecutionRequest> captor =
+			org.mockito.ArgumentCaptor.forClass(ToolExecutionRequest.class);
+		verify(toolService, times(1)).execute(captor.capture());
+		ToolExecutionRequest request = captor.getValue();
+		assertEquals(List.of("-Dtest=V1FinalGateSmokeTest", "test"), request.arguments());
+		// 已 SUCCESS 的 AI step 不重新提交（jobService.submit 不调用）
+		verify(jobService, never()).submit(any(), any());
+		assertEquals(StepRunStatus.SUCCESS, run.getSteps().get(1).getStatus());
+	}
+
 	private PlanSnapshot snapshot() {
 		return new PlanSnapshot(List.of(new PlanSnapshot.AgentSnapshot("coder", "codex",
 			List.of("coding"), "workspace-write", true)), Set.of("coding"), List.of(),
 			Set.of("codex"), "policy-v1", Map.of());
+	}
+
+	@Test
+	void readWriteTaskMavenStepRunsInExecutionWorkspaceNotSource() {
+		// V1 Final Gate 续修：READ_WRITE Task 存在 Execution Workspace 时，
+		// MAVEN TOOL_STEP 必须在 worktree（Execution Workspace）下模块目录执行，
+		// 绝不能使用 plannerMetadata 的 Source Workspace。
+		ToolExecutionService toolService = mock(ToolExecutionService.class);
+		ExecutionRecordRepository recordRepository = mock(ExecutionRecordRepository.class);
+		when(toolService.execute(any())).thenReturn(new ToolExecutionResult(
+			DeterministicTool.MAVEN, true, 0, "BUILD SUCCESS", null, 5, null));
+		ExecutionWorkspaceService workspaceService = mock(ExecutionWorkspaceService.class);
+		when(workspaceService.findByTaskId("task-1")).thenReturn(new ExecutionWorkspace(
+			"ws-1", "task-1", "proj-1", "w-1",
+			"/home/administrator/workspace/ai-dev-os",
+			"/tmp/ai-dev-os-worktrees/task-1",
+			"git-worktree", ExecutionWorkspaceStatus.READY, "base-rev", NOW, NOW));
+		InMemoryPlanRunRepository runRepository = new InMemoryPlanRunRepository();
+		scheduler = new PlanScheduler(jobService, new StepTaskFactory(), approvalService,
+			replanRequestService, runRepository, Clock.fixed(NOW, ZoneOffset.UTC));
+		scheduler.setToolExecutionService(toolService);
+		scheduler.setExecutionWorkspaceService(workspaceService);
+		scheduler.setExecutionRecordRepository(recordRepository);
+
+		// Plan：step-1 AI（SUCCESS）、step-2 maven test（FAILED）；plannerMetadata
+		// 含 workspacePath=Source 主工作区 + executionMode=READ_WRITE
+		PlanStep aiStep = new PlanStep("code", "Modify code", "Modify the code",
+			StepStatus.PLANNED, new AgentAssignment("coder", List.of("coding", "git"),
+				List.of()), Map.of("sandbox", "workspace-write"), List.of(), null, null,
+			Map.of(), List.of(new ExpectedArtifact("git-diff", "changes.patch",
+				"text/plain", true, 1)), RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN,
+			false, null, true, StepExecutionType.AI_STEP);
+		PlanStep mavenTest = new PlanStep("test", "Run targeted tests",
+			"Run the targeted tests for the change", StepStatus.PLANNED,
+			new AgentAssignment("coder", List.of("coding", "git"), List.of()), Map.of(),
+			List.of(), "deterministic", "maven", Map.of("command", "test"), List.of(),
+			RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN, false, null, false,
+			StepExecutionType.TOOL_STEP);
+		Map<String, Object> metadata = new LinkedHashMap<>();
+		metadata.put("workspacePath", "/home/administrator/workspace/ai-dev-os");
+		metadata.put("executionMode", "READ_WRITE");
+		PlanSnapshot snapshot = new PlanSnapshot(
+			List.of(new PlanSnapshot.AgentSnapshot("coder", "codex", List.of("coding"),
+				"workspace-write", true)), Set.of("coding"), List.of(), Set.of("codex"),
+			"policy-v1", metadata);
+		Plan plan = new Plan("plan-1", 1,
+			"在 services/orchestrator/src/test/java/com/aidevos/orchestrator/smoke/ 下新增一个 V1FinalGateSmokeTest.java。",
+			PlanStatus.DRAFT, List.of(aiStep, mavenTest), List.of(), snapshot, NOW);
+
+		StepRun aiRun = StepRun.restore("run-1:step:code", "code", List.of(),
+			StepRunStatus.SUCCESS, null, NOW, NOW);
+		StepRun testRun = StepRun.restore("run-1:step:test", "test", List.of(),
+			StepRunStatus.FAILED, "Tool step failed: MAVEN (exit 1)", NOW, NOW);
+		PlanRun run = PlanRun.restore("run-1", "approval-1", "task-1", plan,
+			List.of(aiRun, testRun), NOW, PlanRunStatus.FAILED,
+			"Tool step failed: MAVEN (exit 1)", NOW, NOW);
+		runRepository.save(run);
+
+		scheduler.decideIntervention("run-1", "RETRY", "targeted test retry");
+
+		// 只执行失败的 Maven step，且 workingDirectory 在 worktree 下，绝不用 Source Workspace
+		org.mockito.ArgumentCaptor<ToolExecutionRequest> captor =
+			org.mockito.ArgumentCaptor.forClass(ToolExecutionRequest.class);
+		verify(toolService, times(1)).execute(captor.capture());
+		ToolExecutionRequest request = captor.getValue();
+		String wd = request.workdir();
+		assertTrue(wd.startsWith("/tmp/ai-dev-os-worktrees/task-1"),
+			"workingDirectory must be under execution workspace, got: " + wd);
+		assertFalse(wd.startsWith("/home/administrator/workspace/ai-dev-os"),
+			"must not use source workspace, got: " + wd);
+		// 已 SUCCESS 的 AI step 不重新提交
+		verify(jobService, never()).submit(any(), any());
+		assertEquals(StepRunStatus.SUCCESS, run.getSteps().get(1).getStatus());
 	}
 }

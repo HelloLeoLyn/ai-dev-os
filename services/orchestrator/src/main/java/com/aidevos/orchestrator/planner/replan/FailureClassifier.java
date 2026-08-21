@@ -5,7 +5,7 @@ import java.util.Locale;
 import com.aidevos.orchestrator.execution.ExecutionResult;
 import org.springframework.stereotype.Component;
 
-@Component
+@Component("replanFailureClassifier")
 public class FailureClassifier {
 
 	public FailureClassification classify(String reason, ExecutionResult result,

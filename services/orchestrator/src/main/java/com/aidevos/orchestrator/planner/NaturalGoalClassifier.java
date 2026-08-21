@@ -119,4 +119,29 @@ public final class NaturalGoalClassifier {
 		return Pattern.compile("(?<![a-z])" + Pattern.quote(word) + "(?![a-z])")
 			.matcher(text).find();
 	}
+
+	private static final Pattern TEST_CLASS_PATTERN = Pattern.compile(
+		"([A-Z][A-Za-z0-9]*(?:Test|Tests|IT|Spec))(?:\\.java)?");
+
+	/**
+	 * Structurally extracts an explicit test class name from a natural language
+	 * goal, e.g. "新增 V1FinalGateSmokeTest.java" → "V1FinalGateSmokeTest".
+	 * Returns empty when no concrete test class can be determined reliably;
+	 * callers must fail closed instead of falling back to a full-suite run.
+	 */
+	public static java.util.Optional<String> extractTestTarget(String goal) {
+		if (goal == null || goal.isBlank()) {
+			return java.util.Optional.empty();
+		}
+		var matcher = TEST_CLASS_PATTERN.matcher(goal);
+		if (matcher.find()) {
+			String candidate = matcher.group(1);
+			// 排除明显误匹配：必须不是通用词 test/testing
+			if (!candidate.equalsIgnoreCase("test") && !candidate.equalsIgnoreCase("tests")
+					&& !candidate.equalsIgnoreCase("testing")) {
+				return java.util.Optional.of(candidate);
+			}
+		}
+		return java.util.Optional.empty();
+	}
 }

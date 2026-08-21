@@ -439,7 +439,20 @@ public class DeliveryPipelineService {
 			}
 			case CI_CHECKING -> {
 				if (notBlank(pipeline.getCiRunId())) {
-					return progressed(pipeline, DeliveryStage.CREATING_PR);
+					CiRunRecord bound = ciService.get(pipeline.getCiRunId()).orElse(null);
+					if (bound != null && bound.getStatus() == CiStatus.SUCCESS) {
+						return progressed(pipeline, DeliveryStage.CREATING_PR);
+					}
+					if (bound != null && (bound.getStatus() == CiStatus.FAILED
+							|| bound.getStatus() == CiStatus.CANCELLED)) {
+						fail(pipeline, DeliveryFailureClass.HUMAN_REQUIRED,
+							"CI " + bound.getStatus() + ": delivery cannot complete without CI success");
+						return false;
+					}
+					if (checkCi(pipeline)) {
+						return progressed(pipeline, DeliveryStage.CREATING_PR);
+					}
+					return false;
 				}
 				try {
 					CommitRecord commit = commitService.getCommit(pipeline.getCommitId())
@@ -489,6 +502,34 @@ public class DeliveryPipelineService {
 	 */
 	private boolean progressed(DeliveryPipeline pipeline, DeliveryStage executed) {
 		return reconcile(pipeline) != executed;
+	}
+
+	/**
+	 * Re-polls the CI run through the existing check path and reports whether
+	 * it reached SUCCESS. A failed/cancelled run fails the pipeline. Used by
+	 * CI_CHECKING once a run is bound: repeated advances poll the same run
+	 * (ciService.check reuses the existing run, so no second run or trigger).
+	 */
+	private boolean checkCi(DeliveryPipeline pipeline) {
+		try {
+			CommitRecord commit = commitService.getCommit(pipeline.getCommitId())
+				.orElseThrow(() -> new IllegalStateException("Commit binding is missing"));
+			CiRunRecord run = ciService.check(pipeline.getPullRequestId(),
+				commit.getGitHash());
+			if (run.getStatus() == CiStatus.SUCCESS) {
+				return true;
+			}
+			if (run.getStatus() == CiStatus.FAILED || run.getStatus() == CiStatus.CANCELLED) {
+				fail(pipeline, DeliveryFailureClass.HUMAN_REQUIRED,
+					"CI " + run.getStatus() + ": delivery cannot complete without CI success");
+				return false;
+			}
+			return false;
+		}
+		catch (RuntimeException exception) {
+			fail(pipeline, classify(exception), "CI check failed: " + message(exception));
+			return false;
+		}
 	}
 
 	private void complete(DeliveryPipeline pipeline) {

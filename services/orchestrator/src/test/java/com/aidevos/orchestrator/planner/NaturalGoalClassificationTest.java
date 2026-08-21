@@ -35,6 +35,19 @@ class NaturalGoalClassificationTest {
 	}
 
 	@Test
+	void explicitTestClassGoalGeneratesTargetedMavenTest() {
+		// V1 Final Gate: goal 明确指定测试类时，MAVEN test step 必须生成定向参数
+		Plan plan = planFor("新增 V1FinalGateSmokeTest.java 冒烟测试文件并运行对应测试");
+
+		assertEquals(StepExecutionType.TOOL_STEP, plan.steps().getFirst().executionType());
+		assertEquals("maven", plan.steps().getFirst().toolName());
+		assertEquals("test", plan.steps().getFirst().toolArguments().get("command"));
+		assertEquals("V1FinalGateSmokeTest",
+			plan.steps().getFirst().toolArguments().get("testClass"));
+		assertTrue(validator.validate(plan).valid());
+	}
+
+	@Test
 	void gitStatusGoalGeneratesGitToolStepOnly() {
 		Plan plan = planFor("运行 git status");
 

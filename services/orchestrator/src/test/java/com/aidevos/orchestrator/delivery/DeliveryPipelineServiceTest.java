@@ -266,6 +266,37 @@ class DeliveryPipelineServiceTest {
 	}
 
 	@Test
+	void rechecksRunningCiOnAdvanceAndCompletesInPlace() {
+		DeliveryPipeline seeded = seededPipeline();
+		seeded.bindCiRun("ci-1");
+		pipelineRepository.save(seeded);
+		PullRequestRecord pr = new PullRequestRecord("pr-1", "task-1", "commit-1",
+			"remote-1", TASK_BRANCH, "main", "title", "desc", null, NOW);
+		pr.markOpened();
+		when(pullRequestService.get("pr-1")).thenReturn(Optional.of(pr));
+		CiRunRecord run = ciRun("ci-1", "pr-1", CiStatus.RUNNING);
+		when(ciService.get("ci-1")).thenReturn(Optional.of(run));
+		when(ciService.check("pr-1", "abc123def")).thenAnswer(invocation -> {
+			run.markSuccess();
+			return run;
+		});
+
+		DeliveryPipeline pipeline = pipelineService.advance("task-1");
+
+		assertEquals(DeliveryStatus.COMPLETE, pipeline.getStatus());
+		assertEquals(DeliveryStage.DELIVERY_COMPLETE, pipeline.getCurrentStage());
+		assertEquals("ci-1", pipeline.getCiRunId());
+		verify(ciService, times(1)).check("pr-1", "abc123def");
+		verify(pullRequestService, never()).createPullRequest(anyString(), any());
+		verify(pullRequestService, never()).merge(anyString());
+
+		// A second advance after COMPLETE must not re-check CI.
+		DeliveryPipeline again = pipelineService.advance("task-1");
+		assertEquals(DeliveryStatus.COMPLETE, again.getStatus());
+		verify(ciService, times(1)).check("pr-1", "abc123def");
+	}
+
+	@Test
 	void ciFailedMarksPipelineFailedWithoutMergeAndStopsRechecking() {
 		DeliveryPipeline seeded = seededPipeline();
 		PullRequestRecord pr = new PullRequestRecord("pr-1", "task-1", "commit-1",

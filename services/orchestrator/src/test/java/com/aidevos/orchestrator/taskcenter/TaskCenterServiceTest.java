@@ -8,6 +8,7 @@ import com.aidevos.orchestrator.agentcoordinator.AgentCoordinatorService;
 import com.aidevos.orchestrator.approval.ApprovalStatus;
 import com.aidevos.orchestrator.audit.AuditService;
 import com.aidevos.orchestrator.audit.InMemoryAuditRepository;
+import com.aidevos.orchestrator.change.ExecutionCompletionHandoffService;
 import com.aidevos.orchestrator.modelrouter.TaskType;
 import com.aidevos.orchestrator.plan.Plan;
 import com.aidevos.orchestrator.plan.PlanStatus;
@@ -227,5 +228,39 @@ class TaskCenterServiceTest {
 			coordinator, new AuditService(new InMemoryAuditRepository()));
 
 		assertThrows(IllegalArgumentException.class, () -> service.execute("missing"));
+	}
+
+	@Test
+	void failedTaskRecoversToSuccessWhenPlanRunSucceedsAndTriggersHandoff() {
+		// V1 Final Gate：FAILED Task + PlanRun SUCCESS（retry 恢复成功）
+		// → refresh() → Task SUCCESS → completionHandoff 被触发（ChangeSet 生成）
+		when(plannerService.createPlan(any()))
+			.thenReturn(PlanningResult.success("hermes", null, PLAN));
+		PlanApprovalRequest approval = new PlanApprovalRequest("approval-1", "task-1", PLAN,
+			"hash", Instant.parse("2026-08-01T00:00:00Z"));
+		approval.approve("user-1", Instant.parse("2026-08-01T00:05:00Z"));
+		when(approvalService.create(any(), any())).thenReturn(approval);
+		when(approvalService.get("approval-1")).thenReturn(approval);
+		PlanRun run = new PlanRun("run-1", "approval-1", PLAN, List.of(),
+			Instant.parse("2026-08-01T00:06:00Z"));
+		run.markSuccess(Instant.parse("2026-08-01T00:10:00Z"));
+		when(planRunRepository.findRunIdByApproval("approval-1")).thenReturn("run-1");
+		when(planRunRepository.get("run-1")).thenReturn(run);
+
+		ExecutionCompletionHandoffService handoff = mock(ExecutionCompletionHandoffService.class);
+		service.setCompletionHandoff(handoff);
+
+		TaskRecord task = service.createTask(new CreateTaskRequest(
+			"Implement login", null, "Goal", null, "default"));
+		// 模拟：Task 在第一次 run 失败时已被标记 FAILED（终态）
+		task.markFailed("Tool step failed: MAVEN (exit 1)");
+		assertEquals(TaskStatus.FAILED, task.getStatus());
+
+		Optional<TaskRecord> refreshed = service.getTask(task.getTaskId());
+
+		assertTrue(refreshed.isPresent());
+		assertEquals(TaskStatus.SUCCESS, refreshed.get().getStatus());
+		assertEquals("run-1", refreshed.get().getPlanRunId());
+		verify(handoff).project(task.getTaskId(), "run-1");
 	}
 }

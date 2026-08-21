@@ -17,6 +17,7 @@ import com.aidevos.orchestrator.plan.approval.PlanApprovalRequest;
 import com.aidevos.orchestrator.plan.approval.PlanApprovalService;
 import com.aidevos.orchestrator.plan.run.PlanRun;
 import com.aidevos.orchestrator.plan.run.PlanRunRepository;
+import com.aidevos.orchestrator.plan.run.PlanRunStatus;
 import com.aidevos.orchestrator.plan.schedule.PlanScheduler;
 import com.aidevos.orchestrator.planner.PlanningRequest;
 import com.aidevos.orchestrator.planner.PlanningResult;
@@ -336,9 +337,13 @@ public class TaskCenterService {
 	private void refresh(TaskRecord task) {
 		TaskStatus before = task.getStatus();
 		String beforeRunId = task.getPlanRunId();
-		if (task.getStatus() == TaskStatus.SUCCESS || task.getStatus() == TaskStatus.FAILED
-				|| task.getStatus() == TaskStatus.COMPLETED
+		if (task.getStatus() == TaskStatus.SUCCESS || task.getStatus() == TaskStatus.COMPLETED
 				|| task.getStatus() == TaskStatus.REJECTED) {
+			return;
+		}
+		// V1 Final Gate：FAILED 是终态，唯一例外是 retry 后对应 PlanRun 已 SUCCESS 的恢复场景。
+		if (task.getStatus() == TaskStatus.FAILED) {
+			recoverFailedTaskIfRunSucceeded(task);
 			return;
 		}
 		String approvalId = task.getApprovalId();
@@ -381,6 +386,35 @@ public class TaskCenterService {
 					&& completionHandoff != null) {
 				completionHandoff.project(task.getTaskId(), runId);
 			}
+		}
+	}
+
+	/**
+	 * V1 Final Gate：FAILED Task 的恢复场景。仅当对应 PlanRun 已 SUCCESS（retry 恢复成功）
+	 * 时，允许 Task 从 FAILED 更新为 SUCCESS，并复用现有 completionHandoff 生成 ChangeSet。
+	 * 其他终态语义（SUCCESS/COMPLETED/REJECTED）保持不变；PlanRun 非 SUCCESS 时保持 FAILED。
+	 */
+	private void recoverFailedTaskIfRunSucceeded(TaskRecord task) {
+		String approvalId = task.getApprovalId();
+		if (approvalId == null) {
+			return;
+		}
+		String runId = planRunRepository.findRunIdByApproval(approvalId);
+		if (runId == null) {
+			return;
+		}
+		PlanRun run = planRunRepository.get(runId);
+		if (run == null || run.getStatus() != PlanRunStatus.SUCCESS) {
+			return;
+		}
+		task.setPlanRunId(runId);
+		task.markSuccess();
+		repository.save(task);
+		if (analysisProjectionCoordinator != null) {
+			analysisProjectionCoordinator.schedule(task.getTaskId());
+		}
+		if (completionHandoff != null) {
+			completionHandoff.project(task.getTaskId(), runId);
 		}
 	}
 

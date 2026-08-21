@@ -95,12 +95,21 @@ public class HermesPlanner implements Planner {
 					List.of(), null, null, Map.of(), coderExpectedArtifacts(),
 					RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN, false, null, true,
 					StepExecutionType.AI_STEP);
-				case TOOL -> new PlanStep(id, stepTitle(intent), stepTitle(intent),
-					StepStatus.PLANNED, coder, Map.copyOf(toolParameters), List.of(),
-					"deterministic", intent.toolName(),
-					Map.of("command", intent.command()), List.of(), RetryPolicy.noRetry(),
-					FailurePolicy.STOP_PLAN, false, null, false,
-					StepExecutionType.TOOL_STEP);
+				case TOOL -> {
+					Map<String, Object> toolArgs = new LinkedHashMap<>();
+					toolArgs.put("command", intent.command());
+					// V1 Final Gate: MAVEN test step 必须带显式测试类目标（targeted test），
+					// 无法可靠提取时由执行层 fail closed，绝不默认全量 mvn test
+					if ("maven".equals(intent.toolName()) && "test".equals(intent.command())) {
+						NaturalGoalClassifier.extractTestTarget(request.goal())
+							.ifPresent(target -> toolArgs.put("testClass", target));
+					}
+					yield new PlanStep(id, stepTitle(intent), stepTitle(intent),
+						StepStatus.PLANNED, coder, Map.copyOf(toolParameters), List.of(),
+						"deterministic", intent.toolName(), toolArgs, List.of(),
+						RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN, false, null, false,
+						StepExecutionType.TOOL_STEP);
+				}
 				case HUMAN_GATE -> new PlanStep(id, "Human approval",
 					"Waiting for human approval", StepStatus.PLANNED, coder, Map.of(),
 					List.of(), null, null, Map.of(), List.of(), RetryPolicy.noRetry(),
@@ -183,10 +192,16 @@ public class HermesPlanner implements Planner {
 			"deterministic", "maven", Map.of("command", "compile"), List.of(),
 			RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN, false, null, false,
 			StepExecutionType.TOOL_STEP);
+		Map<String, Object> testArgs = new LinkedHashMap<>();
+		testArgs.put("command", "test");
+		testArgs.put("profile", "FAST");
+		// V1 Final Gate: targeted test —— 从 goal 提取测试类名，无则执行层 fail closed
+		NaturalGoalClassifier.extractTestTarget(request.goal())
+			.ifPresent(target -> testArgs.put("testClass", target));
 		PlanStep test = new PlanStep("test", "Run targeted tests",
 			"Run the targeted tests for the change", StepStatus.PLANNED, coder,
 			Map.copyOf(testParameters), List.of(), "deterministic", "maven",
-			Map.of("command", "test", "profile", "FAST"), List.of(), RetryPolicy.noRetry(),
+			testArgs, List.of(), RetryPolicy.noRetry(),
 			FailurePolicy.STOP_PLAN, false, null, false, StepExecutionType.TOOL_STEP);
 
 		List<Dependency> dependencies = List.of(

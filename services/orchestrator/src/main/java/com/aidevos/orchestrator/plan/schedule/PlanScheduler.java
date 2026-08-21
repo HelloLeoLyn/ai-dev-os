@@ -6,6 +6,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -34,6 +35,8 @@ import com.aidevos.orchestrator.execution.tool.ToolExecutionRequest;
 import com.aidevos.orchestrator.execution.tool.ToolExecutionResult;
 import com.aidevos.orchestrator.execution.tool.ToolExecutionService;
 import com.aidevos.orchestrator.execution.tool.ToolWorkingDirectoryResolver;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspace;
+import com.aidevos.orchestrator.execution.workspace.ExecutionWorkspaceService;
 import com.aidevos.orchestrator.execution.system.SystemActionContext;
 import com.aidevos.orchestrator.execution.system.SystemActionResult;
 import com.aidevos.orchestrator.execution.system.SystemStepService;
@@ -65,6 +68,7 @@ import com.aidevos.orchestrator.plan.run.StepRun;
 import com.aidevos.orchestrator.plan.run.StepRunStatus;
 import com.aidevos.orchestrator.plan.run.PlanRunRepository;
 import com.aidevos.orchestrator.plan.run.InMemoryPlanRunRepository;
+import com.aidevos.orchestrator.planner.NaturalGoalClassifier;
 import com.aidevos.orchestrator.planner.replan.ReplanRequestService;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -86,6 +90,7 @@ public class PlanScheduler {
 	private final AuditService auditService;
 	private final String coordinatorId = "scheduler-" + UUID.randomUUID();
 	private volatile ToolExecutionService toolExecutionService;
+	private volatile ExecutionWorkspaceService executionWorkspaceService;
 	private volatile SystemStepService systemStepService;
 	private volatile ExecutionRecordRepository executionRecordRepository;
 	private volatile HumanApprovalRepository humanApprovalRepository;
@@ -102,6 +107,11 @@ public class PlanScheduler {
 	@Autowired(required = false)
 	public void setSystemStepService(SystemStepService service) {
 		this.systemStepService = service;
+	}
+
+	@Autowired(required = false)
+	public void setExecutionWorkspaceService(ExecutionWorkspaceService service) {
+		this.executionWorkspaceService = service;
 	}
 
 	@Autowired(required = false)
@@ -271,7 +281,9 @@ public class PlanScheduler {
 	}
 
 	private PlanRun retryIntervention(PlanRun run, String comment) {
-		requireIntervention(run);
+		// V1 Final Gate：仅 RETRY 场景允许从 FAILED 恢复（只重跑失败 step）；
+		// REPLAN/ABORT 等其他干预语义保持原样（仅 NEEDS_INTERVENTION）
+		requireRetryable(run);
 		RunExecutionState state = executionState(run);
 		ExecutionLimits limits = ExecutionLimits.resolve(plannerMetadata(run));
 		String exceeded = limits.exceeded(state);
@@ -283,6 +295,10 @@ public class PlanScheduler {
 			.reduce((first, second) -> second)
 			.orElseThrow(() -> new IllegalStateException("No failed step to retry"));
 		PlanStep definition = step(run.getPlan(), step.getStepId());
+		// V1 Final Gate：retry 复用旧 PlanStep metadata；若失败的 maven test step 缺 testClass，
+		// 从原 run goal 提取并构造临时 definition（仅本次 retry，不修改原 Plan Snapshot）；
+		// 无法可靠提取时保持 fail closed（由 arguments() 拒绝全量）
+		definition = enrichRetryTestClass(definition, run.getPlan().goal());
 		Instant now = Instant.now(clock);
 		String failureClass = state.getLastFailureClass();
 		String previousSeverity = state.getLastSeverity();
@@ -388,11 +404,49 @@ public class PlanScheduler {
 		return run;
 	}
 
+	private void requireRetryable(PlanRun run) {
+		PlanRunStatus status = run.getStatus();
+		if (status != PlanRunStatus.NEEDS_INTERVENTION && status != PlanRunStatus.FAILED) {
+			throw new IllegalStateException(
+				"Plan run cannot be retried from state: " + status);
+		}
+	}
+
 	private void requireIntervention(PlanRun run) {
 		if (run.getStatus() != PlanRunStatus.NEEDS_INTERVENTION) {
 			throw new IllegalStateException(
 				"Plan run is not waiting for intervention: " + run.getId());
 		}
+	}
+
+	/**
+	 * V1 Final Gate：retry 时若失败的 Maven test TOOL_STEP 缺 testClass，
+	 * 从原 run goal 结构化提取测试类并构造临时 PlanStep（仅本次 retry 生效）。
+	 * 提取不到 → 返回原 definition（保持 fail closed，绝不退化成全量 mvn test）。
+	 */
+	private PlanStep enrichRetryTestClass(PlanStep definition, String goal) {
+		if (!"maven".equals(definition.toolName())) {
+			return definition;
+		}
+		Object command = definition.toolArguments().get("command");
+		if (!"test".equals(command)) {
+			return definition;
+		}
+		if (definition.toolArguments().containsKey("testClass")) {
+			return definition; // 已有 testClass，无需补充
+		}
+		String testClass = NaturalGoalClassifier.extractTestTarget(goal).orElse(null);
+		if (testClass == null || testClass.isBlank()) {
+			return definition; // 无法可靠提取 → 保持 fail closed
+		}
+		Map<String, Object> args = new LinkedHashMap<>(definition.toolArguments());
+		args.put("testClass", testClass);
+		return new PlanStep(definition.id(), definition.name(), definition.description(),
+			definition.status(), definition.assignment(), definition.parameters(),
+			definition.inputArtifacts(), definition.toolProviderId(), definition.toolName(),
+			args, definition.expectedArtifacts(), definition.retryPolicy(),
+			definition.failurePolicy(), definition.skipApproval(), definition.operation(),
+			definition.requiresWorkspaceChange(), definition.executionType());
 	}
 
 	private Map<String, Object> interventionMetadata(RunExecutionState state, String action,
@@ -980,6 +1034,17 @@ public class PlanScheduler {
 		}
 		Object command = definition.toolArguments().get("command");
 		if (command instanceof String text && !text.isBlank()) {
+			// V1 Final Gate: MAVEN test step —— 只跑 planner 显式提取的测试类（targeted test），
+			// 绝不默认全量 mvn test；无法确定测试目标时 fail closed
+			if ("maven".equals(definition.toolName()) && "test".equals(text)) {
+				Object testClass = definition.toolArguments().get("testClass");
+				if (testClass instanceof String target && !target.isBlank()) {
+					return List.of("-Dtest=" + target, text);
+				}
+				throw new IllegalStateException(
+					"MAVEN test step requires an explicit test class target; "
+					+ "refusing to run the full test suite");
+			}
 			return List.of(text);
 		}
 		return List.of();
@@ -993,6 +1058,33 @@ public class PlanScheduler {
 	}
 
 	private String workspacePath(PlanRun run) {
+		// V1 Final Gate 续修：TOOL_STEP/SYSTEM_STEP 的 workspace 根优先解析为
+		// 当前 Task 的 Execution Workspace（worktree），而非 plannerMetadata 的 Source Workspace。
+		String taskId = run.getOriginalTaskId();
+		Object mode = plannerMetadata(run).get("executionMode");
+		boolean readWrite = "READ_WRITE".equals(mode);
+		if (readWrite && taskId != null) {
+			if (executionWorkspaceService == null) {
+				throw new IllegalStateException(
+					"Execution workspace service unavailable for READ_WRITE task " + taskId);
+			}
+			ExecutionWorkspace workspace = executionWorkspaceService.findByTaskId(taskId);
+			if (workspace == null || workspace.getExecutionWorkspace() == null
+					|| workspace.getExecutionWorkspace().isBlank()) {
+				throw new IllegalStateException(
+					"Execution workspace required for READ_WRITE task " + taskId
+						+ " but not found; refusing to fall back to source workspace");
+			}
+			return workspace.getExecutionWorkspace();
+		}
+		// READ_ONLY / legacy：有 Execution Workspace 则优先使用，否则回退 plannerMetadata.workspacePath
+		if (taskId != null && executionWorkspaceService != null) {
+			ExecutionWorkspace workspace = executionWorkspaceService.findByTaskId(taskId);
+			if (workspace != null && workspace.getExecutionWorkspace() != null
+					&& !workspace.getExecutionWorkspace().isBlank()) {
+				return workspace.getExecutionWorkspace();
+			}
+		}
 		Object path = plannerMetadata(run).get("workspacePath");
 		return path == null ? null : String.valueOf(path);
 	}
