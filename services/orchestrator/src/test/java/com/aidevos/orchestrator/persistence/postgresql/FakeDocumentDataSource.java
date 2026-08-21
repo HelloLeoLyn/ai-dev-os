@@ -25,7 +25,7 @@ import javax.sql.DataSource;
  * schema_migrations 迁移簿记）。跨实例共享同一 FakeDocumentDataSource 即等价于
  * "同一数据库重启后重建 repository/service 实例"。
  */
-final class FakeDocumentDataSource implements DataSource {
+public final class FakeDocumentDataSource implements DataSource {
 
 	final Map<String, Map<String, String[]>> rows = new LinkedHashMap<>();
 	final TreeSet<Integer> appliedVersions = new TreeSet<>();

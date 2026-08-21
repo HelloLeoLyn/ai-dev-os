@@ -68,6 +68,7 @@ public class DeliveryPipelineService {
 	private final PullRequestService pullRequestService;
 	private final CiService ciService;
 	private final AuditService auditService;
+	private volatile com.aidevos.orchestrator.recovery.RecoveryCoordinator recoveryCoordinator;
 
 	public DeliveryPipelineService(DeliveryPipelineRepository repository,
 			ChangeService changeService, ValidationService validationService,
@@ -85,6 +86,12 @@ public class DeliveryPipelineService {
 		this.pullRequestService = pullRequestService;
 		this.ciService = ciService;
 		this.auditService = auditService;
+	}
+
+	@org.springframework.beans.factory.annotation.Autowired(required = false)
+	@org.springframework.context.annotation.Lazy
+	public void setRecoveryCoordinator(com.aidevos.orchestrator.recovery.RecoveryCoordinator value) {
+		this.recoveryCoordinator = value;
 	}
 
 	public DeliveryPipeline get(String taskId) {
@@ -620,6 +627,11 @@ public class DeliveryPipelineService {
 			DeliveryStatus.FAILED.name(), reason, Map.of(
 				"failureClass", failureClass == null ? null : failureClass.name(),
 				"reason", reason));
+		// RECOVERY-AUTO-TRIGGER-CLOSEOUT：DeliveryPipeline FAILED 落点（失败已持久化后）
+		// 覆盖 Validation FAILED（VALIDATING → fail）与 Delivery 各阶段失败。
+		if (recoveryCoordinator != null) {
+			recoveryCoordinator.onFailure(pipeline.getTaskId());
+		}
 	}
 
 	private void stageStarted(DeliveryPipeline pipeline, DeliveryStage stage) {

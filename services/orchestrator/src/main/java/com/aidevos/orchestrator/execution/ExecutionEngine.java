@@ -35,6 +35,7 @@ public class ExecutionEngine {
 	private final ExecutionAttemptRepository attemptRepository;
 	private final DeterministicOperationExecutor deterministicExecutor;
 	private final ExecutionWorkspaceService executionWorkspaceService;
+	private volatile com.aidevos.orchestrator.recovery.RecoveryCoordinator recoveryCoordinator;
 
 	public ExecutionEngine(AgentResolver agentResolver, ExecutionRecordManager executionRecordManager) {
 		this(agentResolver, executionRecordManager, AuditService.noop(), new InMemoryExecutionAttemptRepository(), null, null);
@@ -72,6 +73,12 @@ public class ExecutionEngine {
 		this.attemptRepository = attemptRepository;
 		this.deterministicExecutor = deterministicExecutor;
 		this.executionWorkspaceService = executionWorkspaceService;
+	}
+
+	@org.springframework.beans.factory.annotation.Autowired(required = false)
+	@org.springframework.context.annotation.Lazy
+	public void setRecoveryCoordinator(com.aidevos.orchestrator.recovery.RecoveryCoordinator value) {
+		this.recoveryCoordinator = value;
 	}
 
 	public ExecutionResult execute(TaskDefinition taskDefinition) {
@@ -165,6 +172,13 @@ public class ExecutionEngine {
 			: result.isSuccess() ? EventType.EXECUTION_COMPLETED : EventType.EXECUTION_FAILED;
 		auditService.executionEvent(completedType, taskDefinition, record.getExecutionId(), jobId,
 			record.getId(), record.getStatus(), agentName);
+		// RECOVERY-AUTO-TRIGGER-CLOSEOUT：Execution 结构化 FAILED 落点（失败已持久化后）
+		if (!result.isSuccess() && !result.isApprovalRequired() && recoveryCoordinator != null) {
+			String originalTaskId = taskMetadataString(taskDefinition, "originalTaskId");
+			if (originalTaskId != null && !originalTaskId.isBlank()) {
+				recoveryCoordinator.onFailure(originalTaskId);
+			}
+		}
 		return result;
 	}
 
