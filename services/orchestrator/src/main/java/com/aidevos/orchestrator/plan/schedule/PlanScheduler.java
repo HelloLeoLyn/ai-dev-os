@@ -699,7 +699,8 @@ public class PlanScheduler {
 				"Tool retry " + (attemptNumber + 1) + "/" + (maxRetries + 1),
 				failureMetadata(state));
 		}
-		ExecutionRecord record = persistToolRecord(run, definition, step, attempt, result, budget);
+		ExecutionRecord record = persistToolRecord(run, definition, step, attempt, result, budget,
+			request.workdir());
 		String recordId = record == null ? null : record.getId();
 		Instant now = Instant.now(clock);
 		if (result.success()) {
@@ -929,7 +930,8 @@ public class PlanScheduler {
 	}
 
 	private ExecutionRecord persistToolRecord(PlanRun run, PlanStep definition, StepRun step,
-			StepAttempt attempt, ToolExecutionResult result, ExecutionBudget budget) {
+			StepAttempt attempt, ToolExecutionResult result, ExecutionBudget budget,
+			String workingDirectory) {
 		if (executionRecordRepository == null) {
 			return null;
 		}
@@ -951,7 +953,10 @@ public class PlanScheduler {
 		record.setPlanRunId(run.getId());
 		record.setStepRunId(step.getId());
 		record.setAttemptId(attempt.getId());
-		record.setWorkspace(workspacePath(run));
+		// SELF-HOSTING-GATE-BLOCKER-01-FIX：记录 tool 实际 workingDirectory（模块级目录），
+		// 而非 execution workspace root；UI/Diagnosis evidence 直接读取真实目录。
+		record.setWorkspace(workingDirectory == null || workingDirectory.isBlank()
+			? workspacePath(run) : workingDirectory);
 		record.setExecutionType(definition.executionType().name());
 		record.setValidationProfile(budget.validationProfile().name());
 		Instant now = Instant.now(clock);

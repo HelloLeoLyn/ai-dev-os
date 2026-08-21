@@ -196,10 +196,15 @@ public class FailureDiagnosisService {
 			evidenceItems.add("errorCode=" + execution.errorCode());
 		}
 
-		// 规则 1：Maven no POM → WRONG_WORKING_DIRECTORY
+		// 规则 1：Maven no-project → WRONG_WORKING_DIRECTORY
+		// 仅匹配明确 project-directory failure evidence；Maven 正常 banner
+		// “from pom.xml” 或 “Building … from pom.xml” 绝不命中。
 		if ((containsAny(errorCode, "BUILD_FAILED", "BUILD FAILURE")
 				|| containsAny(combined, "BUILD FAILURE", "build failed"))
-				&& containsAny(combined.toLowerCase(), "pom", "no pom", "pom.xml")) {
+				&& containsAny(combined.toLowerCase(), "no pom", "no pom.xml",
+					"there is no pom", "does not have a pom",
+					"requires a project to execute",
+					"the goal you specified requires a project to execute")) {
 			evidenceItems.add("pom.xml not found");
 			return build(taskId, "EXECUTION", "Execution/Maven", stepId, "BUILD_FAILED",
 				"WRONG_WORKING_DIRECTORY", FailureCategory.CONFIGURATION,

@@ -48,6 +48,40 @@ class FailureDiagnosisServiceTest {
 		return new TaskFailureEvidence(task, execution, pipeline, null, List.of());
 	}
 
+	/** 3. 正常 Maven banner（from pom.xml）+ surefire 无匹配 → 不误判 WRONG_WORKING_DIRECTORY */
+	@Test
+	void normalPomBannerDoesNotDiagnoseWrongWorkingDirectory() {
+		String output = "[INFO] Scanning for projects...\n"
+			+ "[INFO] Building orchestrator 1.2.2\n"
+			+ "[INFO]   from pom.xml\n"
+			+ "[INFO] --- surefire:3.5.6:test (default-test) @ orchestrator ---\n"
+			+ "[ERROR] BUILD FAILURE\n"
+			+ "[ERROR] No tests matching pattern \"WRIT\" were executed!";
+		TaskFailureEvidence evidence = evidence(failedTask("task-1", "BUILD FAILURE"),
+			execution("BUILD_FAILED", "Maven build failed", output, 1), null);
+
+		FailureDiagnosis diagnosis = service.diagnose(evidence);
+
+		assertNotNull(diagnosis);
+		assertTrue(!"WRONG_WORKING_DIRECTORY".equals(diagnosis.code()),
+			"普通 pom banner + BUILD FAILURE 不得误判 WRONG_WORKING_DIRECTORY，实际="
+				+ diagnosis.code());
+	}
+
+	/** 4. 真实 Maven no-project 错误 → 仍判 WRONG_WORKING_DIRECTORY */
+	@Test
+	void realMissingPomStillDiagnosesWrongWorkingDirectory() {
+		TaskFailureEvidence evidence = evidence(failedTask("task-1", "BUILD FAILURE"),
+			execution("BUILD_FAILED", "Maven build failed",
+				"[ERROR] The goal you specified requires a project to execute but there is no POM in this directory (/tmp/worktree). Please verify you invoked Maven from the correct directory.",
+				1), null);
+
+		FailureDiagnosis diagnosis = service.diagnose(evidence);
+
+		assertNotNull(diagnosis);
+		assertEquals("WRONG_WORKING_DIRECTORY", diagnosis.code());
+	}
+
 	/** 1. Maven wrong working directory → BUILD_FAILED + WRONG_WORKING_DIRECTORY */
 	@Test
 	void mavenNoPomDiagnosesWrongWorkingDirectory() {

@@ -121,13 +121,19 @@ public final class NaturalGoalClassifier {
 	}
 
 	private static final Pattern TEST_CLASS_PATTERN = Pattern.compile(
-		"([A-Z][A-Za-z0-9]*(?:Test|Tests|IT|Spec))(?:\\.java)?");
+		"([A-Z][A-Za-z0-9]*(?:Test|Tests|Spec))\\b(?:\\.java)?"
+			+ "|([A-Z][A-Za-z0-9]*IT)\\.java");
 
 	/**
 	 * Structurally extracts an explicit test class name from a natural language
 	 * goal, e.g. "新增 V1FinalGateSmokeTest.java" → "V1FinalGateSmokeTest".
 	 * Returns empty when no concrete test class can be determined reliably;
 	 * callers must fail closed instead of falling back to a full-suite run.
+	 *
+	 * Fail-closed 语义：
+	 * - Test/Tests/Spec 结尾：需单词边界（防 "WRITE" 内回溯匹配 "WRIT"）
+	 * - IT 结尾：必须显式 .java 后缀（防 EXIT/COMMIT/WRITE 等普通英文词误匹配）
+	 * - 普通自然语言 goal（如 "增加一个只读 API"）绝不产出伪 testClass
 	 */
 	public static java.util.Optional<String> extractTestTarget(String goal) {
 		if (goal == null || goal.isBlank()) {
@@ -135,7 +141,8 @@ public final class NaturalGoalClassifier {
 		}
 		var matcher = TEST_CLASS_PATTERN.matcher(goal);
 		if (matcher.find()) {
-			String candidate = matcher.group(1);
+			String candidate = matcher.group(1) != null ? matcher.group(1)
+				: matcher.group(2);
 			// 排除明显误匹配：必须不是通用词 test/testing
 			if (!candidate.equalsIgnoreCase("test") && !candidate.equalsIgnoreCase("tests")
 					&& !candidate.equalsIgnoreCase("testing")) {
