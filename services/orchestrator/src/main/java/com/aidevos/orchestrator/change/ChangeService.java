@@ -37,6 +37,7 @@ public class ChangeService {
 	private final AuditService auditService;
 	private volatile PrFeedbackService feedbackService;
 	private volatile QualityGateService qualityGateService;
+	private volatile com.aidevos.orchestrator.delivery.DeliveryPipelineService deliveryPipelineService;
 
 	public ChangeService(ChangeRepository repository, WorkspaceService workspaceService,
 			AuditService auditService) {
@@ -53,6 +54,12 @@ public class ChangeService {
 
 	@Autowired(required = false) @Lazy
 	public void setQualityGateService(QualityGateService service) { this.qualityGateService = service; }
+
+	@Autowired(required = false) @Lazy
+	public void setDeliveryPipelineService(
+			com.aidevos.orchestrator.delivery.DeliveryPipelineService service) {
+		this.deliveryPipelineService = service;
+	}
 
 	/**
 	 * Snapshots the current working-tree diff of the workspace as a new change
@@ -153,6 +160,11 @@ public class ChangeService {
 			"Change approved", Map.of("reviewedBy", reviewer(reviewer)));
 		if (feedbackService != null) {
 			feedbackService.onChangeApproved(changeId, changeSet.getTaskId());
+		}
+		// V1-FLOW-CONFORMANCE：Change APPROVED 是 DeliveryPipeline 唯一正式启动点——
+		// 创建（如缺失）并推进 pipeline，后续 Validation/Gate/Commit/Push/PR/CI 全自动。
+		if (deliveryPipelineService != null) {
+			deliveryPipelineService.advance(changeSet.getTaskId());
 		}
 		return changeSet;
 	}

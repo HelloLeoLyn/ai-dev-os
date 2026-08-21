@@ -160,6 +160,25 @@ public class ValidationService {
 		return null;
 	}
 
+	/**
+	 * V1-FLOW-CONFORMANCE：pipeline 重建/历史任务复用——不要求 change 为 APPROVED，
+	 * 只要有该 change 的已有 SUCCESS delivery run 就直接复用（不重复测试）。
+	 * fingerprint 精确复用仍由 startDelivery 内部的 reusableDeliveryRun 负责。
+	 */
+	public ValidationRun findReusableDeliveryRun(String taskId, String changeSetId) {
+		if (taskId == null || changeSetId == null) {
+			return null;
+		}
+		for (ValidationRun candidate : repository.findByTaskId(taskId)) {
+			if (candidate.isDelivery()
+					&& changeSetId.equals(candidate.getChangeSetId())
+					&& candidate.getStatus() == ValidationStatus.SUCCESS) {
+				return candidate;
+			}
+		}
+		return null;
+	}
+
 	private ValidationRun executeChecks(ValidationRun run, Path workspacePath, String browserScenarioId) {
 		Map<String, Object> capabilities = detector.detect(workspacePath);
 		for (ValidationCheckType type : V1_CHECKS) {

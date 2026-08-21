@@ -295,6 +295,8 @@ public class ExecutionEngine {
 		context.setInput(taskDefinition.getDescription());
 		String workspacePath = taskMetadataString(taskDefinition, "workspacePath");
 		String executionMode = taskMetadataString(taskDefinition, "executionMode");
+		// V1.1 placeholder：READ_ONLY task 实际需要写代码时的 MODE_CONFLICT preflight 未实现；
+		// V1 不把 mode 冲突表现成模型解析错误（模型错误已 fail-closed，见 ModelResolver）。
 		context.setWorkspace(workspacePath == null || workspacePath.isBlank()
 			? (!"READ_WRITE".equalsIgnoreCase(executionMode) ? System.getProperty("user.dir") : null) : workspacePath);
 		context.setProjectId(taskMetadataString(taskDefinition, "projectId"));

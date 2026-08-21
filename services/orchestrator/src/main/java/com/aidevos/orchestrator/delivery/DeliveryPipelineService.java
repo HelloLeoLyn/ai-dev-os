@@ -306,6 +306,14 @@ public class DeliveryPipelineService {
 				if (notBlank(pipeline.getValidationRunId())) {
 					return progressed(pipeline, DeliveryStage.VALIDATING);
 				}
+				// V1-FLOW-CONFORMANCE：重建/历史任务复用已有 SUCCESS delivery run（不重复测试）。
+				ValidationRun existing = validationService.findReusableDeliveryRun(
+					pipeline.getTaskId(), pipeline.getChangeSetId());
+				if (existing != null) {
+					pipeline.bindValidation(existing.getValidationRunId());
+					stageSucceeded(pipeline, DeliveryStage.VALIDATING, existing.getValidationRunId());
+					return progressed(pipeline, DeliveryStage.VALIDATING);
+				}
 				try {
 					ValidationRun run = validationService.startDelivery(pipeline.getChangeSetId());
 					pipeline.bindValidation(run.getValidationRunId());
