@@ -20,17 +20,41 @@ class NaturalGoalClassificationTest {
 	private final PlanValidator validator = new PlanValidator();
 
 	@Test
-	void modifyThenCompileAndTestGeneratesAiPlusMavenToolSteps() {
+	void modifyThenCompileAndTestGeneratesAiPlusMavenCompileWithoutInvalidTestStep() {
+		// SELF-HOSTING-GATE-BLOCKER-02-FIX：普通 coding goal（无显式测试类）→
+		// 不生成必然被 Scheduler fail-closed 拒绝的 targeted maven test step；
+		// 测试范围交给 Validation Center（Execution/Validation 职责分离）。
 		Plan plan = planFor("修改 UserService bug，然后编译并运行对应测试");
 
 		assertEquals(List.of(StepExecutionType.AI_STEP, StepExecutionType.TOOL_STEP,
-			StepExecutionType.TOOL_STEP, StepExecutionType.SYSTEM_STEP),
+			StepExecutionType.SYSTEM_STEP),
 			plan.steps().stream().map(step -> step.executionType()).toList());
 		assertEquals("maven", plan.steps().get(1).toolName());
 		assertEquals("compile", plan.steps().get(1).toolArguments().get("command"));
-		assertEquals("maven", plan.steps().get(2).toolName());
-		assertEquals("test", plan.steps().get(2).toolArguments().get("command"));
+		assertTrue(plan.steps().stream()
+			.noneMatch(step -> "maven".equals(step.toolName())
+				&& "test".equals(step.toolArguments().get("command"))),
+			"无显式测试类时不得生成 targeted maven test step");
 		assertEquals("FAST", plan.snapshot().plannerMetadata().get("validationProfile"));
+		assertTrue(validator.validate(plan).valid());
+	}
+
+	@Test
+	void ordinaryReadOnlyApiGoalProducesNoInvalidMavenTestStep() {
+		// 1. ordinaryCodingGoalWithoutExplicitTestDoesNotCreateInvalidMavenTestStep
+		String goal = "在 services/orchestrator 中增加一个只读 API：\n\nGET /api/system/version\n\n"
+			+ "返回：\n{\n  \"name\": \"AI Dev OS\",\n  \"version\": \"v1\"\n}\n\n"
+			+ "要求：\n- 不修改现有核心调度逻辑\n- 增加最小测试\n- 使用 READ_WRITE\n"
+			+ "- FAST validation\n- 不自动 merge";
+		Plan plan = planFor(goal);
+
+		assertTrue(plan.steps().stream()
+			.noneMatch(step -> "maven".equals(step.toolName())
+				&& "test".equals(step.toolArguments().get("command"))),
+			"普通 coding goal 不得生成无 testClass 的 targeted maven test step");
+		assertTrue(plan.steps().stream().anyMatch(step ->
+			step.executionType() == StepExecutionType.AI_STEP),
+			"plan 必须仍可进入代码执行（AI_STEP 保留）");
 		assertTrue(validator.validate(plan).valid());
 	}
 

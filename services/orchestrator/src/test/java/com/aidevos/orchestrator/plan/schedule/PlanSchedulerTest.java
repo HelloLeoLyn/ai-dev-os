@@ -1295,6 +1295,36 @@ class PlanSchedulerTest {
 			FailurePolicy.REQUEST_REPLAN, false);
 	}
 
+	/** 3. 显式 targeted maven test step 缺 testClass → 仍 fail-closed（安全规则未削弱） */
+	@Test
+	void explicitTargetedMavenTestWithoutTargetStillFailsClosed() {
+		ToolExecutionService toolService = mock(ToolExecutionService.class);
+		ExecutionRecordRepository recordRepository = mock(ExecutionRecordRepository.class);
+		InMemoryPlanRunRepository runRepository = new InMemoryPlanRunRepository();
+		scheduler = new PlanScheduler(jobService, new StepTaskFactory(), approvalService,
+			replanRequestService, runRepository, Clock.fixed(NOW, ZoneOffset.UTC));
+		scheduler.setToolExecutionService(toolService);
+		scheduler.setExecutionRecordRepository(recordRepository);
+		PlanStep mavenTest = new PlanStep("test", "Run targeted tests",
+			"Run the targeted tests for the change", StepStatus.PLANNED,
+			new AgentAssignment("coder", List.of("coding", "git"), List.of()), Map.of(),
+			List.of(), "deterministic", "maven", Map.of("command", "test"), List.of(),
+			RetryPolicy.noRetry(), FailurePolicy.STOP_PLAN, false, null, false,
+			StepExecutionType.TOOL_STEP);
+		Plan plan = plan(List.of(mavenTest), List.of());
+		approve(plan);
+
+		PlanRun run = scheduler.start("approval-1");
+		scheduler.reconcile();
+
+		assertEquals(StepRunStatus.FAILED, run.getSteps().getFirst().getStatus());
+		assertTrue(run.getSteps().getFirst().getError().contains(
+			"requires an explicit test class target"),
+			"无 testClass 的 maven test step 必须 fail-closed，实际="
+				+ run.getSteps().getFirst().getError());
+		verify(toolService, never()).execute(any());
+	}
+
 	private Plan planWithMetadata(List<PlanStep> steps, List<Dependency> dependencies,
 			Map<String, Object> plannerMetadata) {
 		return new Plan("plan-1", 1, "Execute plan", PlanStatus.DRAFT, steps, dependencies,

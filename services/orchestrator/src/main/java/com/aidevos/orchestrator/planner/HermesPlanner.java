@@ -1,6 +1,7 @@
 package com.aidevos.orchestrator.planner;
 
 import java.util.LinkedHashMap;
+import java.util.Optional;
 import java.util.List;
 import java.util.Map;
 
@@ -89,6 +90,15 @@ public class HermesPlanner implements Planner {
 		int index = 1;
 		for (NaturalGoalClassifier.StepIntent intent : intents) {
 			String id = "step-" + index;
+			// SELF-HOSTING-GATE-BLOCKER-02-FIX：Execution/Validation 职责分离——
+			// 普通 coding goal 提到测试但无显式测试类时，不生成必然被 Scheduler
+			// fail-closed 拒绝的 targeted maven test step（测试范围交给 Validation Center）；
+			// 显式测试类（如 "运行 V1FinalGateSmokeTest.java"）仍生成 targeted step。
+			if (intent.kind() == NaturalGoalClassifier.Kind.TOOL
+					&& "maven".equals(intent.toolName()) && "test".equals(intent.command())
+					&& NaturalGoalClassifier.extractTestTarget(request.goal()).isEmpty()) {
+				continue;
+			}
 			PlanStep step = switch (intent.kind()) {
 				case AI -> new PlanStep(id, "Modify code", request.goal(),
 					StepStatus.PLANNED, coder, Map.of("sandbox", "workspace-write"),
@@ -195,18 +205,24 @@ public class HermesPlanner implements Planner {
 		Map<String, Object> testArgs = new LinkedHashMap<>();
 		testArgs.put("command", "test");
 		testArgs.put("profile", "FAST");
-		// V1 Final Gate: targeted test —— 从 goal 提取测试类名，无则执行层 fail closed
-		NaturalGoalClassifier.extractTestTarget(request.goal())
-			.ifPresent(target -> testArgs.put("testClass", target));
+		// SELF-HOSTING-GATE-BLOCKER-02-FIX：toolchain plan 只在有显式测试类时生成
+		// targeted maven test step；无显式测试类的普通 coding 任务不生成无效 step，
+		// 测试范围交给 Validation Center（Execution/Validation 职责分离）。
+		Optional<String> testTarget = NaturalGoalClassifier.extractTestTarget(request.goal());
+		testTarget.ifPresent(target -> testArgs.put("testClass", target));
 		PlanStep test = new PlanStep("test", "Run targeted tests",
 			"Run the targeted tests for the change", StepStatus.PLANNED, coder,
 			Map.copyOf(testParameters), List.of(), "deterministic", "maven",
 			testArgs, List.of(), RetryPolicy.noRetry(),
 			FailurePolicy.STOP_PLAN, false, null, false, StepExecutionType.TOOL_STEP);
 
-		List<Dependency> dependencies = List.of(
-			new Dependency("fix-code", "compile", false),
-			new Dependency("compile", "test", false));
+		List<PlanStep> steps = new java.util.ArrayList<>(List.of(fixCode, compile));
+		List<Dependency> dependencies = new java.util.ArrayList<>(
+			List.of(new Dependency("fix-code", "compile", false)));
+		if (testTarget.isPresent()) {
+			steps.add(test);
+			dependencies.add(new Dependency("compile", "test", false));
+		}
 		Map<String, Object> metadata = new LinkedHashMap<>(request.metadata());
 		metadata.put("validationProfile", StepClassifier.validationProfile(input).name());
 		if (workspace != null && !workspace.isBlank()) {
@@ -217,7 +233,7 @@ public class HermesPlanner implements Planner {
 				request.snapshot().tools(), request.snapshot().executors(),
 				request.snapshot().policyVersion(), Map.copyOf(metadata));
 		return new PlanDraft("plan-" + request.requestId(), 1, request.goal(),
-			List.of(fixCode, compile, test), dependencies, snapshot, name(),
+			List.copyOf(steps), List.copyOf(dependencies), snapshot, name(),
 			request.model(), request.promptVersion(), Map.copyOf(metadata));
 	}
 
